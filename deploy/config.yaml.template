@@ -1,0 +1,47 @@
+# NexusRoom Server Configuration
+# 首次部署后修改此文件，重启服务生效
+
+server:
+  port: 8080                      # 主服务 HTTP 端口
+  mode: release                   # debug / release
+  domain: ""                      # 可选，配置域名后启用 HTTPS
+
+database:
+  host: postgres                  # Docker 服务名
+  port: 5432
+  name: nexusroom
+  user: nexusroom
+  password: "your-db-password"    # 请修改此密码
+
+redis:
+  host: redis
+  port: 6379
+  password: ""
+
+auth:
+  jwt_secret: "your-jwt-secret"   # 请修改，至少32位随机字符串
+  jwt_expire_hours: 720           # Token 有效期（30天）
+  admin_token: ""                 # 填写后，持有此 token 注册的用户获得超管权限
+                                  # 首个超管注册后建议清空此字段
+
+message:
+  retention_days: 30              # 消息保留天数（0=永久）
+
+livekit:
+  url: ws://livekit:7880          # Docker 内网访问
+  api_key: "your-livekit-key"
+  api_secret: "your-livekit-secret"
+
+livekit_ingress:
+  rtmp_port: 1935                 # Ingress 容器对外暴露的 RTMP 接收端口
+
+wireguard:
+  server_ip: "your-server-public-ip"  # 服务器公网IP，客户端连接用
+  listen_port: 51820
+  server_private_key: ""          # 首次启动时自动生成并写入
+  subnet: "10.0.8.0/24"          # 可配置！若与用户物理网段冲突请修改
+  gateway_ip: "10.0.8.1"
+
+storage:
+  path: ./data/uploads            # 文件上传存储路径
+  max_file_size_mb: 20

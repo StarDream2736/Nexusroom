@@ -1,0 +1,58 @@
+# 通用
+.DS_Store
+Thumbs.db
+*.log
+*.swp
+*.swo
+*~
+.metadata
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# 环境配置
+.env
+config.yaml
+!config.yaml.template
+
+# 数据目录
+data/
+uploads/
+*.sqlite
+*.db
+
+# Docker 镜像
+*.tar
+
+# 服务端
+server/nexusroom-server
+server/*.exe
+server/tmp/
+
+# 客户端
+client/.dart_tool/
+client/.packages
+client/build/
+client/pubspec.lock
+client/.flutter-plugins
+client/.flutter-plugins-dependencies
+client/*.log
+
+# Web 管理后台
+web-admin/node_modules/
+web-admin/dist/
+web-admin/.env.local
+
+# 部署
+deploy/.env
+deploy/config.yaml
+!deploy/config.yaml.template
+deploy/livekit.yaml
+!deploy/livekit.yaml.template
+deploy/data/
+
+# 测试
+coverage/
+*.test

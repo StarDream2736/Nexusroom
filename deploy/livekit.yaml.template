@@ -1,0 +1,42 @@
+# LiveKit Server Configuration
+# 必须与 docker-compose.yml 中的端口映射保持一致
+# 使用前复制为 livekit.yaml 并修改 api_key 和 api_secret
+
+port: 7880
+
+# API 密钥配置
+# 生产环境请修改为随机生成的密钥
+api_key: your-livekit-key
+api_secret: your-livekit-secret
+
+# WebRTC 配置
+rtc:
+  # UDP 端口范围（必须与 docker-compose.yml 中的端口映射一致）
+  port_range_start: 50000
+  port_range_end: 50050
+  
+  # 使用内网 IP（Docker 容器间通信）
+  use_external_ip: false
+  
+  # ICE 服务器配置（用于 NAT 穿透）
+  # 如果使用公网服务器，建议配置 STUN/TURN 服务器
+  # ice_servers:
+  #   - urls:
+  #       - stun:stun.l.google.com:19302
+
+# 日志级别
+logging:
+  level: info
+
+# 房间配置
+room:
+  # 空房间自动清理时间
+  empty_timeout: 300  # 5分钟
+  
+  # 启用自动订阅
+  auto_subscribe: true
+
+# 限制配置
+limits:
+  # 每个房间的参与者数量限制
+  num_tracks: 100
