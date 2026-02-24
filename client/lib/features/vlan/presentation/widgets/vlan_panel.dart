@@ -1,9 +1,12 @@
 import 'dart:async';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../app/theme/app_colors.dart';
+import '../../../../app/theme/app_typography.dart';
 import '../../../../core/native/wireguard_service.dart';
 import '../../../../core/providers/app_providers.dart';
 
@@ -61,10 +64,7 @@ class _VlanPanelState extends ConsumerState<VlanPanel> {
     final wgService = ref.read(wireguardServiceProvider);
     final vlanRepo = ref.read(vlanRepositoryProvider);
 
-    // 1. 生成 WireGuard 密钥对
     final keyPair = await wgService.generateKeyPair();
-
-    // 2. 调用 API 注册 Peer
     final result = await vlanRepo.join(widget.roomId, keyPair.publicKey);
 
     final assignedIP = result['assigned_ip'] as String;
@@ -72,9 +72,6 @@ class _VlanPanelState extends ConsumerState<VlanPanel> {
     final serverEndpoint = result['server_endpoint'] as String? ?? '';
     final dns = result['dns'] as String? ?? '';
 
-    // 3. 启动 WireGuard 隧道（通过 Platform Channel）
-    // 注意：如果 native 层未实现，这里会抛出异常
-    // 在实际部署中需要编译 wireguard-go native 模块
     try {
       await wgService.startTunnel(
         _buildWgConfig(
@@ -85,9 +82,7 @@ class _VlanPanelState extends ConsumerState<VlanPanel> {
           dns: dns,
         ),
       );
-    } catch (_) {
-      // 即使隧道启动失败，也记录 IP（API 已成功注册）
-    }
+    } catch (_) {}
 
     setState(() {
       _isEnabled = true;
@@ -144,77 +139,115 @@ class _VlanPanelState extends ConsumerState<VlanPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // VLAN 开关
+        // ─── VLAN toggle row ──────────────────────────────
         Row(
           children: [
-            const Icon(Icons.lan, size: 16),
+            Icon(Icons.lan, size: 14, color: AppColors.textSecondary),
             const SizedBox(width: 4),
-            const Text('VLAN', style: TextStyle(fontWeight: FontWeight.bold)),
+            Text('VLAN',
+                style: TextStyle(
+                    fontSize: AppTypography.sizeBody,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary)),
             const Spacer(),
             if (_isLoading)
               const SizedBox(
-                width: 16,
-                height: 16,
+                width: 14,
+                height: 14,
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
             else
-              Switch(
+              CupertinoSwitch(
                 value: _isEnabled,
+                activeColor: AppColors.accent,
                 onChanged: (_) => _toggleVlan(),
               ),
           ],
         ),
 
         if (_isEnabled && _assignedIP != null) ...[
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           GestureDetector(
             onTap: () {
-              Clipboard.setData(ClipboardData(text: _assignedIP!.split('/').first));
+              Clipboard.setData(
+                  ClipboardData(text: _assignedIP!.split('/').first));
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('虚拟 IP 已复制')),
               );
             },
             child: Text(
               '虚拟 IP: ${_assignedIP!.split('/').first}',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: Colors.green,
-              ),
+              style: TextStyle(
+                  fontSize: AppTypography.sizeCaption,
+                  color: AppColors.success),
             ),
           ),
           const SizedBox(height: 8),
 
-          // Peer 列表
+          // ─── Peer list ──────────────────────────────────
           if (_peers.isNotEmpty) ...[
-            Text('成员', style: theme.textTheme.labelSmall),
+            Text('成员',
+                style: TextStyle(
+                    fontSize: AppTypography.sizeMini,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.textMuted)),
             const SizedBox(height: 4),
             ..._peers.map((p) {
-              final ip = (p['assigned_ip'] as String? ?? '').split('/').first;
+              final ip =
+                  (p['assigned_ip'] as String? ?? '').split('/').first;
               final nickname = p['nickname'] as String? ?? '';
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 2),
-                child: Row(
-                  children: [
-                    const Icon(Icons.computer, size: 14),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        '$nickname ($ip)',
-                        style: theme.textTheme.bodySmall,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-              );
+              return _PeerRow(nickname: nickname, ip: ip);
             }),
           ],
         ],
       ],
+    );
+  }
+}
+
+class _PeerRow extends StatefulWidget {
+  final String nickname;
+  final String ip;
+  const _PeerRow({required this.nickname, required this.ip});
+  @override
+  State<_PeerRow> createState() => _PeerRowState();
+}
+
+class _PeerRowState extends State<_PeerRow> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 4),
+        decoration: BoxDecoration(
+          color: _hovered ? AppColors.hoverOverlay : Colors.transparent,
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.computer, size: 12, color: AppColors.textMuted),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Text(
+                '${widget.nickname} (${widget.ip})',
+                style: TextStyle(
+                    fontSize: AppTypography.sizeMini,
+                    color: AppColors.textSecondary),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

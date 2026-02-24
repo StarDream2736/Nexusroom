@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -11,6 +12,30 @@ import '../../features/room/presentation/pages/room_detail_page.dart';
 import '../../features/room/presentation/pages/room_settings_page.dart';
 import '../../features/room/presentation/pages/create_room_page.dart';
 import '../../features/user/presentation/pages/friends_page.dart';
+import '../shell/app_shell.dart';
+import '../theme/app_theme.dart';
+
+/// Fade transition page used by all routes inside the shell.
+CustomTransitionPage<void> _fadePage({
+  required LocalKey key,
+  required Widget child,
+}) {
+  return CustomTransitionPage(
+    key: ValueKey('fade_${key.toString()}'),
+    child: child,
+    transitionDuration: AppTheme.durationPage,
+    reverseTransitionDuration: AppTheme.durationPage,
+    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      return FadeTransition(
+        opacity: CurvedAnimation(
+          parent: animation,
+          curve: AppTheme.curveStandard,
+        ),
+        child: child,
+      );
+    },
+  );
+}
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   final settings = ref.watch(appSettingsProvider);
@@ -18,64 +43,82 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: '/setup',
     routes: [
-      // 服务器配置
+      // ─── Auth routes (outside Shell) ───────────────────
       GoRoute(
         path: '/setup',
-        builder: (context, state) => const ServerSetupPage(),
+        pageBuilder: (context, state) => _fadePage(
+          key: state.pageKey,
+          child: const ServerSetupPage(),
+        ),
       ),
-      
-      // 登录
       GoRoute(
         path: '/login',
-        builder: (context, state) => const LoginPage(),
+        pageBuilder: (context, state) => _fadePage(
+          key: state.pageKey,
+          child: const LoginPage(),
+        ),
       ),
-      
-      // 注册
       GoRoute(
         path: '/register',
-        builder: (context, state) => const RegisterPage(),
-      ),
-      
-      // 房间列表
-      GoRoute(
-        path: '/home',
-        builder: (context, state) => const RoomListPage(),
-      ),
-      
-      // 创建房间
-      GoRoute(
-        path: '/rooms/create',
-        builder: (context, state) => const CreateRoomPage(),
-      ),
-      
-      // 房间详情
-      GoRoute(
-        path: '/rooms/:id',
-        builder: (context, state) {
-          final roomId = state.pathParameters['id']!;
-          return RoomDetailPage(roomId: roomId);
-        },
+        pageBuilder: (context, state) => _fadePage(
+          key: state.pageKey,
+          child: const RegisterPage(),
+        ),
       ),
 
-      // 房间设置
-      GoRoute(
-        path: '/rooms/:id/settings',
-        builder: (context, state) {
-          final roomId = state.pathParameters['id']!;
-          return RoomSettingsPage(roomId: roomId);
-        },
-      ),
-
-      // 客户端设置
-      GoRoute(
-        path: '/settings',
-        builder: (context, state) => const SettingsPage(),
-      ),
-
-      // 好友
-      GoRoute(
-        path: '/friends',
-        builder: (context, state) => const FriendsPage(),
+      // ─── Authenticated Shell ───────────────────────────
+      ShellRoute(
+        builder: (context, state, child) => AppShell(child: child),
+        routes: [
+          GoRoute(
+            path: '/home',
+            pageBuilder: (context, state) => _fadePage(
+              key: state.pageKey,
+              child: const RoomListPage(),
+            ),
+          ),
+          GoRoute(
+            path: '/rooms/create',
+            pageBuilder: (context, state) => _fadePage(
+              key: state.pageKey,
+              child: const CreateRoomPage(),
+            ),
+          ),
+          GoRoute(
+            path: '/rooms/:id',
+            pageBuilder: (context, state) {
+              final roomId = state.pathParameters['id']!;
+              return _fadePage(
+                key: state.pageKey,
+                child: RoomDetailPage(roomId: roomId),
+              );
+            },
+          ),
+          GoRoute(
+            path: '/rooms/:id/settings',
+            pageBuilder: (context, state) {
+              final roomId = state.pathParameters['id']!;
+              return _fadePage(
+                key: state.pageKey,
+                child: RoomSettingsPage(roomId: roomId),
+              );
+            },
+          ),
+          GoRoute(
+            path: '/settings',
+            pageBuilder: (context, state) => _fadePage(
+              key: state.pageKey,
+              child: const SettingsPage(),
+            ),
+          ),
+          GoRoute(
+            path: '/friends',
+            pageBuilder: (context, state) => _fadePage(
+              key: state.pageKey,
+              child: const FriendsPage(),
+            ),
+          ),
+        ],
       ),
     ],
     redirect: (context, state) {

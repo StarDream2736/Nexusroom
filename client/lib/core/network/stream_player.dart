@@ -19,6 +19,23 @@ class StreamPlayer {
   Stream<StreamPlayerStatus> get statusStream => _statusController.stream;
   VideoTrack? get currentVideoTrack => _currentVideoTrack;
   StreamPlayerStatus get status => _status;
+  bool _audioMuted = false;
+  bool get audioMuted => _audioMuted;
+
+  /// Mute / unmute the stream audio (viewer-side).
+  void setAudioMuted(bool muted) {
+    _audioMuted = muted;
+    final participants = _room?.remoteParticipants.values ?? [];
+    for (final p in participants) {
+      for (final pub in p.audioTrackPublications) {
+        if (muted) {
+          pub.disable();
+        } else {
+          pub.enable();
+        }
+      }
+    }
+  }
 
   /// 连接到直播房间并自动订阅 ingress 视频+音频
   Future<void> connect(String url, String token) async {
@@ -138,7 +155,20 @@ class StreamPlayer {
   }
 
   void dispose() {
-    disconnect();
+    // Synchronously detach listener and clear track reference first,
+    // so no callbacks can fire into closed controllers.
+    _listener?.dispose();
+    _listener = null;
+    _currentVideoTrack = null;
+
+    // Fire-and-forget the async room cleanup.
+    final room = _room;
+    _room = null;
+    if (room != null) {
+      room.disconnect().then((_) => room.dispose()).ignore();
+    }
+
+    // Now safe to close the stream controllers.
     _videoTrackController.close();
     _statusController.close();
   }

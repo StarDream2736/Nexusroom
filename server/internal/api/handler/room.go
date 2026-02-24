@@ -103,39 +103,12 @@ func (h *RoomHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// 创建默认 Ingress
-	var ingressList []IngressResponse
-	ingress, err := h.livekitSvc.CreateIngress(room.LiveKitRoomName, "默认推流入口")
-	if err != nil {
-		// 不阻断房间创建，仅记录日志
-		// log.Printf("创建 Ingress 失败: %v", err)
-	} else {
-		rmIngress := &model.RoomIngress{
-			RoomID:    room.ID,
-			IngressID: ingress.IngressId,
-			StreamKey: ingress.StreamKey,
-			RTMPURL:   ingress.Url,
-			Label:     "默认推流入口",
-			CreatedBy: userID,
-		}
-		h.ingressRepo.Create(rmIngress)
-		ingressList = append(ingressList, IngressResponse{
-			ID:        rmIngress.ID,
-			IngressID: ingress.IngressId,
-			RTMPURL:   ingress.Url,
-			StreamKey: ingress.StreamKey,
-			Label:     "默认推流入口",
-			IsActive:  false,
-		})
-	}
-
 	util.Success(c, gin.H{
 		"id":                room.ID,
 		"name":              room.Name,
 		"room_code":         room.RoomCode,
 		"invite_code":       room.InviteCode,
 		"livekit_room_name": room.LiveKitRoomName,
-		"ingresses":         ingressList,
 	})
 }
 
@@ -351,4 +324,82 @@ func (h *RoomHandler) UpdateRoom(c *gin.Context) {
 		"id":   room.ID,
 		"name": room.Name,
 	})
+}
+
+// Leave DELETE /rooms/:roomId/leave — 成员主动退出房间
+func (h *RoomHandler) Leave(c *gin.Context) {
+	roomID, err := strconv.ParseUint(c.Param("roomId"), 10, 64)
+	if err != nil {
+		util.Error(c, 40001, "房间ID格式错误")
+		return
+	}
+
+	userID := c.GetUint64("userID")
+
+	// 获取房间信息
+	room, err := h.roomRepo.FindByID(roomID)
+	if err != nil {
+		util.Error(c, 40401, "房间不存在")
+		return
+	}
+
+	// 检查是否是成员
+	if !h.roomRepo.IsMember(roomID, userID) {
+		util.Error(c, 40401, "你不是该房间成员")
+		return
+	}
+
+	// 房主不能退出，必须先解散房间
+	if room.OwnerID == userID {
+		util.Error(c, 40301, "房主不能退出房间，请先解散房间")
+		return
+	}
+
+	if err := h.roomRepo.RemoveMember(roomID, userID); err != nil {
+		util.Error(c, 50001, "退出房间失败")
+		return
+	}
+
+	// 通过 WebSocket 通知房间其他成员
+	h.hub.BroadcastToRoom(roomID, ws.EventRoomMemberLeave, ws.RoomMemberLeavePayload{
+		UserID: userID,
+	}, userID)
+
+	util.Success(c, nil)
+}
+
+// Delete DELETE /rooms/:roomId — 房主或超管解散房间
+func (h *RoomHandler) Delete(c *gin.Context) {
+	roomID, err := strconv.ParseUint(c.Param("roomId"), 10, 64)
+	if err != nil {
+		util.Error(c, 40001, "房间ID格式错误")
+		return
+	}
+
+	userID := c.GetUint64("userID")
+
+	// 获取房间信息
+	room, err := h.roomRepo.FindByID(roomID)
+	if err != nil {
+		util.Error(c, 40401, "房间不存在")
+		return
+	}
+
+	// 检查权限（房主或超管）
+	if room.OwnerID != userID && c.GetString("role") != "super_admin" {
+		util.ErrorWithStatus(c, http.StatusForbidden, 40301, "无权解散房间")
+		return
+	}
+
+	// 通知所有房间成员（在删除前发送）
+	h.hub.BroadcastToRoom(roomID, ws.EventRoomDisbanded, ws.RoomDisbandedPayload{
+		RoomID: roomID,
+	}, 0)
+
+	if err := h.roomRepo.Delete(roomID); err != nil {
+		util.Error(c, 50001, "解散房间失败")
+		return
+	}
+
+	util.Success(c, nil)
 }

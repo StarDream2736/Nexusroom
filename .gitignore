@@ -56,3 +56,6 @@ deploy/data/
 # 测试
 coverage/
 *.test
+
+# 文档
+docs/

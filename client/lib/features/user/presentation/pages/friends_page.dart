@@ -2,8 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
+import '../../../../app/theme/app_colors.dart';
+import '../../../../app/theme/app_typography.dart';
+import '../../../../app/widgets/glass_container.dart';
+import '../../../../app/widgets/mac_dialog.dart';
 import '../../../../core/providers/app_providers.dart';
 
 /// 好友系统页面：好友列表、待处理申请、搜索添加
@@ -61,35 +64,32 @@ class _FriendsPageState extends ConsumerState<FriendsPage>
 
   Future<void> _showSearchDialog() async {
     final controller = TextEditingController();
-    await showDialog(
+    await showMacDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('添加好友'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            labelText: '输入用户 Display ID',
-            hintText: '例如: 483921',
-            border: OutlineInputBorder(),
-          ),
-          keyboardType: TextInputType.number,
+      title: '添加好友',
+      contentWidget: TextField(
+        controller: controller,
+        decoration: const InputDecoration(
+          labelText: '输入用户 Display ID',
+          hintText: '例如: 483921',
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () async {
-              final displayId = controller.text.trim();
-              if (displayId.isEmpty) return;
-              Navigator.pop(context);
-              await _sendRequest(displayId);
-            },
-            child: const Text('发送申请'),
-          ),
-        ],
+        keyboardType: TextInputType.number,
       ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        TextButton(
+          onPressed: () async {
+            final displayId = controller.text.trim();
+            if (displayId.isEmpty) return;
+            Navigator.pop(context);
+            await _sendRequest(displayId);
+          },
+          child: const Text('发送申请'),
+        ),
+      ],
     );
     controller.dispose();
   }
@@ -139,74 +139,85 @@ class _FriendsPageState extends ConsumerState<FriendsPage>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('好友'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.go('/home'),
-        ),
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: [
-            Tab(text: '好友列表 (${_friends.length})'),
-            Tab(text: '待处理 (${_pendingRequests.length})'),
-          ],
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.person_add),
-            tooltip: '添加好友',
-            onPressed: _showSearchDialog,
+    return Padding(
+      padding: const EdgeInsets.all(28),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ─── Header row ─────────────────────────────────
+          Row(
+            children: [
+              Expanded(child: Text('好友', style: AppTypography.h1)),
+              _MiniIcon(
+                  icon: Icons.person_add,
+                  tooltip: '添加好友',
+                  onTap: _showSearchDialog),
+              const SizedBox(width: 6),
+              _MiniIcon(
+                  icon: Icons.refresh,
+                  tooltip: '刷新',
+                  onTap: _loadData),
+            ],
           ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadData,
+          const SizedBox(height: 16),
+
+          // ─── macOS-style segment control ────────────────
+          GlassContainer(
+            padding: const EdgeInsets.all(3),
+            borderRadius: BorderRadius.circular(8),
+            child: TabBar(
+              controller: _tabController,
+              indicator: BoxDecoration(
+                color: AppColors.cardHover,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              indicatorSize: TabBarIndicatorSize.tab,
+              dividerColor: Colors.transparent,
+              labelColor: AppColors.textPrimary,
+              unselectedLabelColor: AppColors.textMuted,
+              labelStyle: TextStyle(
+                  fontSize: AppTypography.sizeBody,
+                  fontWeight: FontWeight.w500),
+              tabs: [
+                Tab(text: '好友 (${_friends.length})'),
+                Tab(text: '待处理 (${_pendingRequests.length})'),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // ─── Tab content ────────────────────────────────
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : TabBarView(
+                    controller: _tabController,
+                    children: [
+                      _buildFriendsList(),
+                      _buildPendingList(),
+                    ],
+                  ),
           ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : TabBarView(
-              controller: _tabController,
-              children: [
-                _buildFriendsList(),
-                _buildPendingList(),
-              ],
-            ),
     );
   }
 
   Widget _buildFriendsList() {
     if (_friends.isEmpty) {
-      return const Center(child: Text('暂无好友'));
+      return Center(
+          child: Text('暂无好友', style: AppTypography.bodySecondary));
     }
     return ListView.builder(
       itemCount: _friends.length,
       itemBuilder: (context, index) {
         final f = _friends[index];
         final isOnline = f['is_online'] as bool? ?? false;
-        return ListTile(
-          leading: CircleAvatar(
-            backgroundImage: f['avatar_url'] != null &&
-                    (f['avatar_url'] as String).isNotEmpty
-                ? NetworkImage(f['avatar_url'] as String)
-                : null,
-            child: f['avatar_url'] == null ||
-                    (f['avatar_url'] as String).isEmpty
-                ? const Icon(Icons.person)
-                : null,
-          ),
-          title: Text(f['nickname'] as String? ?? ''),
-          subtitle: Text('ID: ${f['user_display_id'] ?? ''}'),
-          trailing: Container(
-            width: 10,
-            height: 10,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: isOnline ? Colors.green : Colors.grey,
-            ),
-          ),
+        return _FriendTile(
+          avatarUrl: f['avatar_url'] as String?,
+          nickname: f['nickname'] as String? ?? '',
+          displayId: f['user_display_id']?.toString() ?? '',
+          isOnline: isOnline,
         );
       },
     );
@@ -214,48 +225,219 @@ class _FriendsPageState extends ConsumerState<FriendsPage>
 
   Widget _buildPendingList() {
     if (_pendingRequests.isEmpty) {
-      return const Center(child: Text('暂无待处理申请'));
+      return Center(
+          child: Text('暂无待处理申请', style: AppTypography.bodySecondary));
     }
     return ListView.builder(
       itemCount: _pendingRequests.length,
       itemBuilder: (context, index) {
         final r = _pendingRequests[index];
-        return ListTile(
-          leading: CircleAvatar(
-            backgroundImage: r['requester_avatar_url'] != null &&
-                    (r['requester_avatar_url'] as String).isNotEmpty
-                ? NetworkImage(r['requester_avatar_url'] as String)
-                : null,
-            child: r['requester_avatar_url'] == null ||
-                    (r['requester_avatar_url'] as String).isEmpty
-                ? const Icon(Icons.person)
-                : null,
-          ),
-          title: Text(r['requester_nickname'] as String? ?? ''),
-          subtitle: Text('ID: ${r['requester_display_id'] ?? ''}'),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(
-                icon: const Icon(Icons.check, color: Colors.green),
-                tooltip: '接受',
-                onPressed: () => _handleRequest(
-                  (r['requester_id'] as num).toInt(),
-                  'accept',
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.close, color: Colors.red),
-                tooltip: '拒绝',
-                onPressed: () => _handleRequest(
-                  (r['requester_id'] as num).toInt(),
-                  'reject',
-                ),
-              ),
-            ],
-          ),
+        return _PendingTile(
+          avatarUrl: r['requester_avatar_url'] as String?,
+          nickname: r['requester_nickname'] as String? ?? '',
+          displayId: r['requester_display_id']?.toString() ?? '',
+          onAccept: () => _handleRequest(
+              (r['requester_id'] as num).toInt(), 'accept'),
+          onReject: () => _handleRequest(
+              (r['requester_id'] as num).toInt(), 'reject'),
         );
       },
+    );
+  }
+}
+
+// ─── Private widgets ──────────────────────────────────────────
+
+class _MiniIcon extends StatefulWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+  const _MiniIcon(
+      {required this.icon, required this.tooltip, required this.onTap});
+  @override
+  State<_MiniIcon> createState() => _MiniIconState();
+}
+
+class _MiniIconState extends State<_MiniIcon> {
+  bool _hovered = false;
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: Tooltip(
+        message: widget.tooltip,
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            curve: Curves.easeOutCubic,
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: _hovered ? AppColors.hoverOverlay : Colors.transparent,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Icon(widget.icon,
+                size: 16, color: AppColors.textSecondary),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FriendTile extends StatefulWidget {
+  final String? avatarUrl;
+  final String nickname;
+  final String displayId;
+  final bool isOnline;
+  const _FriendTile({
+    this.avatarUrl,
+    required this.nickname,
+    required this.displayId,
+    required this.isOnline,
+  });
+  @override
+  State<_FriendTile> createState() => _FriendTileState();
+}
+
+class _FriendTileState extends State<_FriendTile> {
+  bool _hovered = false;
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeOutCubic,
+        margin: const EdgeInsets.only(bottom: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: _hovered ? AppColors.hoverOverlay : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 16,
+              backgroundColor: AppColors.cardActive,
+              backgroundImage:
+                  widget.avatarUrl != null && widget.avatarUrl!.isNotEmpty
+                      ? NetworkImage(widget.avatarUrl!)
+                      : null,
+              child: widget.avatarUrl == null || widget.avatarUrl!.isEmpty
+                  ? Icon(Icons.person, size: 16, color: AppColors.textMuted)
+                  : null,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(widget.nickname,
+                      style: TextStyle(
+                          fontSize: AppTypography.sizeBody,
+                          color: AppColors.textPrimary)),
+                  Text('ID: ${widget.displayId}',
+                      style: TextStyle(
+                          fontSize: AppTypography.sizeMini,
+                          color: AppColors.textMuted)),
+                ],
+              ),
+            ),
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: widget.isOnline ? AppColors.success : AppColors.textMuted,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PendingTile extends StatefulWidget {
+  final String? avatarUrl;
+  final String nickname;
+  final String displayId;
+  final VoidCallback onAccept;
+  final VoidCallback onReject;
+  const _PendingTile({
+    this.avatarUrl,
+    required this.nickname,
+    required this.displayId,
+    required this.onAccept,
+    required this.onReject,
+  });
+  @override
+  State<_PendingTile> createState() => _PendingTileState();
+}
+
+class _PendingTileState extends State<_PendingTile> {
+  bool _hovered = false;
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeOutCubic,
+        margin: const EdgeInsets.only(bottom: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: _hovered ? AppColors.hoverOverlay : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 16,
+              backgroundColor: AppColors.cardActive,
+              backgroundImage:
+                  widget.avatarUrl != null && widget.avatarUrl!.isNotEmpty
+                      ? NetworkImage(widget.avatarUrl!)
+                      : null,
+              child: widget.avatarUrl == null || widget.avatarUrl!.isEmpty
+                  ? Icon(Icons.person, size: 16, color: AppColors.textMuted)
+                  : null,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(widget.nickname,
+                      style: TextStyle(
+                          fontSize: AppTypography.sizeBody,
+                          color: AppColors.textPrimary)),
+                  Text('ID: ${widget.displayId}',
+                      style: TextStyle(
+                          fontSize: AppTypography.sizeMini,
+                          color: AppColors.textMuted)),
+                ],
+              ),
+            ),
+            IconButton(
+              icon: Icon(Icons.check, size: 18, color: AppColors.success),
+              tooltip: '接受',
+              onPressed: widget.onAccept,
+              visualDensity: VisualDensity.compact,
+            ),
+            IconButton(
+              icon: Icon(Icons.close, size: 18, color: AppColors.error),
+              tooltip: '拒绝',
+              onPressed: widget.onReject,
+              visualDensity: VisualDensity.compact,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

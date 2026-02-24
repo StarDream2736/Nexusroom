@@ -2,6 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../app/theme/app_colors.dart';
+import '../../../../app/theme/app_theme.dart';
+import '../../../../app/theme/app_typography.dart';
+import '../../../../app/widgets/glass_container.dart';
+import '../../../../app/widgets/hover_scale_card.dart';
+import '../../../../app/widgets/mac_dialog.dart';
 import '../../../../core/providers/app_providers.dart';
 import '../providers/rooms_provider.dart';
 
@@ -10,112 +16,90 @@ class RoomListPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final roomsAsync = ref.watch(roomsProvider);
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('我的房间'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.people_outline),
-            tooltip: '好友',
-            onPressed: () => context.push('/friends'),
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings),
-            tooltip: '设置',
-            onPressed: () => context.push('/settings'),
-          ),
-        ],
-      ),
-      body: Column(
+    // Shell provides the sidebar with room list already.
+    // This page is the center "welcome / quick actions" area.
+    return Padding(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 加入房间按钮
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () => _showJoinRoomDialog(context, ref),
-                    icon: const Icon(Icons.login),
-                    label: const Text('加入房间'),
-                  ),
+          const SizedBox(height: 8),
+          Text('欢迎回来', style: AppTypography.h1),
+          const SizedBox(height: 4),
+          Text('选择左侧房间进入，或从下方快速操作',
+              style: AppTypography.bodySecondary),
+          const SizedBox(height: 32),
+
+          // Quick action cards
+          Row(
+            children: [
+              Expanded(
+                child: _QuickActionCard(
+                  icon: Icons.login,
+                  label: '加入房间',
+                  description: '输入邀请码加入',
+                  onTap: () => _showJoinRoomDialog(context, ref),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () => context.push('/rooms/create'),
-                    icon: const Icon(Icons.add),
-                    label: const Text('创建房间'),
-                  ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: _QuickActionCard(
+                  icon: Icons.add_circle_outline,
+                  label: '创建房间',
+                  description: '创建并邀请好友',
+                  onTap: () => context.go('/rooms/create'),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-          
-          // 房间列表
-          Expanded(
-            child: roomsAsync.when(
-              data: (rooms) {
-                if (rooms.isEmpty) {
-                  return const Center(child: Text('暂无房间'));
-                }
-                return ListView.builder(
-                  itemCount: rooms.length,
-                  itemBuilder: (context, index) {
-                    final room = rooms[index];
-                    return ListTile(
-                      title: Text(room.name),
-                      subtitle: Text('邀请码: ${room.inviteCode}'),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () => context.push('/rooms/${room.id}'),
-                    );
-                  },
-                );
-              },
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (error, _) => Center(child: Text('加载失败: $error')),
-            ),
-          ),
+          const SizedBox(height: 32),
+
+          // Room count info
+          _buildRoomInfo(ref),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => context.push('/rooms/create'),
-        child: const Icon(Icons.add),
+    );
+  }
+
+  Widget _buildRoomInfo(WidgetRef ref) {
+    final roomsAsync = ref.watch(roomsProvider);
+    return roomsAsync.when(
+      data: (rooms) => Text(
+        '当前加入了 ${rooms.length} 个房间',
+        style: AppTypography.caption,
       ),
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
     );
   }
 
   void _showJoinRoomDialog(BuildContext context, WidgetRef ref) {
     final controller = TextEditingController();
     
-    showDialog(
+    showMacDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('加入房间'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            labelText: '邀请码',
-            hintText: '请输入6位邀请码',
-          ),
-          maxLength: 6,
-          textCapitalization: TextCapitalization.characters,
+      title: '加入房间',
+      contentWidget: TextField(
+        controller: controller,
+        decoration: const InputDecoration(
+          labelText: '邀请码',
+          hintText: '请输入6位邀请码',
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              _joinRoom(context, ref, controller.text.trim());
-            },
-            child: const Text('加入'),
-          ),
-        ],
+        maxLength: 6,
+        textCapitalization: TextCapitalization.characters,
       ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            _joinRoom(context, ref, controller.text.trim());
+          },
+          child: const Text('加入'),
+        ),
+      ],
     );
   }
 
@@ -133,7 +117,7 @@ class RoomListPage extends ConsumerWidget {
       if (context.mounted) {
         Navigator.pop(context);
         ref.invalidate(roomsProvider);
-        context.push('/rooms/${room.id}');
+        context.go('/rooms/${room.id}');
       }
     } catch (e) {
       if (context.mounted) {
@@ -142,5 +126,49 @@ class RoomListPage extends ConsumerWidget {
         );
       }
     }
+  }
+}
+
+/// A quick-action card with hover animation.
+class _QuickActionCard extends StatelessWidget {
+  const _QuickActionCard({
+    required this.icon,
+    required this.label,
+    required this.description,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final String description;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return HoverScaleCard(
+      onTap: onTap,
+      borderRadius: AppTheme.radiusStandard,
+      child: GlassContainer(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.12),
+                borderRadius: AppTheme.radiusButton,
+              ),
+              child: Icon(icon, size: 18, color: AppColors.primary),
+            ),
+            const SizedBox(height: 12),
+            Text(label, style: AppTypography.h3),
+            const SizedBox(height: 4),
+            Text(description, style: AppTypography.caption),
+          ],
+        ),
+      ),
+    );
   }
 }
