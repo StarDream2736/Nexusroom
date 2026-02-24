@@ -152,8 +152,16 @@ func (h *Hub) SendToUser(userID uint64, event MessageType, payload interface{}) 
 
 // HandleChatSend 处理聊天消息发送
 func (h *Hub) HandleChatSend(client *Client, payload ChatSendPayload) {
+	log.Printf("[Chat] User %d sending to room %d, isInRoom=%v",
+		client.UserID, payload.RoomID, client.IsInRoom(payload.RoomID))
+
 	// 检查用户是否在房间中
 	if !client.IsInRoom(payload.RoomID) {
+		log.Printf("User %d tried to send chat to room %d but is not in room", client.UserID, payload.RoomID)
+		client.SendEvent(EventChatError, ChatErrorPayload{
+			RoomID: payload.RoomID,
+			Reason: "not_in_room",
+		})
 		return
 	}
 
@@ -209,6 +217,7 @@ func (h *Hub) HandleChatSend(client *Client, payload ChatSendPayload) {
 	}
 
 	h.BroadcastToRoom(payload.RoomID, EventChatMessage, chatMsg, 0)
+	log.Printf("[Chat] Message %d broadcast to room %d", msg.ID, payload.RoomID)
 }
 
 // KickUserFromRoom 将用户踢出房间

@@ -18,6 +18,7 @@ const (
 	EventVlanPeerUpdate MessageType = "vlan.peer_update"
 
 	// 服务端 -> 客户端
+	EventChatError        MessageType = "chat.error"
 	EventConnected        MessageType = "connected"
 	EventPong             MessageType = "pong"
 	EventChatMessage      MessageType = "chat.message"
@@ -129,4 +130,9 @@ type FriendRequestPayload struct {
 type FriendAcceptedPayload struct {
 	UserID   uint64 `json:"user_id"`
 	Nickname string `json:"nickname"`
+}
+
+type ChatErrorPayload struct {
+	RoomID uint64 `json:"room_id"`
+	Reason string `json:"reason"`
 }

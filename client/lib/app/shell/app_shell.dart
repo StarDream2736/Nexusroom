@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/providers/app_providers.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/title_bar.dart';
@@ -8,28 +10,62 @@ import 'sidebar.dart';
 import 'right_panel.dart';
 
 /// The top-level shell for all authenticated routes.
-///
-/// Layout:
-///   ┌─────────────────────────────────────────┐
-///   │ TitleBar (38px, drag-to-move)           │
-///   ├──────┬──────────────────────┬───────────┤
-///   │ Side │    Main Content      │ RightPanel│
-///   │ bar  │    (GoRouter child)  │ (optional)│
-///   │220px │    Expanded          │  200px    │
-///   └──────┴──────────────────────┴───────────┘
-class AppShell extends StatelessWidget {
+class AppShell extends ConsumerStatefulWidget {
   const AppShell({
     super.key,
+    required this.location,
     required this.child,
   });
 
+  /// Current matched route location, passed from ShellRoute builder.
+  final String location;
   final Widget child;
 
   @override
-  Widget build(BuildContext context) {
-    final location = GoRouterState.of(context).uri.toString();
+  ConsumerState<AppShell> createState() => _AppShellState();
+}
 
-    // Extract room ID from path like /rooms/123 or /rooms/123/settings
+class _AppShellState extends ConsumerState<AppShell> {
+  String? _currentRoomId;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncRoom(widget.location);
+  }
+
+  @override
+  void didUpdateWidget(covariant AppShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.location != widget.location) {
+      _syncRoom(widget.location);
+    }
+  }
+
+  void _syncRoom(String location) {
+    final roomId = _extractRoomId(location);
+    debugPrint('[AppShell] location=$location  roomId=$roomId  prev=$_currentRoomId');
+    if (roomId != _currentRoomId) {
+      final oldRoomId = _currentRoomId;
+      _currentRoomId = roomId;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final ws = ref.read(wsServiceProvider);
+        if (oldRoomId != null) {
+          debugPrint('[AppShell] leaveRoom($oldRoomId)');
+          ws.leaveRoom(int.parse(oldRoomId));
+        }
+        if (roomId != null) {
+          debugPrint('[AppShell] joinRoom($roomId)');
+          ws.joinRoom(int.parse(roomId));
+        }
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final location = widget.location;
     final roomId = _extractRoomId(location);
     final showRightPanel = roomId != null && !location.endsWith('/settings');
 
@@ -37,30 +73,17 @@ class AppShell extends StatelessWidget {
       backgroundColor: AppColors.background,
       body: Column(
         children: [
-          // ─── Title bar ───────────────────────────────────
           const TitleBar(title: 'NexusRoom'),
-
-          // ─── Content area ────────────────────────────────
           Expanded(
             child: Row(
               children: [
-                // ─── Left sidebar ────────────────────────
                 const Sidebar(),
-
-                // ─── Main content ────────────────────────
-                // GoRouter's CustomTransitionPage already provides
-                // fade transitions. No AnimatedSwitcher here — having
-                // both causes old & new pages to coexist in the tree,
-                // leading to Duplicate GlobalKey crashes when both
-                // reference the same VideoTrackRenderer.
                 Expanded(
                   child: KeyedSubtree(
                     key: ValueKey(location),
-                    child: child,
+                    child: widget.child,
                   ),
                 ),
-
-                // ─── Right panel (member list) ───────────
                 if (showRightPanel)
                   AnimatedContainer(
                     duration: AppTheme.durationPage,
@@ -75,8 +98,7 @@ class AppShell extends StatelessWidget {
     );
   }
 
-  /// Extract roomId from routes like `/rooms/42` or `/rooms/42/settings`.
-  String? _extractRoomId(String location) {
+  static String? _extractRoomId(String location) {
     final match = RegExp(r'^/rooms/(\d+)').firstMatch(location);
     return match?.group(1);
   }

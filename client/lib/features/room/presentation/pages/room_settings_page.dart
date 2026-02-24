@@ -211,7 +211,18 @@ class _RoomSettingsPageState extends ConsumerState<RoomSettingsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('房间设置', style: AppTypography.h1),
+          Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.arrow_back, size: 20),
+                tooltip: '返回房间',
+                onPressed: () => context.go('/rooms/${widget.roomId}'),
+                visualDensity: VisualDensity.compact,
+              ),
+              const SizedBox(width: 8),
+              Text('房间设置', style: AppTypography.h1),
+            ],
+          ),
           const SizedBox(height: 24),
 
           // ─── 邀请码 ──────────────────────────────────────────────

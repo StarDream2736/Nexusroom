@@ -143,8 +143,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                         onPressed: () async {
                           await ref
                               .read(appSettingsProvider.notifier)
-                              .clearAuth();
-                          if (context.mounted) context.go('/setup');
+                              .clearAll();
                         },
                         child: Text('更换服务器',
                             style: TextStyle(

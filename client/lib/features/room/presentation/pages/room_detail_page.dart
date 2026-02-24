@@ -68,7 +68,9 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
       ref.read(voiceActiveUsersProvider.notifier).clear();
     });
 
+    // 房间 join/leave 主要由 AppShell 统一管理，此处作为冗余安全网
     _wsService!.joinRoom(_roomId);
+    debugPrint('[RoomDetail] initState joinRoom($_roomId)');
     ref.read(messageRepositoryProvider).syncLatest(_roomId);
 
     // 监听被踢出事件
@@ -168,7 +170,9 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
     _memberJoinSub?.cancel();
     _memberLeaveSub?.cancel();
     _voiceStateSub?.cancel();
+    // 房间 leave 主要由 AppShell 统一管理，此处作为冗余安全网
     _wsService?.leaveRoom(_roomId);
+    debugPrint('[RoomDetail] dispose leaveRoom($_roomId)');
     _livekitService?.disconnect();
     _messageController.dispose();
     super.dispose();
@@ -276,6 +280,12 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
           ),
           child: Row(
             children: [
+              _MiniControl(
+                icon: Icons.arrow_back,
+                tooltip: '退出房间',
+                onTap: () => context.go('/home'),
+              ),
+              const SizedBox(width: 8),
               Text(
                 roomAsync.value?.name ?? '房间',
                 style: AppTypography.h3,
@@ -575,6 +585,7 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
     final content = _messageController.text.trim();
     if (content.isEmpty) return;
 
+    debugPrint('[RoomDetail] _sendMessage roomId=$_roomId content="$content"');
     ref.read(wsServiceProvider).sendChat(roomId: _roomId, content: content);
     _messageController.clear();
   }
