@@ -99,6 +99,8 @@ func SetupRouter(
 				rooms.GET("", roomHandler.List)
 				rooms.GET("/:roomId", roomHandler.GetDetail)
 				rooms.PATCH("/:roomId", roomHandler.UpdateRoom)
+				rooms.DELETE("/:roomId", roomHandler.Delete)
+				rooms.DELETE("/:roomId/leave", roomHandler.Leave)
 				rooms.DELETE("/:roomId/members/:userId", roomHandler.KickMember)
 
 				// 消息

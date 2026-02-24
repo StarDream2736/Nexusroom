@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../app/theme/app_colors.dart';
+import '../../../../app/theme/app_typography.dart';
+import '../../../../app/widgets/glass_container.dart';
+import '../../../../app/widgets/title_bar.dart';
 import '../../../../core/providers/app_providers.dart';
 import '../providers/auth_controller.dart';
 
@@ -47,7 +51,6 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
             nickname: nickname,
             adminToken: adminToken.isEmpty ? null : adminToken,
           );
-      // 导航由 app_router 的 redirect 自动处理
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -64,135 +67,136 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('注册账号'),
-      ),
-      body: Center(
-        child: Container(
-          constraints: const BoxConstraints(maxWidth: 400),
-          padding: const EdgeInsets.all(32),
-          child: Form(
-            key: _formKey,
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // 昵称输入
-                  TextFormField(
-                    controller: _nicknameController,
-                    decoration: const InputDecoration(
-                      labelText: '昵称',
-                      prefixIcon: Icon(Icons.face),
-                    ),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return '请输入昵称';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  
-                  // 用户名输入
-                  TextFormField(
-                    controller: _usernameController,
-                    decoration: const InputDecoration(
-                      labelText: '用户名',
-                      prefixIcon: Icon(Icons.person_outline),
-                    ),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return '请输入用户名';
-                      }
-                      if (value.length < 3) {
-                        return '用户名至少3个字符';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  
-                  // 密码输入
-                  TextFormField(
-                    controller: _passwordController,
-                    obscureText: _obscurePassword,
-                    decoration: InputDecoration(
-                      labelText: '密码',
-                      prefixIcon: const Icon(Icons.lock_outline),
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _obscurePassword ? Icons.visibility_off : Icons.visibility,
+      backgroundColor: AppColors.background,
+      body: Column(
+        children: [
+          const TitleBar(),
+          Expanded(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: GlassContainer(
+                  constraints: const BoxConstraints(maxWidth: 380),
+                  padding: const EdgeInsets.all(32),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text('创建账号',
+                            textAlign: TextAlign.center,
+                            style: AppTypography.h1),
+                        const SizedBox(height: 6),
+                        Text('注册一个新的 NexusRoom 账号',
+                            textAlign: TextAlign.center,
+                            style: AppTypography.bodySecondary),
+                        const SizedBox(height: 28),
+
+                        TextFormField(
+                          controller: _nicknameController,
+                          decoration: const InputDecoration(
+                            labelText: '昵称',
+                            prefixIcon: Icon(Icons.face),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.isEmpty) return '请输入昵称';
+                            return null;
+                          },
                         ),
-                        onPressed: () {
-                          setState(() => _obscurePassword = !_obscurePassword);
-                        },
-                      ),
+                        const SizedBox(height: 14),
+
+                        TextFormField(
+                          controller: _usernameController,
+                          decoration: const InputDecoration(
+                            labelText: '用户名',
+                            prefixIcon: Icon(Icons.person_outline),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.isEmpty) return '请输入用户名';
+                            if (value.length < 3) return '用户名至少3个字符';
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 14),
+
+                        TextFormField(
+                          controller: _passwordController,
+                          obscureText: _obscurePassword,
+                          decoration: InputDecoration(
+                            labelText: '密码',
+                            prefixIcon: const Icon(Icons.lock_outline),
+                            suffixIcon: IconButton(
+                              icon: Icon(_obscurePassword
+                                  ? Icons.visibility_off
+                                  : Icons.visibility),
+                              onPressed: () => setState(
+                                  () => _obscurePassword = !_obscurePassword),
+                            ),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.isEmpty) return '请输入密码';
+                            if (value.length < 6) return '密码至少6个字符';
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 14),
+
+                        TextFormField(
+                          controller: _adminTokenController,
+                          decoration: const InputDecoration(
+                            labelText: '管理员令牌（可选）',
+                            prefixIcon: Icon(Icons.admin_panel_settings),
+                            hintText: '如需注册为管理员，请输入令牌',
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+
+                        ElevatedButton(
+                          onPressed: _isLoading ? null : _register,
+                          child: _isLoading
+                              ? const SizedBox(
+                                  height: 18,
+                                  width: 18,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2, color: Colors.white),
+                                )
+                              : const Text('注册'),
+                        ),
+                        const SizedBox(height: 14),
+
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text('已有账号？',
+                                style: AppTypography.bodySecondary),
+                            TextButton(
+                              onPressed: () => context.pop(),
+                              child: const Text('立即登录'),
+                            ),
+                          ],
+                        ),
+
+                        TextButton(
+                          onPressed: () async {
+                            await ref
+                                .read(appSettingsProvider.notifier)
+                                .clearAuth();
+                            if (context.mounted) context.go('/setup');
+                          },
+                          child: Text('更换服务器',
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.textMuted)),
+                        ),
+                      ],
                     ),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return '请输入密码';
-                      }
-                      if (value.length < 6) {
-                        return '密码至少6个字符';
-                      }
-                      return null;
-                    },
                   ),
-                  const SizedBox(height: 16),
-                  
-                  // 管理员令牌（可选）
-                  TextFormField(
-                    controller: _adminTokenController,
-                    decoration: const InputDecoration(
-                      labelText: '管理员令牌（可选）',
-                      prefixIcon: Icon(Icons.admin_panel_settings),
-                      hintText: '如需注册为管理员，请输入令牌',
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  
-                  // 注册按钮
-                  ElevatedButton(
-                    onPressed: _isLoading ? null : _register,
-                    child: _isLoading
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('注册'),
-                  ),
-                  const SizedBox(height: 16),
-                  
-                  // 登录链接
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Text('已有账号？'),
-                      TextButton(
-                        onPressed: () => context.pop(),
-                        child: const Text('立即登录'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  
-                  // 返回服务器配置
-                  TextButton(
-                    onPressed: () async {
-                      // 清除认证信息后跳转到服务器配置
-                      await ref.read(appSettingsProvider.notifier).clearAuth();
-                      if (context.mounted) {
-                        context.go('/setup');
-                      }
-                    },
-                    child: const Text('更换服务器'),
-                  ),
-                ],
+                ),
               ),
             ),
           ),
-        ),
+        ],
       ),
     );
   }

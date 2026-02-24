@@ -7,14 +7,18 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:livekit_client/livekit_client.dart' as lk;
 
+import '../../../../app/theme/app_colors.dart';
+import '../../../../app/theme/app_theme.dart';
+import '../../../../app/theme/app_typography.dart';
 import '../../../../core/models/livekit_models.dart';
 import '../../../../core/network/livekit_service.dart';
 import '../../../../core/network/stream_player.dart';
 import '../../../../core/network/ws_service.dart';
 import '../../../../core/providers/app_providers.dart';
-import '../../../vlan/presentation/widgets/vlan_panel.dart';
 import '../providers/messages_provider.dart';
 import '../providers/room_detail_provider.dart';
+import '../providers/room_stream_provider.dart';
+import '../providers/voice_state_provider.dart';
 
 class RoomDetailPage extends ConsumerStatefulWidget {
   final String roomId;
@@ -32,8 +36,6 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
   String? _livekitError;
 
   // 直播流（独立于语音房间）
-  List<IngressModel> _ingresses = [];
-  IngressModel? _selectedIngress;
   final StreamPlayer _streamPlayer = StreamPlayer();
   StreamSubscription? _videoTrackSub;
   StreamSubscription? _streamStatusSub;
@@ -57,6 +59,15 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
     super.initState();
     _wsService = ref.read(wsServiceProvider);
     _livekitService = ref.read(livekitServiceProvider);
+
+    // 切换房间时清理上一个房间的全局状态（延迟到第一帧构建完成后）
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(selectedIngressProvider.notifier).state = null;
+      ref.read(streamMutedProvider.notifier).state = false;
+      ref.read(voiceActiveUsersProvider.notifier).clear();
+    });
+
     _wsService!.joinRoom(_roomId);
     ref.read(messageRepositoryProvider).syncLatest(_roomId);
 
@@ -78,14 +89,18 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
       ref.invalidate(roomDetailProvider(_roomId));
     });
 
-    // 语音状态更新（可用于更新成员静音状态 UI）
+    // 语音状态更新 → 呼吸灯指示器
     _voiceStateSub = _wsService!.on('voice.state_update').listen((payload) {
-      // TODO: 更新成员列表中的静音状态图标
-      // payload: { user_id, room_id, muted }
+      final userId = payload['user_id'] as int?;
+      final muted = payload['muted'] as bool? ?? true;
+      if (userId != null) {
+        ref
+            .read(voiceActiveUsersProvider.notifier)
+            .setActive(userId, active: !muted);
+      }
     });
 
     _connectLiveKit();
-    _loadIngresses();
 
     // StreamPlayer listeners
     _videoTrackSub = _streamPlayer.videoTrackStream.listen((track) {
@@ -94,14 +109,6 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
     _streamStatusSub = _streamPlayer.statusStream.listen((status) {
       if (mounted) setState(() => _streamStatus = status);
     });
-  }
-
-  Future<void> _loadIngresses() async {
-    try {
-      final list =
-          await ref.read(roomRepositoryProvider).listIngresses(_roomId);
-      if (mounted) setState(() => _ingresses = list);
-    } catch (_) {}
   }
 
   Future<void> _connectLiveKit() async {
@@ -147,6 +154,10 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
 
   @override
   void dispose() {
+    // Clear video track reference FIRST — prevents Duplicate GlobalKey
+    // during route transition when old & new pages briefly coexist.
+    _streamVideoTrack = null;
+
     _videoTrackSub?.cancel();
     _streamStatusSub?.cancel();
     _streamPlayer.dispose();
@@ -175,13 +186,10 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
 
   /// 打开直播流（连接独立的直播 LiveKit 房间）
   Future<void> _selectStream(IngressModel ingress) async {
-    if (_selectedIngress?.id == ingress.id) return;
-
     // 断开之前的直播连接
     await _streamPlayer.disconnect();
 
     setState(() {
-      _selectedIngress = ingress;
       _streamVideoTrack = null;
     });
 
@@ -206,9 +214,35 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
   Future<void> _closeStream() async {
     await _streamPlayer.disconnect();
     setState(() {
-      _selectedIngress = null;
       _streamVideoTrack = null;
     });
+  }
+
+  /// 全屏播放直播流
+  void _showFullscreen() {
+    if (_streamVideoTrack == null) return;
+    showDialog(
+      context: context,
+      barrierColor: Colors.transparent,
+      useSafeArea: false,
+      builder: (ctx) => Scaffold(
+        backgroundColor: Colors.black,
+        body: Stack(
+          fit: StackFit.expand,
+          children: [
+            lk.VideoTrackRenderer(_streamVideoTrack!),
+            Positioned(
+              top: 16,
+              right: 16,
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white, size: 24),
+                onPressed: () => Navigator.pop(ctx),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -216,327 +250,214 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
     final roomAsync = ref.watch(roomDetailProvider(_roomId));
     final messagesAsync = ref.watch(messagesStreamProvider(_roomId));
     final baseUrl = ref.watch(appSettingsProvider).value?.serverUrl;
+    final selectedIngress = ref.watch(selectedIngressProvider);
+    final streamMuted = ref.watch(streamMutedProvider);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(roomAsync.value?.name ?? '房间'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () {
-              context.push('/rooms/${widget.roomId}/settings');
-            },
-          ),
-        ],
-      ),
-      body: Row(
-        children: [
-          // 左侧边栏 - 直播列表
-          Container(
-            width: 220,
-            decoration: BoxDecoration(
-              border: Border(
-                right: BorderSide(color: Colors.grey.shade800),
-              ),
+    // React to stream selection from right panel
+    ref.listen<IngressModel?>(selectedIngressProvider, (prev, next) {
+      if (next != null && prev?.id != next.id) {
+        _selectStream(next);
+      } else if (next == null && prev != null) {
+        _closeStream();
+      }
+    });
+
+    // The Shell provides TitleBar, Sidebar, and RightPanel.
+    // This page only renders the center content area.
+    return Column(
+      children: [
+        // ─── Top bar (room name + controls) ──────────────
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(color: AppColors.border, width: 1),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text(
-                    '直播列表',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ),
-                // Ingress 推流列表（来自 API）
-                if (_ingresses.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
-                    child: Text('暂无直播', style: TextStyle(color: Colors.grey, fontSize: 12)),
-                  )
-                else
-                  ...(_ingresses.map((ingress) => ListTile(
-                        leading: Icon(
-                          Icons.videocam,
-                          color: _selectedIngress?.id == ingress.id
-                              ? Colors.red
-                              : Colors.grey,
-                        ),
-                        title: Text(
-                          ingress.label,
-                          style: const TextStyle(fontSize: 13),
-                        ),
-                        dense: true,
-                        selected: _selectedIngress?.id == ingress.id,
-                        onTap: () => _selectStream(ingress),
-                      ))),
+          ),
+          child: Row(
+            children: [
+              Text(
+                roomAsync.value?.name ?? '房间',
+                style: AppTypography.h3,
+              ),
+              const Spacer(),
+              _MiniControl(
+                icon: Icons.settings_outlined,
+                tooltip: '房间设置',
+                onTap: () =>
+                    context.go('/rooms/${widget.roomId}/settings'),
+              ),
+            ],
+          ),
+        ),
 
-                // 刷新按钮
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  child: TextButton.icon(
-                    onPressed: _loadIngresses,
-                    icon: const Icon(Icons.refresh, size: 14),
-                    label: const Text('刷新', style: TextStyle(fontSize: 12)),
-                  ),
-                ),
-
-                const Divider(),
-
-                // 房间设置入口
-                ListTile(
-                  leading: const Icon(Icons.settings_outlined),
-                  title: const Text('房间设置'),
-                  dense: true,
-                  onTap: () {
-                    context.push('/rooms/${widget.roomId}/settings');
-                  },
-                ),
-
-                const Spacer(),
-
-                // 底部控制栏
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    border: Border(
-                      top: BorderSide(color: Colors.grey.shade800),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        icon: Icon(_isMuted ? Icons.mic_off : Icons.mic),
-                        color: _isMuted ? Colors.red : Colors.green,
-                        tooltip: _isMuted ? '取消静音' : '静音',
-                        onPressed: _livekitConnected ? _toggleMute : null,
-                      ),
-                      if (_livekitConnected)
-                        const Padding(
-                          padding: EdgeInsets.only(left: 4),
-                          child: Icon(Icons.circle, color: Colors.green, size: 8),
-                        )
-                      else if (_livekitError != null)
-                        Flexible(
-                          child: Tooltip(
-                            message: _livekitError!,
-                            child: const Padding(
-                              padding: EdgeInsets.only(left: 4),
-                              child: Icon(Icons.circle, color: Colors.red, size: 8),
+        // ─── Main content ────────────────────────────────
+        Expanded(
+          child: Column(
+            children: [
+              // Video area — animated expand / collapse (16:9)
+              AnimatedSize(
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOutCubic,
+                alignment: Alignment.topCenter,
+                child: selectedIngress != null
+                    ? Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: AspectRatio(
+                          aspectRatio: 16 / 9,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: AppColors.cardActive,
+                              borderRadius: AppTheme.radiusStandard,
+                              border: Border.all(
+                                  color: AppColors.border, width: 1),
+                            ),
+                            child: ClipRRect(
+                              borderRadius: AppTheme.radiusStandard,
+                              child: _buildMainVideoView(
+                                selectedIngress,
+                                streamMuted,
+                              ),
                             ),
                           ),
-                        )
-                      else
-                        const Padding(
-                          padding: EdgeInsets.only(left: 4),
-                          child: SizedBox(
-                            width: 10, height: 10,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    : const SizedBox.shrink(),
+              ),
+
+              // Chat area — fills remaining space
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Column(
+                    children: [
+                      // Messages
+                      Expanded(
+                        child: messagesAsync.when(
+                          data: (messages) {
+                            if (messages.isEmpty) {
+                              return Center(
+                                child: Text('暂无消息',
+                                    style: AppTypography.bodySecondary),
+                              );
+                            }
+                            return ListView.builder(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 8),
+                              physics: const BouncingScrollPhysics(),
+                              itemCount: messages.length,
+                              itemBuilder: (context, index) {
+                                final message = messages[index];
+                                final sender = message.senderNickname ??
+                                    '用户${message.senderId}';
+                                return _ChatBubble(
+                                  sender: sender,
+                                  content: message.type == 'image'
+                                      ? null
+                                      : message.content,
+                                  imageUrl: message.type == 'image'
+                                      ? _resolveUrl(
+                                          baseUrl, message.content)
+                                      : null,
+                                );
+                              },
+                            );
+                          },
+                          loading: () => const Center(
+                              child: CircularProgressIndicator()),
+                          error: (error, _) => Center(
+                              child: Text('消息加载失败: $error',
+                                  style: AppTypography.bodySecondary)),
+                        ),
+                      ),
+
+                      // Input bar
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          border: Border(
+                            top: BorderSide(
+                                color: AppColors.border, width: 1),
                           ),
                         ),
-                      const Spacer(),
+                        child: Row(
+                          children: [
+                            // Voice mic toggle (moved from top bar)
+                            _VoiceControlButton(
+                              isMuted: _isMuted,
+                              isConnected: _livekitConnected,
+                              error: _livekitError,
+                              onToggle:
+                                  _livekitConnected ? _toggleMute : null,
+                            ),
+                            const SizedBox(width: 6),
+                            _MiniControl(
+                              icon: Icons.image_outlined,
+                              tooltip: '发送图片',
+                              onTap: _sendImage,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: TextField(
+                                controller: _messageController,
+                                style: TextStyle(
+                                    fontSize: 13,
+                                    color: AppColors.textPrimary),
+                                decoration: InputDecoration(
+                                  hintText: '输入消息...',
+                                  filled: true,
+                                  fillColor: AppColors.background,
+                                  contentPadding:
+                                      const EdgeInsets.symmetric(
+                                          horizontal: 14, vertical: 8),
+                                  border: OutlineInputBorder(
+                                    borderRadius:
+                                        AppTheme.radiusBubble,
+                                    borderSide: BorderSide.none,
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius:
+                                        AppTheme.radiusBubble,
+                                    borderSide: BorderSide(
+                                        color: AppColors.border,
+                                        width: 1),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius:
+                                        AppTheme.radiusBubble,
+                                    borderSide: BorderSide(
+                                        color: AppColors.primary,
+                                        width: 1),
+                                  ),
+                                ),
+                                onSubmitted: (_) => _sendMessage(),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            _MiniControl(
+                              icon: Icons.send,
+                              tooltip: '发送',
+                              onTap: _sendMessage,
+                              color: AppColors.primary,
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 ),
-              ],
-            ),
-          ),
-
-          // 主内容区
-          Expanded(
-            child: Column(
-              children: [
-                // 主视窗
-                Expanded(
-                  flex: 2,
-                  child: Container(
-                    margin: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade900,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: _buildMainVideoView(),
-                  ),
-                ),
-
-                // 消息区域
-                Expanded(
-                  flex: 1,
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 16),
-                    decoration: BoxDecoration(
-                      border: Border(
-                        top: BorderSide(color: Colors.grey.shade800),
-                      ),
-                    ),
-                    child: Column(
-                      children: [
-                        // 消息列表
-                        Expanded(
-                          child: messagesAsync.when(
-                            data: (messages) {
-                              if (messages.isEmpty) {
-                                return const Center(child: Text('暂无消息'));
-                              }
-                              return ListView.builder(
-                                itemCount: messages.length,
-                                itemBuilder: (context, index) {
-                                  final message = messages[index];
-                                  final sender = message.senderNickname ??
-                                      '用户${message.senderId}';
-                                  return ListTile(
-                                    dense: true,
-                                    title: Text(sender),
-                                    subtitle: message.type == 'image'
-                                        ? Image.network(
-                                            _resolveUrl(baseUrl, message.content),
-                                            height: 120,
-                                            fit: BoxFit.cover,
-                                          )
-                                        : Text(message.content),
-                                  );
-                                },
-                              );
-                            },
-                            loading: () =>
-                                const Center(child: CircularProgressIndicator()),
-                            error: (error, _) =>
-                                Center(child: Text('消息加载失败: $error')),
-                          ),
-                        ),
-
-                        // 输入框
-                        Padding(
-                          padding: const EdgeInsets.all(8),
-                          child: Row(
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.image),
-                                onPressed: _sendImage,
-                              ),
-                              Expanded(
-                                child: TextField(
-                                  controller: _messageController,
-                                  decoration: InputDecoration(
-                                    hintText: '输入消息...',
-                                    filled: true,
-                                    contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 10,
-                                    ),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(20),
-                                      borderSide: BorderSide.none,
-                                    ),
-                                  ),
-                                  onSubmitted: (_) => _sendMessage(),
-                                ),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.send),
-                                onPressed: _sendMessage,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // 右侧栏 - 在线成员
-          Container(
-            width: 200,
-            decoration: BoxDecoration(
-              border: Border(
-                left: BorderSide(color: Colors.grey.shade800),
               ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text(
-                    '在线成员',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ),
-                roomAsync.when(
-                  data: (room) {
-                    if (room.members.isEmpty) {
-                      return const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 16),
-                        child: Text('暂无成员'),
-                      );
-                    }
-                    return Expanded(
-                      child: ListView.builder(
-                        itemCount: room.members.length,
-                        itemBuilder: (context, index) {
-                          final member = room.members[index];
-                          return ListTile(
-                            leading: CircleAvatar(
-                              radius: 14,
-                              child: Text(
-                                member.nickname.isNotEmpty
-                                    ? member.nickname[0]
-                                    : '?',
-                              ),
-                            ),
-                            title: Text(member.nickname,
-                                style: const TextStyle(fontSize: 14)),
-                            trailing: const Icon(Icons.mic, size: 16, color: Colors.green),
-                            dense: true,
-                          );
-                        },
-                      ),
-                    );
-                  },
-                  loading: () => const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
-                    child: LinearProgressIndicator(),
-                  ),
-                  error: (error, _) => Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Text('成员加载失败: $error'),
-                  ),
-                ),
-
-                const Divider(),
-
-                // VLAN 面板
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: VlanPanel(roomId: widget.roomId),
-                ),
-              ],
-            ),
+            ],
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
-  Widget _buildMainVideoView() {
-    if (_selectedIngress == null) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.live_tv, size: 48, color: Colors.grey),
-            SizedBox(height: 8),
-            Text('点击左侧直播流开始观看',
-                style: TextStyle(color: Colors.grey)),
-          ],
-        ),
-      );
-    }
-
+  Widget _buildMainVideoView(
+    IngressModel selectedIngress,
+    bool streamMuted,
+  ) {
     // 正在连接或等待推流
     if (_streamVideoTrack == null) {
       String statusText;
@@ -560,13 +481,22 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             if (_streamStatus != StreamPlayerStatus.error)
-              const CircularProgressIndicator(),
+              SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: AppColors.primary),
+              ),
             if (_streamStatus == StreamPlayerStatus.error)
-              const Icon(Icons.error, size: 48, color: Colors.red),
+              Icon(Icons.error_outline, size: 40, color: AppColors.error),
+            const SizedBox(height: 10),
+            Text(statusText, style: AppTypography.bodySecondary),
             const SizedBox(height: 8),
-            Text(statusText, style: const TextStyle(color: Colors.grey)),
-            const SizedBox(height: 8),
-            TextButton(onPressed: _closeStream, child: const Text('关闭')),
+            TextButton(
+              onPressed: () =>
+                  ref.read(selectedIngressProvider.notifier).state = null,
+              child: const Text('关闭'),
+            ),
           ],
         ),
       );
@@ -574,19 +504,8 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
 
     return Stack(
       children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(12),
-          child: lk.VideoTrackRenderer(_streamVideoTrack!),
-        ),
-        Positioned(
-          top: 8,
-          right: 8,
-          child: IconButton(
-            icon: const Icon(Icons.close, color: Colors.white),
-            style: IconButton.styleFrom(backgroundColor: Colors.black54),
-            onPressed: _closeStream,
-          ),
-        ),
+        lk.VideoTrackRenderer(_streamVideoTrack!),
+        // ─── Label ──────────────────
         Positioned(
           bottom: 8,
           left: 8,
@@ -594,11 +513,57 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
               color: Colors.black54,
-              borderRadius: BorderRadius.circular(4),
+              borderRadius: AppTheme.radiusSmall,
             ),
             child: Text(
-              _selectedIngress!.label,
-              style: const TextStyle(color: Colors.white, fontSize: 12),
+              selectedIngress.label,
+              style: const TextStyle(color: Colors.white, fontSize: 11),
+            ),
+          ),
+        ),
+        // ─── Controls (bottom-right) ────
+        Positioned(
+          bottom: 8,
+          right: 8,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            decoration: BoxDecoration(
+              color: Colors.black54,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _MiniControl(
+                  icon: Icons.refresh,
+                  tooltip: '刷新直播',
+                  onTap: () => _selectStream(selectedIngress),
+                  color: Colors.white,
+                ),
+                _MiniControl(
+                  icon: Icons.fullscreen,
+                  tooltip: '全屏',
+                  onTap: _showFullscreen,
+                  color: Colors.white,
+                ),
+                _MiniControl(
+                  icon: streamMuted ? Icons.volume_off : Icons.volume_up,
+                  tooltip: streamMuted ? '取消静音' : '静音',
+                  onTap: () {
+                    final newMuted = !streamMuted;
+                    ref.read(streamMutedProvider.notifier).state = newMuted;
+                    _streamPlayer.setAudioMuted(newMuted);
+                  },
+                  color: Colors.white,
+                ),
+                _MiniControl(
+                  icon: Icons.close,
+                  tooltip: '关闭直播',
+                  onTap: () =>
+                      ref.read(selectedIngressProvider.notifier).state = null,
+                  color: Colors.white,
+                ),
+              ],
             ),
           ),
         ),
@@ -650,5 +615,206 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
         );
       }
     }
+  }
+}
+
+// ─── Private helper widgets ───────────────────────────────────
+
+/// A tiny circular icon button used in the room toolbar.
+class _MiniControl extends StatefulWidget {
+  const _MiniControl({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+    this.color,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+  final Color? color;
+
+  @override
+  State<_MiniControl> createState() => _MiniControlState();
+}
+
+class _MiniControlState extends State<_MiniControl> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: widget.tooltip,
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: AppTheme.durationHover,
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: _hovered ? AppColors.hoverOverlay : Colors.transparent,
+              borderRadius: AppTheme.radiusSmall,
+            ),
+            child: Icon(
+              widget.icon,
+              size: 16,
+              color: widget.color ?? AppColors.textSecondary,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Voice mic button with connection status indicator.
+class _VoiceControlButton extends StatelessWidget {
+  const _VoiceControlButton({
+    required this.isMuted,
+    required this.isConnected,
+    this.error,
+    this.onToggle,
+  });
+
+  final bool isMuted;
+  final bool isConnected;
+  final String? error;
+  final VoidCallback? onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: error ?? (isMuted ? '取消静音' : '静音'),
+      child: GestureDetector(
+        onTap: onToggle,
+        child: MouseRegion(
+          cursor: onToggle != null
+              ? SystemMouseCursors.click
+              : SystemMouseCursors.basic,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: AppColors.cardActive,
+              borderRadius: AppTheme.radiusSmall,
+              border: Border.all(color: AppColors.border, width: 1),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  isMuted ? Icons.mic_off : Icons.mic,
+                  size: 14,
+                  color: isMuted ? AppColors.error : AppColors.success,
+                ),
+                const SizedBox(width: 4),
+                if (isConnected)
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: AppColors.success,
+                    ),
+                  )
+                else if (error != null)
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: AppColors.error,
+                    ),
+                  )
+                else
+                  const SizedBox(
+                    width: 8,
+                    height: 8,
+                    child:
+                        CircularProgressIndicator(strokeWidth: 1.5),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A styled chat message bubble.
+class _ChatBubble extends StatelessWidget {
+  const _ChatBubble({
+    required this.sender,
+    this.content,
+    this.imageUrl,
+  });
+
+  final String sender;
+  final String? content;
+  final String? imageUrl;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 12,
+            backgroundColor: AppColors.primary.withOpacity(0.15),
+            child: Text(
+              sender.isNotEmpty ? sender[0] : '?',
+              style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.primary),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(sender,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.textSecondary,
+                    )),
+                const SizedBox(height: 2),
+                if (content != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: AppColors.cardHover,
+                      borderRadius: AppTheme.radiusBubble,
+                    ),
+                    child: Text(content!,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: AppColors.textPrimary,
+                        )),
+                  ),
+                if (imageUrl != null)
+                  ClipRRect(
+                    borderRadius: AppTheme.radiusStandard,
+                    child: Image.network(
+                      imageUrl!,
+                      height: 120,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

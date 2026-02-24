@@ -11,14 +11,35 @@ void main() async {
   
   // 初始化窗口管理器
   await windowManager.ensureInitialized();
-  await windowManager.setMinimumSize(const Size(900, 600));
-  await windowManager.setTitle('NexusRoom');
+  
+  const windowOptions = WindowOptions(
+    minimumSize: Size(900, 600),
+    size: Size(1200, 800),
+    center: true,
+    titleBarStyle: TitleBarStyle.hidden,
+    title: 'NexusRoom',
+    backgroundColor: Colors.transparent,
+  );
+  
+  await windowManager.waitUntilReadyToShow(windowOptions, () async {
+    await windowManager.show();
+    await windowManager.focus();
+  });
   
   runApp(
     const ProviderScope(
       child: NexusRoomApp(),
     ),
   );
+}
+
+/// Global scroll behavior — BouncingScrollPhysics on all platforms (macOS feel).
+class _MacScrollBehavior extends ScrollBehavior {
+  const _MacScrollBehavior();
+
+  @override
+  ScrollPhysics getScrollPhysics(BuildContext context) =>
+      const BouncingScrollPhysics();
 }
 
 class NexusRoomApp extends ConsumerStatefulWidget {
@@ -46,6 +67,7 @@ class _NexusRoomAppState extends ConsumerState<NexusRoomApp> {
       darkTheme: AppTheme.darkTheme,
       themeMode: ThemeMode.dark,
       routerConfig: router,
+      scrollBehavior: const _MacScrollBehavior(),
     );
   }
 }

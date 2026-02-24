@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:dio/dio.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../../../app/theme/app_colors.dart';
+import '../../../../app/theme/app_typography.dart';
+import '../../../../app/widgets/glass_container.dart';
+import '../../../../app/widgets/mac_dialog.dart';
 import '../../../../core/providers/app_providers.dart';
 
 /// 客户端设置页：头像上传、昵称修改、更换服务器、退出登录
@@ -98,53 +101,47 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   }
 
   Future<void> _changeServer() async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showMacDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('更换服务器'),
-        content: const Text('更换服务器将清除本地登录状态，确认继续？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('确认'),
-          ),
-        ],
-      ),
+      title: '更换服务器',
+      content: '更换服务器将清除本地登录状态，确认继续？',
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('取消'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('确认'),
+        ),
+      ],
     );
     if (confirmed != true || !mounted) return;
 
+    // 先清状态，GoRouter redirect 会自动导航到 /setup
     await ref.read(appSettingsProvider.notifier).clearAll();
-    if (!mounted) return;
-    context.go('/setup');
   }
 
   Future<void> _logout() async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showMacDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('退出登录'),
-        content: const Text('确认退出当前账号？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('确认'),
-          ),
-        ],
-      ),
+      title: '退出登录',
+      content: '确认退出当前账号？',
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('取消'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('确认'),
+        ),
+      ],
     );
     if (confirmed != true || !mounted) return;
 
+    // 先清状态，GoRouter redirect 会自动导航到 /login
     await ref.read(appSettingsProvider.notifier).clearAuth();
-    if (!mounted) return;
-    context.go('/login');
   }
 
   @override
@@ -163,109 +160,164 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final settings = ref.watch(appSettingsProvider).valueOrNull;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('设置'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.go('/home'),
-        ),
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.all(24),
-              children: [
-                // 头像
-                Center(
-                  child: GestureDetector(
-                    onTap: _uploadAvatar,
-                    child: Stack(
-                      children: [
-                        CircleAvatar(
-                          radius: 48,
-                          backgroundImage: _avatarUrl != null &&
-                                  _avatarUrl!.isNotEmpty
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return ListView(
+      padding: const EdgeInsets.all(28),
+      children: [
+        Text('设置', style: AppTypography.h1),
+        const SizedBox(height: 24),
+
+        // ─── Profile card ──────────────────────────────────
+        GlassContainer(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            children: [
+              GestureDetector(
+                onTap: _uploadAvatar,
+                child: Stack(
+                  children: [
+                    CircleAvatar(
+                      radius: 42,
+                      backgroundColor: AppColors.cardActive,
+                      backgroundImage:
+                          _avatarUrl != null && _avatarUrl!.isNotEmpty
                               ? NetworkImage(_avatarUrl!)
                               : null,
-                          child:
-                              _avatarUrl == null || _avatarUrl!.isEmpty
-                                  ? const Icon(Icons.person, size: 48)
-                                  : null,
+                      child: _avatarUrl == null || _avatarUrl!.isEmpty
+                          ? Icon(Icons.person,
+                              size: 36, color: AppColors.textMuted)
+                          : null,
+                    ),
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: AppColors.accent,
+                          shape: BoxShape.circle,
                         ),
-                        Positioned(
-                          bottom: 0,
-                          right: 0,
-                          child: Container(
-                            padding: const EdgeInsets.all(4),
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.primary,
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.camera_alt,
-                              size: 16,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ],
+                        child: const Icon(Icons.camera_alt,
+                            size: 14, color: Colors.white),
+                      ),
                     ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (_userDisplayId != null)
+                Text('ID: $_userDisplayId',
+                    style: TextStyle(
+                        fontSize: AppTypography.sizeCaption,
+                        color: AppColors.textMuted)),
+              const SizedBox(height: 16),
+
+              TextField(
+                controller: _nicknameController,
+                decoration: InputDecoration(
+                  labelText: '昵称',
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.check),
+                    onPressed: _updateNickname,
                   ),
                 ),
-                const SizedBox(height: 8),
-                if (_userDisplayId != null)
-                  Center(
-                    child: Text(
-                      'ID: $_userDisplayId',
-                      style: theme.textTheme.bodySmall,
-                    ),
-                  ),
-                const SizedBox(height: 24),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
 
-                // 昵称修改
-                TextField(
-                  controller: _nicknameController,
-                  decoration: InputDecoration(
-                    labelText: '昵称',
-                    border: const OutlineInputBorder(),
-                    suffixIcon: IconButton(
-                      icon: const Icon(Icons.check),
-                      onPressed: _updateNickname,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
+        // ─── Server info ───────────────────────────────────
+        GlassContainer(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Column(
+            children: [
+              _SettingsTile(
+                icon: Icons.dns_outlined,
+                label: '当前服务器',
+                subtitle: settings?.serverUrl ?? '未配置',
+              ),
+              Divider(height: 1, color: AppColors.border),
+              _SettingsTile(
+                icon: Icons.swap_horiz,
+                label: '更换服务器',
+                onTap: _changeServer,
+              ),
+              Divider(height: 1, color: AppColors.border),
+              _SettingsTile(
+                icon: Icons.logout,
+                label: '退出登录',
+                iconColor: AppColors.error,
+                labelColor: AppColors.error,
+                onTap: _logout,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
 
-                // 当前服务器
-                ListTile(
-                  leading: const Icon(Icons.dns),
-                  title: const Text('当前服务器'),
-                  subtitle: Text(settings?.serverUrl ?? '未配置'),
-                ),
-                const Divider(),
+class _SettingsTile extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final String? subtitle;
+  final Color? iconColor;
+  final Color? labelColor;
+  final VoidCallback? onTap;
 
-                // 更换服务器
-                ListTile(
-                  leading: const Icon(Icons.swap_horiz),
-                  title: const Text('更换服务器'),
-                  onTap: _changeServer,
-                ),
+  const _SettingsTile({
+    required this.icon,
+    required this.label,
+    this.subtitle,
+    this.iconColor,
+    this.labelColor,
+    this.onTap,
+  });
 
-                // 退出登录
-                ListTile(
-                  leading: const Icon(Icons.logout, color: Colors.red),
-                  title: const Text(
-                    '退出登录',
-                    style: TextStyle(color: Colors.red),
-                  ),
-                  onTap: _logout,
-                ),
-              ],
-            ),
+  @override
+  State<_SettingsTile> createState() => _SettingsTileState();
+}
+
+class _SettingsTileState extends State<_SettingsTile> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeOutCubic,
+        color: _hovered ? AppColors.hoverOverlay : Colors.transparent,
+        child: ListTile(
+          dense: true,
+          leading: Icon(widget.icon,
+              size: 18, color: widget.iconColor ?? AppColors.textSecondary),
+          title: Text(widget.label,
+              style: TextStyle(
+                  fontSize: AppTypography.sizeBody,
+                  color: widget.labelColor ?? AppColors.textPrimary)),
+          subtitle: widget.subtitle != null
+              ? Text(widget.subtitle!,
+                  style: TextStyle(
+                      fontSize: AppTypography.sizeCaption,
+                      color: AppColors.textMuted))
+              : null,
+          trailing: widget.onTap != null
+              ? Icon(Icons.chevron_right,
+                  size: 16, color: AppColors.textMuted)
+              : null,
+          onTap: widget.onTap,
+        ),
+      ),
     );
   }
 }
