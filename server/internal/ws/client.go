@@ -139,6 +139,8 @@ func (c *Client) HandleMessage(data []byte) {
 		return
 	}
 
+	log.Printf("[WS] User %d event=%s room_id=%d", c.UserID, envelope.Event, envelope.RoomID)
+
 	// 路由到对应的处理器
 	switch envelope.Event {
 	case EventHeartbeat:
@@ -169,6 +171,7 @@ func (c *Client) handleHeartbeat() {
 func (c *Client) handleRoomJoin(env Envelope) {
 	var p RoomJoinPayload
 	if err := json.Unmarshal(env.Payload, &p); err != nil {
+		log.Printf("[WS] User %d room.join unmarshal error: %v", c.UserID, err)
 		return
 	}
 
@@ -180,10 +183,12 @@ func (c *Client) handleRoomJoin(env Envelope) {
 
 	// 校验用户是否是房间成员
 	if !c.Hub.roomRepo.IsMember(roomID, c.UserID) {
+		log.Printf("[WS] User %d room.join(%d) REJECTED — not a member", c.UserID, roomID)
 		return
 	}
 
 	c.JoinRoom(roomID)
+	log.Printf("[WS] User %d joined room %d, rooms=%v", c.UserID, roomID, c.GetRooms())
 
 	// 获取用户真实昵称和头像
 	nickname := c.Username
@@ -223,6 +228,7 @@ func (c *Client) handleRoomLeave(env Envelope) {
 func (c *Client) handleChatSend(env Envelope) {
 	var p ChatSendPayload
 	if err := json.Unmarshal(env.Payload, &p); err != nil {
+		log.Printf("[WS] User %d chat.send unmarshal error: %v", c.UserID, err)
 		return
 	}
 
@@ -230,6 +236,7 @@ func (c *Client) handleChatSend(env Envelope) {
 	if env.RoomID != 0 {
 		p.RoomID = env.RoomID
 	}
+	log.Printf("[WS] User %d chat.send -> room %d, content=%q", c.UserID, p.RoomID, p.Content)
 
 	// 调用 Hub 处理消息发送
 	c.Hub.HandleChatSend(c, p)

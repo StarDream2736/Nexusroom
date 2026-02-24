@@ -68,7 +68,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
 
       // ─── Authenticated Shell ───────────────────────────
       ShellRoute(
-        builder: (context, state, child) => AppShell(child: child),
+        builder: (context, state, child) => AppShell(
+          location: state.uri.toString(),
+          child: child,
+        ),
         routes: [
           GoRoute(
             path: '/home',
