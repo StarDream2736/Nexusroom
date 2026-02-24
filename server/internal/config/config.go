@@ -2,19 +2,20 @@ package config
 
 import (
 	"fmt"
+
 	"github.com/spf13/viper"
 )
 
 type Config struct {
-	Server          ServerConfig          `mapstructure:"server"`
-	Database        DatabaseConfig        `mapstructure:"database"`
-	Redis           RedisConfig           `mapstructure:"redis"`
-	Auth            AuthConfig            `mapstructure:"auth"`
-	Message         MessageConfig         `mapstructure:"message"`
-	LiveKit         LiveKitConfig         `mapstructure:"livekit"`
-	LiveKitIngress  LiveKitIngressConfig  `mapstructure:"livekit_ingress"`
-	WireGuard       WireGuardConfig       `mapstructure:"wireguard"`
-	Storage         StorageConfig         `mapstructure:"storage"`
+	Server         ServerConfig         `mapstructure:"server"`
+	Database       DatabaseConfig       `mapstructure:"database"`
+	Redis          RedisConfig          `mapstructure:"redis"`
+	Auth           AuthConfig           `mapstructure:"auth"`
+	Message        MessageConfig        `mapstructure:"message"`
+	LiveKit        LiveKitConfig        `mapstructure:"livekit"`
+	LiveKitIngress LiveKitIngressConfig `mapstructure:"livekit_ingress"`
+	WireGuard      WireGuardConfig      `mapstructure:"wireguard"`
+	Storage        StorageConfig        `mapstructure:"storage"`
 }
 
 type ServerConfig struct {
@@ -49,6 +50,7 @@ type MessageConfig struct {
 
 type LiveKitConfig struct {
 	URL       string `mapstructure:"url"`
+	PublicURL string `mapstructure:"public_url"`
 	APIKey    string `mapstructure:"api_key"`
 	APISecret string `mapstructure:"api_secret"`
 }
@@ -66,8 +68,8 @@ type WireGuardConfig struct {
 }
 
 type StorageConfig struct {
-	Path         string `mapstructure:"path"`
-	MaxFileSizeMB int   `mapstructure:"max_file_size_mb"`
+	Path          string `mapstructure:"path"`
+	MaxFileSizeMB int    `mapstructure:"max_file_size_mb"`
 }
 
 var GlobalConfig *Config

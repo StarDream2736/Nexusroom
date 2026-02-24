@@ -34,4 +34,10 @@ class SettingsRepository {
     await _dao.remove(_usernameKey);
     await _dao.remove(_nicknameKey);
   }
+
+  /// 清除所有设置（包括服务器地址），用于“更换服务器”
+  Future<void> clearAll() async {
+    await clearAuth();
+    await _dao.remove(_serverUrlKey);
+  }
 }

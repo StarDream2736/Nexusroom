@@ -29,6 +29,7 @@ message:
 
 livekit:
   url: ws://livekit:7880          # Docker 内网访问
+  public_url: ws://127.0.0.1:7880 # 客户端访问地址（本机调试可用）
   api_key: "your-livekit-key"
   api_secret: "your-livekit-secret"
 

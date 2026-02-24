@@ -5,9 +5,12 @@ import '../../core/providers/app_providers.dart';
 import '../../features/auth/presentation/pages/server_setup_page.dart';
 import '../../features/auth/presentation/pages/login_page.dart';
 import '../../features/auth/presentation/pages/register_page.dart';
+import '../../features/auth/presentation/pages/settings_page.dart';
 import '../../features/room/presentation/pages/room_list_page.dart';
 import '../../features/room/presentation/pages/room_detail_page.dart';
+import '../../features/room/presentation/pages/room_settings_page.dart';
 import '../../features/room/presentation/pages/create_room_page.dart';
+import '../../features/user/presentation/pages/friends_page.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   final settings = ref.watch(appSettingsProvider);
@@ -52,6 +55,27 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           final roomId = state.pathParameters['id']!;
           return RoomDetailPage(roomId: roomId);
         },
+      ),
+
+      // 房间设置
+      GoRoute(
+        path: '/rooms/:id/settings',
+        builder: (context, state) {
+          final roomId = state.pathParameters['id']!;
+          return RoomSettingsPage(roomId: roomId);
+        },
+      ),
+
+      // 客户端设置
+      GoRoute(
+        path: '/settings',
+        builder: (context, state) => const SettingsPage(),
+      ),
+
+      // 好友
+      GoRoute(
+        path: '/friends',
+        builder: (context, state) => const FriendsPage(),
       ),
     ],
     redirect: (context, state) {

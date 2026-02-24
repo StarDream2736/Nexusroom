@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/providers/app_providers.dart';
+import '../providers/rooms_provider.dart';
 
 class CreateRoomPage extends ConsumerStatefulWidget {
   const CreateRoomPage({super.key});
@@ -30,10 +31,10 @@ class _CreateRoomPageState extends ConsumerState<CreateRoomPage> {
     try {
       final name = _nameController.text.trim();
 
-      final room = await ref.read(roomRepositoryProvider).createRoom(name);
+      await ref.read(roomRepositoryProvider).createRoom(name);
 
-      // 创建成功，返回到房间列表（会自动刷新）
       if (mounted) {
+        ref.invalidate(roomsProvider);
         context.pop();
       }
     } catch (e) {

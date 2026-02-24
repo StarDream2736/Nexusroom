@@ -4,7 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
 	"golang.org/x/crypto/bcrypt"
-	
+
 	"nexusroom-server/internal/config"
 	"nexusroom-server/internal/model"
 	"nexusroom-server/internal/repository"
@@ -44,53 +44,65 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		util.Error(c, 40001, "参数校验失败")
 		return
 	}
-	
+
 	validate := validator.New()
 	if err := validate.Struct(req); err != nil {
 		util.Error(c, 40001, err.Error())
 		return
 	}
-	
+
 	// 检查用户名是否已存在
 	existingUser, _ := h.userRepo.FindByUsername(req.Username)
 	if existingUser != nil {
 		util.Error(c, 40901, "用户名已存在")
 		return
 	}
-	
+
 	// 密码哈希
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), 12)
 	if err != nil {
 		util.Error(c, 50001, "密码加密失败")
 		return
 	}
-	
+
 	// 确定角色
 	role := "user"
-	if req.AdminToken != "" && req.AdminToken == config.GlobalConfig.Auth.AdminToken {
+	if req.AdminToken != "" {
+		if config.GlobalConfig.Auth.AdminToken == "" || req.AdminToken != config.GlobalConfig.Auth.AdminToken {
+			util.Error(c, 40302, "超管令牌错误")
+			return
+		}
 		role = "super_admin"
 	}
-	
-	// 创建用户
+
+	// 创建用户（含 DisplayID 碰撞重试）
 	user := &model.User{
 		Username:     req.Username,
 		PasswordHash: string(hashedPassword),
 		Nickname:     req.Nickname,
 		Role:         role,
 	}
-	
-	if err := h.userRepo.Create(user); err != nil {
+
+	var createErr error
+	for i := 0; i < 3; i++ {
+		if createErr = h.userRepo.Create(user); createErr == nil {
+			break
+		}
+		// 重试前重新生成 DisplayID
+		user.UserDisplayID = model.GenerateDisplayID()
+	}
+	if createErr != nil {
 		util.Error(c, 50001, "创建用户失败")
 		return
 	}
-	
+
 	// 生成 Token
 	token, err := jwt.GenerateToken(user.ID, user.Username, user.Role)
 	if err != nil {
 		util.Error(c, 50001, "Token 生成失败")
 		return
 	}
-	
+
 	util.Success(c, AuthResponse{
 		UserID:        user.ID,
 		UserDisplayID: user.UserDisplayID,
@@ -104,36 +116,36 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		util.Error(c, 40001, "参数校验失败")
 		return
 	}
-	
+
 	// 查找用户
 	user, err := h.userRepo.FindByUsername(req.Username)
 	if err != nil {
 		util.Error(c, 40101, "用户名或密码错误")
 		return
 	}
-	
+
 	// 验证密码
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
 		util.Error(c, 40101, "用户名或密码错误")
 		return
 	}
-	
+
 	// 检查账户是否启用
 	if !user.IsActive {
 		util.Error(c, 40301, "账户已被禁用")
 		return
 	}
-	
+
 	// 更新最后登录时间
 	h.userRepo.UpdateLastLogin(user.ID)
-	
+
 	// 生成 Token
 	token, err := jwt.GenerateToken(user.ID, user.Username, user.Role)
 	if err != nil {
 		util.Error(c, 50001, "Token 生成失败")
 		return
 	}
-	
+
 	util.Success(c, AuthResponse{
 		UserID:        user.ID,
 		UserDisplayID: user.UserDisplayID,

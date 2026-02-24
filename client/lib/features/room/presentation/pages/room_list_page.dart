@@ -17,10 +17,14 @@ class RoomListPage extends ConsumerWidget {
         title: const Text('我的房间'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.person_outline),
-            onPressed: () {
-              // TODO: 打开用户设置
-            },
+            icon: const Icon(Icons.people_outline),
+            tooltip: '好友',
+            onPressed: () => context.push('/friends'),
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: '设置',
+            onPressed: () => context.push('/settings'),
           ),
         ],
       ),

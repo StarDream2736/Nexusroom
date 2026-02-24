@@ -2,9 +2,10 @@ package repository
 
 import (
 	"time"
-	
-	"gorm.io/gorm"
+
 	"nexusroom-server/internal/model"
+
+	"gorm.io/gorm"
 )
 
 type MessageRepository struct {
@@ -47,12 +48,12 @@ func (r *MessageRepository) GetMessagesBefore(roomID uint64, beforeID uint64, li
 		Limit(limit).
 		Preload("Sender").
 		Find(&messages).Error
-	
+
 	// 反转顺序
 	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
 		messages[i], messages[j] = messages[j], messages[i]
 	}
-	
+
 	return messages, err
 }
 
@@ -64,13 +65,20 @@ func (r *MessageRepository) GetLatestMessages(roomID uint64, limit int) ([]model
 		Limit(limit).
 		Preload("Sender").
 		Find(&messages).Error
-	
+
 	// 反转顺序
 	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
 		messages[i], messages[j] = messages[j], messages[i]
 	}
-	
+
 	return messages, err
+}
+
+// Count 统计消息总数
+func (r *MessageRepository) Count() int64 {
+	var total int64
+	r.db.Model(&model.Message{}).Count(&total)
+	return total
 }
 
 // CleanupOldMessages 清理过期消息
@@ -78,7 +86,7 @@ func (r *MessageRepository) CleanupOldMessages(retentionDays int) error {
 	if retentionDays <= 0 {
 		return nil // 0 表示永久保留
 	}
-	
+
 	cutoffTime := time.Now().AddDate(0, 0, -retentionDays)
 	return r.db.Where("created_at < ?", cutoffTime).Delete(&model.Message{}).Error
 }

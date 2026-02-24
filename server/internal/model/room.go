@@ -1,9 +1,10 @@
 package model
 
 import (
-	"math/rand"
+	cryptorand "crypto/rand"
+	"math/big"
 	"time"
-	
+
 	"gorm.io/gorm"
 )
 
@@ -15,10 +16,10 @@ type Room struct {
 	OwnerID         uint64    `gorm:"not null;index" json:"owner_id"`
 	LiveKitRoomName string    `gorm:"uniqueIndex;size:128;not null" json:"livekit_room_name"`
 	CreatedAt       time.Time `json:"created_at"`
-	
+
 	// 关联
-	Owner   User          `gorm:"foreignKey:OwnerID" json:"owner,omitempty"`
-	Members []RoomMember  `gorm:"foreignKey:RoomID" json:"members,omitempty"`
+	Owner   User         `gorm:"foreignKey:OwnerID" json:"owner,omitempty"`
+	Members []RoomMember `gorm:"foreignKey:RoomID" json:"members,omitempty"`
 }
 
 func (Room) TableName() string {
@@ -40,20 +41,20 @@ func (r *Room) BeforeCreate(tx *gorm.DB) error {
 
 func GenerateInviteCode() string {
 	const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // 排除易混淆字符
-	rand.Seed(time.Now().UnixNano())
 	result := make([]byte, 6)
 	for i := range result {
-		result[i] = chars[rand.Intn(len(chars))]
+		n, _ := cryptorand.Int(cryptorand.Reader, big.NewInt(int64(len(chars))))
+		result[i] = chars[n.Int64()]
 	}
 	return string(result)
 }
 
 func GenerateRandomString(length int) string {
 	const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
-	rand.Seed(time.Now().UnixNano())
 	result := make([]byte, length)
 	for i := range result {
-		result[i] = chars[rand.Intn(len(chars))]
+		n, _ := cryptorand.Int(cryptorand.Reader, big.NewInt(int64(len(chars))))
+		result[i] = chars[n.Int64()]
 	}
 	return string(result)
 }

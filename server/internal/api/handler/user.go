@@ -1,14 +1,15 @@
 package handler
 
 import (
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	
+
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
-	
+
 	"nexusroom-server/internal/config"
 	"nexusroom-server/internal/repository"
 	"nexusroom-server/pkg/util"
@@ -34,13 +35,13 @@ type UpdateProfileRequest struct {
 
 func (h *UserHandler) GetMe(c *gin.Context) {
 	userID := c.GetUint64("userID")
-	
+
 	user, err := h.userRepo.FindByID(userID)
 	if err != nil {
 		util.Error(c, 40401, "用户不存在")
 		return
 	}
-	
+
 	util.Success(c, gin.H{
 		"id":              user.ID,
 		"user_display_id": user.UserDisplayID,
@@ -58,20 +59,20 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 		util.Error(c, 40001, "参数校验失败")
 		return
 	}
-	
+
 	validate := validator.New()
 	if err := validate.Struct(req); err != nil {
 		util.Error(c, 40001, err.Error())
 		return
 	}
-	
+
 	userID := c.GetUint64("userID")
-	
+
 	if err := h.userRepo.UpdateProfile(userID, req.Nickname, ""); err != nil {
 		util.Error(c, 50001, "更新资料失败")
 		return
 	}
-	
+
 	util.Success(c, nil)
 }
 
@@ -81,13 +82,13 @@ func (h *UserHandler) SearchByDisplayID(c *gin.Context) {
 		util.Error(c, 40001, "display_id 不能为空")
 		return
 	}
-	
+
 	user, err := h.userRepo.FindByDisplayID(displayID)
 	if err != nil {
 		util.Error(c, 40401, "用户不存在")
 		return
 	}
-	
+
 	util.Success(c, gin.H{
 		"id":              user.ID,
 		"user_display_id": user.UserDisplayID,
@@ -112,6 +113,21 @@ func (h *UserHandler) UploadAvatar(c *gin.Context) {
 	mimeType := file.Header.Get("Content-Type")
 	if !strings.HasPrefix(mimeType, "image/") {
 		util.Error(c, 40001, "仅支持图片类型")
+		return
+	}
+
+	// 校验 magic bytes 防止伪造 Content-Type
+	f, err := file.Open()
+	if err != nil {
+		util.Error(c, 50001, "读取文件失败")
+		return
+	}
+	defer f.Close()
+	buf := make([]byte, 512)
+	n, _ := f.Read(buf)
+	detectedType := http.DetectContentType(buf[:n])
+	if !strings.HasPrefix(detectedType, "image/") {
+		util.Error(c, 40001, "文件内容不是有效图片")
 		return
 	}
 

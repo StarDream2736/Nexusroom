@@ -1,0 +1,154 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+import 'package:livekit_client/livekit_client.dart';
+
+/// 独立的直播流播放器，连接到专用的直播 LiveKit 房间。
+/// 与语音房间的 LiveKitService 完全隔离。
+class StreamPlayer {
+  Room? _room;
+  EventsListener<RoomEvent>? _listener;
+
+  final _videoTrackController = StreamController<VideoTrack?>.broadcast();
+  final _statusController = StreamController<StreamPlayerStatus>.broadcast();
+
+  VideoTrack? _currentVideoTrack;
+  StreamPlayerStatus _status = StreamPlayerStatus.idle;
+
+  Stream<VideoTrack?> get videoTrackStream => _videoTrackController.stream;
+  Stream<StreamPlayerStatus> get statusStream => _statusController.stream;
+  VideoTrack? get currentVideoTrack => _currentVideoTrack;
+  StreamPlayerStatus get status => _status;
+
+  /// 连接到直播房间并自动订阅 ingress 视频+音频
+  Future<void> connect(String url, String token) async {
+    await disconnect();
+
+    _setStatus(StreamPlayerStatus.connecting);
+
+    _room = Room(
+      roomOptions: const RoomOptions(
+        adaptiveStream: true,
+        dynacast: true,
+        // 直播观看者不发布任何轨道
+        defaultAudioPublishOptions: AudioPublishOptions(dtx: true),
+      ),
+    );
+
+    _listener = _room!.createListener();
+    _setupListeners();
+
+    try {
+      await _room!.connect(url, token).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {
+          throw TimeoutException('直播房间连接超时');
+        },
+      );
+      debugPrint('[StreamPlayer] Connected to stream room');
+      _setStatus(StreamPlayerStatus.connected);
+
+      // 连接成功后，订阅已在房间内的 ingress 参与者
+      _subscribeAllTracks();
+    } catch (e) {
+      debugPrint('[StreamPlayer] Connection failed: $e');
+      _setStatus(StreamPlayerStatus.error);
+      rethrow;
+    }
+  }
+
+  /// 断开直播房间连接
+  Future<void> disconnect() async {
+    _listener?.dispose();
+    _listener = null;
+    _currentVideoTrack = null;
+    if (!_videoTrackController.isClosed) {
+      _videoTrackController.add(null);
+    }
+    await _room?.disconnect();
+    await _room?.dispose();
+    _room = null;
+    _setStatus(StreamPlayerStatus.idle);
+  }
+
+  void _setupListeners() {
+    _listener
+      ?..on<ParticipantConnectedEvent>((e) {
+        debugPrint('[StreamPlayer] Participant joined: ${e.participant.identity}');
+        _subscribeAllTracks();
+      })
+      ..on<ParticipantDisconnectedEvent>((e) {
+        debugPrint('[StreamPlayer] Participant left: ${e.participant.identity}');
+        // 如果 ingress 断开，清空视频
+        if (_room?.remoteParticipants.isEmpty ?? true) {
+          _currentVideoTrack = null;
+          _videoTrackController.add(null);
+          _setStatus(StreamPlayerStatus.waitingForStream);
+        }
+      })
+      ..on<TrackPublishedEvent>((_) => _subscribeAllTracks())
+      ..on<TrackSubscribedEvent>((e) {
+        debugPrint('[StreamPlayer] Track subscribed: kind=${e.track.kind}');
+        if (e.track is VideoTrack) {
+          _currentVideoTrack = e.track as VideoTrack;
+          _videoTrackController.add(_currentVideoTrack);
+          _setStatus(StreamPlayerStatus.playing);
+        }
+      })
+      ..on<TrackUnsubscribedEvent>((e) {
+        if (e.track is VideoTrack) {
+          _currentVideoTrack = null;
+          _videoTrackController.add(null);
+        }
+      })
+      ..on<RoomDisconnectedEvent>((_) {
+        debugPrint('[StreamPlayer] Room disconnected');
+        _setStatus(StreamPlayerStatus.idle);
+      });
+  }
+
+  /// 订阅房间内所有远端参与者的音视频轨道
+  void _subscribeAllTracks() {
+    final participants = _room?.remoteParticipants.values ?? [];
+    for (final p in participants) {
+      for (final pub in p.videoTrackPublications) {
+        if (!pub.subscribed) {
+          pub.subscribe();
+        }
+        pub.enable();
+      }
+      for (final pub in p.audioTrackPublications) {
+        if (!pub.subscribed) {
+          pub.subscribe();
+        }
+        pub.enable();
+      }
+    }
+
+    if (participants.isEmpty && _status == StreamPlayerStatus.connected) {
+      _setStatus(StreamPlayerStatus.waitingForStream);
+    }
+  }
+
+  void _setStatus(StreamPlayerStatus s) {
+    _status = s;
+    if (!_statusController.isClosed) {
+      _statusController.add(s);
+    }
+  }
+
+  void dispose() {
+    disconnect();
+    _videoTrackController.close();
+    _statusController.close();
+  }
+}
+
+enum StreamPlayerStatus {
+  idle,
+  connecting,
+  connected,
+  waitingForStream,
+  playing,
+  error,
+}

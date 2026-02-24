@@ -8,9 +8,10 @@ class FileRepository {
 
   final ApiClient _client;
 
-  Future<UploadedFile> uploadFile(String path) async {
+  Future<UploadedFile> uploadFile(String path, {required int roomId}) async {
     final formData = FormData.fromMap({
       'file': await MultipartFile.fromFile(path),
+      'room_id': roomId,
     });
 
     final data = await _client.postForm('/api/v1/files/upload', formData);

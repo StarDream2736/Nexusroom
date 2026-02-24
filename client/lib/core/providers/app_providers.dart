@@ -3,13 +3,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../db/app_database.dart';
 import '../models/app_settings.dart';
 import '../network/api_client.dart';
+import '../network/livekit_service.dart';
 import '../network/ws_service.dart';
+import '../native/wireguard_service.dart';
 import '../repositories/settings_repository.dart';
 import '../repositories/file_repository.dart';
 import '../state/app_settings_controller.dart';
+import '../window/window_lifecycle_service.dart';
 import '../../features/auth/data/auth_repository.dart';
 import '../../features/room/data/message_repository.dart';
 import '../../features/room/data/room_repository.dart';
+import '../../features/user/data/user_repository.dart';
+import '../../features/user/data/friend_repository.dart';
+import '../../features/vlan/data/vlan_repository.dart';
 
 final appDatabaseProvider = Provider<AppDatabase>((ref) {
   final db = AppDatabase();
@@ -56,6 +62,20 @@ final wsServiceProvider = Provider<WsService>((ref) {
   return service;
 });
 
+final livekitServiceProvider = Provider<LiveKitService>((ref) {
+  final service = LiveKitService();
+  ref.onDispose(service.dispose);
+  return service;
+});
+
+final windowLifecycleServiceProvider =
+    Provider<WindowLifecycleService>((ref) {
+  final livekitService = ref.watch(livekitServiceProvider);
+  final service = WindowLifecycleService(livekitService);
+  ref.onDispose(service.dispose);
+  return service;
+});
+
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
   return AuthRepository(ref.watch(apiClientProvider));
 });
@@ -73,4 +93,22 @@ final messageRepositoryProvider = Provider<MessageRepository>((ref) {
 
 final fileRepositoryProvider = Provider<FileRepository>((ref) {
   return FileRepository(ref.watch(apiClientProvider));
+});
+
+final userRepositoryProvider = Provider<UserRepository>((ref) {
+  return UserRepository(ref.watch(apiClientProvider));
+});
+
+final friendRepositoryProvider = Provider<FriendRepository>((ref) {
+  return FriendRepository(ref.watch(apiClientProvider));
+});
+
+final vlanRepositoryProvider = Provider<VlanRepository>((ref) {
+  return VlanRepository(ref.watch(apiClientProvider));
+});
+
+final wireguardServiceProvider = Provider<WireGuardService>((ref) {
+  final service = WireGuardService();
+  ref.onDispose(service.dispose);
+  return service;
 });

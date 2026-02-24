@@ -53,4 +53,10 @@ class AppSettingsController extends StateNotifier<AsyncValue<AppSettings>> {
     await _repository.clearAuth();
     await _load();
   }
+
+  /// 清除所有设置（包含服务器地址），用于“更换服务器”
+  Future<void> clearAll() async {
+    await _repository.clearAll();
+    await _load();
+  }
 }

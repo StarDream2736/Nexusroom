@@ -2,14 +2,15 @@ package service
 
 import (
 	"context"
+	cryptorand "crypto/rand"
 	"fmt"
-	"math/rand"
+	"math/big"
 	"time"
-	
+
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
 	lksdk "github.com/livekit/server-sdk-go"
-	
+
 	"nexusroom-server/internal/config"
 )
 
@@ -20,10 +21,10 @@ type LiveKitService struct {
 
 func NewLiveKitService() *LiveKitService {
 	cfg := config.GlobalConfig.LiveKit
-	
+
 	roomClient := lksdk.NewRoomServiceClient(cfg.URL, cfg.APIKey, cfg.APISecret)
 	ingressClient := lksdk.NewIngressClient(cfg.URL, cfg.APIKey, cfg.APISecret)
-	
+
 	return &LiveKitService{
 		client:  roomClient,
 		ingress: ingressClient,
@@ -33,7 +34,7 @@ func NewLiveKitService() *LiveKitService {
 // GenerateToken 生成 LiveKit Access Token
 func (s *LiveKitService) GenerateToken(roomName, userID, nickname string) (string, error) {
 	cfg := config.GlobalConfig.LiveKit
-	
+
 	at := auth.NewAccessToken(cfg.APIKey, cfg.APISecret)
 	grant := &auth.VideoGrant{
 		RoomJoin:     true,
@@ -41,14 +42,14 @@ func (s *LiveKitService) GenerateToken(roomName, userID, nickname string) (strin
 		CanPublish:   boolPtr(true),
 		CanSubscribe: boolPtr(true),
 	}
-	
+
 	at.AddGrant(grant)
 	at.SetIdentity(userID)
 	at.SetName(nickname)
-	at.SetValidFor(24 * 60 * 60) // 24小时有效期
-	
+	at.SetValidFor(24 * time.Hour) // 24小时有效期
+
 	token, err := at.ToJWT()
-	
+
 	return token, err
 }
 
@@ -61,7 +62,7 @@ func (s *LiveKitService) CreateIngress(roomName, label string) (*livekit.Ingress
 		ParticipantIdentity: fmt.Sprintf("ingress_%s", generateRandomID()),
 		ParticipantName:     label,
 	}
-	
+
 	return s.ingress.CreateIngress(context.Background(), req)
 }
 
@@ -85,11 +86,11 @@ func (s *LiveKitService) ListIngresses(roomName string) ([]*livekit.IngressInfo,
 }
 
 func generateRandomID() string {
-	rand.Seed(time.Now().UnixNano())
 	const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
 	result := make([]byte, 8)
 	for i := range result {
-		result[i] = chars[rand.Intn(len(chars))]
+		n, _ := cryptorand.Int(cryptorand.Reader, big.NewInt(int64(len(chars))))
+		result[i] = chars[n.Int64()]
 	}
 	return string(result)
 }

@@ -1,8 +1,9 @@
 package repository
 
 import (
-	"gorm.io/gorm"
 	"nexusroom-server/internal/model"
+
+	"gorm.io/gorm"
 )
 
 type RoomRepository struct {
@@ -49,18 +50,33 @@ func (r *RoomRepository) Update(room *model.Room) error {
 }
 
 func (r *RoomRepository) Delete(id uint64) error {
-	return r.db.Delete(&model.Room{}, id).Error
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		// 级联删除相关数据
+		if err := tx.Where("room_id = ?", id).Delete(&model.RoomMember{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("room_id = ?", id).Delete(&model.Message{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("room_id = ?", id).Delete(&model.RoomIngress{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("room_id = ?", id).Delete(&model.WGPeer{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&model.Room{}, id).Error
+	})
 }
 
 func (r *RoomRepository) List(page, pageSize int) ([]model.Room, int64, error) {
 	var rooms []model.Room
 	var total int64
-	
+
 	offset := (page - 1) * pageSize
-	
+
 	r.db.Model(&model.Room{}).Count(&total)
 	err := r.db.Preload("Owner").Offset(offset).Limit(pageSize).Find(&rooms).Error
-	
+
 	return rooms, total, err
 }
 

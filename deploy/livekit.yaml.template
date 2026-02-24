@@ -24,6 +24,14 @@ rtc:
   #   - urls:
   #       - stun:stun.l.google.com:19302
 
+redis:
+  address: redis:6379
+
+# Ingress 配置
+ingress:
+  rtmp_port: 1935
+
+
 # 日志级别
 logging:
   level: info

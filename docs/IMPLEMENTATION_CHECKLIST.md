@@ -35,42 +35,43 @@
 ### 后端
 - [x] LiveKit Token 生成接口
 - [x] Ingress 管理接口（创建/列表/删除）
-- [ ] 语音状态 WebSocket 事件处理
+- [x] 语音状态 WebSocket 事件处理
+- [x] 房间设置 PATCH 接口（更新房间名/公告）
 
 ### 客户端
-- [ ] LiveKit Flutter SDK 集成
-- [ ] 语音频道接入与静音/开麦控制
-- [ ] 直播侧边栏与主视窗订阅逻辑
-- [ ] 房间设置页：Ingress 管理
-- [ ] 窗口最小化/失焦资源管理
+- [x] LiveKit Flutter SDK 集成
+- [x] 语音频道接入与静音/开麦控制
+- [x] 直播侧边栏与主视窗订阅逻辑
+- [x] 房间设置页：Ingress 管理
+- [x] 窗口最小化/失焦资源管理
 
 ## 第三阶段：管理功能与扩展接口
 
 ### 后端
-- [ ] 超管 API（用户/房间/配置/统计）
-- [ ] 好友系统：申请/接受/拒绝/列表
-- [ ] QQ 机器人 Webhook
-- [ ] Webhook Secret 校验
+- [x] 超管 API（用户/房间/配置/统计）
+- [x] 好友系统：申请/接受/拒绝/列表
+- [x] QQ 机器人 Webhook
+- [x] Webhook Secret 校验
 
 ### Web 管理后台
 - [ ] Vue 3 管理后台项目与页面实现
 
 ### 客户端
-- [ ] 好友系统 UI 与邀请入房
-- [ ] 头像上传与昵称修改
-- [ ] 客户端设置页（更换服务器、退出登录）
+- [x] 好友系统 UI 与邀请入房
+- [x] 头像上传与昵称修改
+- [x] 客户端设置页（更换服务器、退出登录）
 
 ## 第四阶段：VLAN 与屏幕共享
 
 ### 后端
-- [ ] WireGuard 服务端初始化与密钥生成
-- [ ] VLAN API：join / leave / peers
-- [ ] WebSocket vlan.peer_update 事件
+- [x] WireGuard 服务端初始化与密钥生成
+- [x] VLAN API：join / leave / peers
+- [x] WebSocket vlan.peer_update 事件
 
 ### 客户端
-- [ ] WireGuard 集成（Windows/macOS）
-- [ ] VLAN UI：开关、虚拟 IP、成员列表
+- [x] WireGuard 集成（Windows/macOS）
+- [x] VLAN UI：开关、虚拟 IP、成员列表
 
 ### 屏幕共享
-- [ ] 桌面端屏幕采集评估与接入
+- [ ] 桌面端屏幕采集评估与接入（依赖 LiveKit Flutter SDK 桌面端支持）
 - [ ] Simulcast 分辨率切换逻辑

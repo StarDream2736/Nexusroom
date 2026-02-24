@@ -1,11 +1,15 @@
 package handler
 
 import (
+	"net"
 	"net/http"
+	"net/url"
 	"strconv"
-	
+	"strings"
+
 	"github.com/gin-gonic/gin"
-	
+
+	"nexusroom-server/internal/config"
 	"nexusroom-server/internal/repository"
 	"nexusroom-server/internal/service"
 	"nexusroom-server/pkg/util"
@@ -13,13 +17,17 @@ import (
 
 type LiveKitHandler struct {
 	roomRepo   *repository.RoomRepository
+	userRepo   *repository.UserRepository
 	livekitSvc *service.LiveKitService
+	cfg        *config.Config
 }
 
-func NewLiveKitHandler(roomRepo *repository.RoomRepository, livekitSvc *service.LiveKitService) *LiveKitHandler {
+func NewLiveKitHandler(roomRepo *repository.RoomRepository, userRepo *repository.UserRepository, livekitSvc *service.LiveKitService, cfg *config.Config) *LiveKitHandler {
 	return &LiveKitHandler{
 		roomRepo:   roomRepo,
+		userRepo:   userRepo,
 		livekitSvc: livekitSvc,
+		cfg:        cfg,
 	}
 }
 
@@ -29,31 +37,169 @@ func (h *LiveKitHandler) GenerateToken(c *gin.Context) {
 		util.Error(c, 40001, "房间ID格式错误")
 		return
 	}
-	
+
 	userID := c.GetUint64("userID")
-	username := c.GetString("username")
-	
+
 	// 检查是否是成员
 	if !h.roomRepo.IsMember(roomID, userID) {
 		util.ErrorWithStatus(c, http.StatusForbidden, 40301, "无权访问该房间")
 		return
 	}
-	
+
 	room, err := h.roomRepo.FindByID(roomID)
 	if err != nil {
 		util.Error(c, 40401, "房间不存在")
 		return
 	}
-	
-	token, err := h.livekitSvc.GenerateToken(room.LiveKitRoomName, strconv.FormatUint(userID, 10), username)
+
+	// 获取用户昵称
+	user, err := h.userRepo.FindByID(userID)
+	if err != nil {
+		util.Error(c, 50001, "获取用户信息失败")
+		return
+	}
+
+	// 根据 type 参数选择语音房间或直播房间
+	roomType := c.DefaultQuery("type", "voice")
+	livekitRoom := room.LiveKitRoomName
+	if roomType == "stream" {
+		livekitRoom = room.LiveKitRoomName + "_stream"
+	}
+
+	token, err := h.livekitSvc.GenerateToken(livekitRoom, strconv.FormatUint(userID, 10), user.Nickname)
 	if err != nil {
 		util.Error(c, 50001, "生成 Token 失败")
 		return
 	}
-	
+
+	publicURL := h.cfg.LiveKit.PublicURL
+	secure := isSecureRequest(c)
+	if publicURL == "" {
+		publicURL = derivePublicLiveKitURL(c, h.cfg.LiveKit.URL)
+	}
+	publicURL = normalizeWsURL(publicURL, secure)
+	if publicURL == "" {
+		publicURL = h.cfg.LiveKit.URL
+	}
+
 	util.Success(c, gin.H{
-		"token":    token,
-		"url":      "ws://your-server-ip:7880", // 客户端连接 LiveKit 的地址
-		"room_name": room.LiveKitRoomName,
+		"token":     token,
+		"url":       publicURL,
+		"room_name": livekitRoom,
 	})
+}
+
+func isSecureRequest(c *gin.Context) bool {
+	proto := strings.TrimSpace(strings.Split(c.GetHeader("X-Forwarded-Proto"), ",")[0])
+	if proto != "" {
+		proto = strings.ToLower(proto)
+		return proto == "https" || proto == "wss"
+	}
+
+	return c.Request.TLS != nil
+}
+
+func normalizeWsURL(raw string, preferSecure bool) string {
+	if raw == "" {
+		return ""
+	}
+
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" {
+		scheme := "ws"
+		if preferSecure {
+			scheme = "wss"
+		}
+		return scheme + "://" + strings.TrimPrefix(raw, "//")
+	}
+
+	switch strings.ToLower(u.Scheme) {
+	case "http":
+		u.Scheme = "ws"
+	case "https":
+		u.Scheme = "wss"
+	}
+
+	return u.String()
+}
+
+func derivePublicLiveKitURL(c *gin.Context, livekitURL string) string {
+	host := strings.TrimSpace(strings.Split(c.GetHeader("X-Forwarded-Host"), ",")[0])
+	if host == "" {
+		host = c.Request.Host
+	}
+	if isLoopbackHost(host) {
+		originHost := hostFromHeaderURL(c.GetHeader("Origin"))
+		if originHost == "" {
+			originHost = hostFromHeaderURL(c.GetHeader("Referer"))
+		}
+		if originHost != "" {
+			host = originHost
+		}
+	}
+	if host == "" {
+		return ""
+	}
+
+	port := livekitPortFromURL(livekitURL)
+	baseHost := stripPort(host)
+	baseHost = strings.TrimPrefix(baseHost, "[")
+	baseHost = strings.TrimSuffix(baseHost, "]")
+	if port != "" {
+		baseHost = net.JoinHostPort(baseHost, port)
+	}
+
+	scheme := "ws"
+	if isSecureRequest(c) {
+		scheme = "wss"
+	}
+
+	return scheme + "://" + baseHost
+}
+
+func livekitPortFromURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err == nil {
+		if port := u.Port(); port != "" {
+			return port
+		}
+	}
+
+	return "7880"
+}
+
+func stripPort(host string) string {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return h
+	}
+	return host
+}
+
+func hostFromHeaderURL(raw string) string {
+	if raw == "" {
+		return ""
+	}
+
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+
+	return u.Host
+}
+
+func isLoopbackHost(host string) bool {
+	host = stripPort(host)
+	host = strings.TrimPrefix(host, "[")
+	host = strings.TrimSuffix(host, "]")
+	if host == "" {
+		return true
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
 }

@@ -7,6 +7,8 @@ class ApiClient {
     _dio = Dio(BaseOptions(
       connectTimeout: const Duration(seconds: 10),
       receiveTimeout: const Duration(seconds: 10),
+      // 接受所有 HTTP 状态码，由 _unwrap 统一处理业务错误
+      validateStatus: (status) => true,
     ));
   }
 
@@ -57,6 +59,19 @@ class ApiClient {
 
   Future<dynamic> postForm(String path, FormData data) async {
     final response = await _dio.post(path, data: data);
+    return _unwrap(response.data);
+  }
+
+  Future<dynamic> patchData(
+    String path, {
+    Map<String, dynamic>? body,
+  }) async {
+    final response = await _dio.patch(path, data: body ?? {});
+    return _unwrap(response.data);
+  }
+
+  Future<dynamic> deleteData(String path) async {
+    final response = await _dio.delete(path);
     return _unwrap(response.data);
   }
 
