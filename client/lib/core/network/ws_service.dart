@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -14,6 +15,9 @@ class WsEvent {
   final Map<String, dynamic>? payload;
 }
 
+/// 连接状态
+enum WsConnectionState { disconnected, connecting, connected }
+
 class WsService {
   WsService({required AppDatabase db}) : _db = db;
 
@@ -22,11 +26,13 @@ class WsService {
   StreamSubscription? _subscription;
   Timer? _heartbeat;
   Timer? _reconnectTimer;
+  Timer? _connectTimeoutTimer; // 连接超时看门狗
   String? _serverUrl;
   String? _token;
   bool _shouldReconnect = false;
 
   int _reconnectAttempts = 0;
+  WsConnectionState _state = WsConnectionState.disconnected;
 
   /// 客户端当前加入的房间集合，用于断线重连后自动重新 join
   final Set<int> _joinedRooms = {};
@@ -35,6 +41,11 @@ class WsService {
   final _eventController = StreamController<WsEvent>.broadcast();
   Stream<WsEvent> get eventStream => _eventController.stream;
 
+  /// 连接状态流
+  final _stateController = StreamController<WsConnectionState>.broadcast();
+  Stream<WsConnectionState> get stateStream => _stateController.stream;
+  WsConnectionState get connectionState => _state;
+
   /// 便捷方法：监听指定事件
   Stream<Map<String, dynamic>> on(String eventName) {
     return _eventController.stream
@@ -42,8 +53,21 @@ class WsService {
         .map((e) => e.payload ?? {});
   }
 
+  void _setState(WsConnectionState newState) {
+    if (_state != newState) {
+      debugPrint('[WsService] state: $_state → $newState');
+      _state = newState;
+      if (!_stateController.isClosed) {
+        _stateController.add(newState);
+      }
+    }
+  }
+
   void connect(String serverUrl, String token) {
-    if (_serverUrl == serverUrl && _token == token && _channel != null) {
+    debugPrint('[WsService] connect() called  serverUrl=${serverUrl.length > 30 ? '${serverUrl.substring(0, 30)}...' : serverUrl}  token=${token.length > 15 ? '${token.substring(0, 15)}...' : token}  _channel=${_channel != null}  _state=$_state');
+
+    if (_serverUrl == serverUrl && _token == token && _state == WsConnectionState.connected) {
+      debugPrint('[WsService] connect() — already connected with same config, skip');
       return;
     }
 
@@ -55,46 +79,103 @@ class WsService {
   }
 
   void _open() {
-    // 先释放旧 subscription，防止旧 stream 的 onDone 延迟触发干扰新连接
+    if (_serverUrl == null || _token == null) {
+      debugPrint('[WsService] _open() aborted — serverUrl or token is null');
+      return;
+    }
+
+    // 释放旧资源
     _subscription?.cancel();
     _subscription = null;
+    _connectTimeoutTimer?.cancel();
 
     final url = _buildWsUrl(_serverUrl!, _token!);
     debugPrint('[WsService] _open() connecting to $url');
-    _channel = WebSocketChannel.connect(Uri.parse(url));
-    _subscription = _channel!.stream.listen(
-      _handleMessage,
-      onDone: _handleDone,
-      onError: _handleError,
-    );
-    // 心跳在收到 connected 事件后启动（见 _handleMessage）
+    _setState(WsConnectionState.connecting);
+
+    try {
+      final channel = WebSocketChannel.connect(Uri.parse(url));
+      _channel = channel;
+
+      // 监听 stream（数据/错误/关闭）
+      _subscription = channel.stream.listen(
+        _handleMessage,
+        onDone: _handleDone,
+        onError: _handleError,
+      );
+
+      // 关键：显式监控 ready future，检测握手失败
+      channel.ready.then((_) {
+        debugPrint('[WsService] WebSocket handshake complete (ready resolved)');
+      }).catchError((error) {
+        debugPrint('[WsService] WebSocket handshake FAILED (ready error): $error');
+        // stream 的 onDone 应该也会触发，但作为安全网:
+        _cleanupAndReconnect();
+      });
+
+      // 连接超时看门狗：10 秒内必须收到 connected 事件，否则强制重连
+      _connectTimeoutTimer = Timer(const Duration(seconds: 10), () {
+        if (_state == WsConnectionState.connecting) {
+          debugPrint('[WsService] CONNECT TIMEOUT — no "connected" event in 10s, forcing reconnect');
+          _cleanupAndReconnect();
+        }
+      });
+    } catch (e, st) {
+      debugPrint('[WsService] _open() SYNC EXCEPTION: $e\n$st');
+      _channel = null;
+      _setState(WsConnectionState.disconnected);
+      if (_shouldReconnect) {
+        _scheduleReconnect();
+      }
+    }
+  }
+
+  /// 清理当前连接并触发重连
+  void _cleanupAndReconnect() {
+    _connectTimeoutTimer?.cancel();
+    _stopHeartbeat();
+    _subscription?.cancel();
+    _subscription = null;
+    try { _channel?.sink.close(); } catch (_) {}
+    _channel = null;
+    _setState(WsConnectionState.disconnected);
+    if (_shouldReconnect) {
+      _scheduleReconnect();
+    }
   }
 
   void _handleDone() {
-    debugPrint('[WsService] connection closed (onDone)');
+    debugPrint('[WsService] connection closed (onDone)  state=$_state');
+    _connectTimeoutTimer?.cancel();
     _stopHeartbeat();
-    _channel = null;  // 立即置空，防止 sendEvent 写入已死的 channel
+    _channel = null;
+    _setState(WsConnectionState.disconnected);
     if (_shouldReconnect) {
       _scheduleReconnect();
     }
   }
 
   void _handleError(Object error) {
-    debugPrint('[WsService] connection error (onError): $error');
+    debugPrint('[WsService] connection error (onError): $error  state=$_state');
+    _connectTimeoutTimer?.cancel();
     _stopHeartbeat();
-    _channel = null;  // 立即置空
-    // 注意：不在此处调用 _scheduleReconnect()
-    // Dart WebSocketChannel 在 onError 后必然触发 onDone，
-    // 统一在 _handleDone 中调度重连，避免 _reconnectAttempts 双重递增
+    _channel = null;
+    _setState(WsConnectionState.disconnected);
+    // 同样调度重连作为安全网（_scheduleReconnect 内部有去重）
+    if (_shouldReconnect) {
+      _scheduleReconnect();
+    }
   }
 
   void _scheduleReconnect() {
-    _reconnectTimer?.cancel();
-    // 指数退避重连：1s → 2s → 4s → 8s → … → 最大 30s
-    final delaySec = _reconnectAttempts < 5
-        ? (1 << _reconnectAttempts) // 1, 2, 4, 8, 16
-        : 30;
+    // 去重：如果重连定时器已在运行，不重复调度
+    if (_reconnectTimer?.isActive ?? false) {
+      debugPrint('[WsService] _scheduleReconnect() skipped — timer already active');
+      return;
+    }
+    final delaySec = min(30, _reconnectAttempts < 5 ? (1 << _reconnectAttempts) : 30);
     _reconnectAttempts++;
+    debugPrint('[WsService] scheduling reconnect in ${delaySec}s (attempt $_reconnectAttempts)');
     _reconnectTimer = Timer(Duration(seconds: delaySec), () {
       if (_shouldReconnect && _serverUrl != null && _token != null) {
         _open();
@@ -105,30 +186,33 @@ class WsService {
   void disconnect() {
     _shouldReconnect = false;
     _reconnectTimer?.cancel();
-    _reconnectAttempts = 0;  // 重置计数器，下次 connect 从 1s 开始退避
+    _connectTimeoutTimer?.cancel();
+    _reconnectAttempts = 0;
     _stopHeartbeat();
     _subscription?.cancel();
     _subscription = null;
-    _channel?.sink.close();
+    try { _channel?.sink.close(); } catch (_) {}
     _channel = null;
     _joinedRooms.clear();
+    _setState(WsConnectionState.disconnected);
     debugPrint('[WsService] disconnected');
   }
 
   void dispose() {
     disconnect();
     _eventController.close();
+    _stateController.close();
   }
 
   void joinRoom(int roomId) {
     _joinedRooms.add(roomId);
-    debugPrint('[WsService] joinRoom($roomId)  channel=${_channel != null}');
+    debugPrint('[WsService] joinRoom($roomId)  state=$_state');
     sendEvent('room.join', roomId: roomId, payload: {});
   }
 
   void leaveRoom(int roomId) {
     _joinedRooms.remove(roomId);
-    debugPrint('[WsService] leaveRoom($roomId)  channel=${_channel != null}');
+    debugPrint('[WsService] leaveRoom($roomId)  state=$_state');
     sendEvent('room.leave', roomId: roomId, payload: {});
   }
 
@@ -138,7 +222,7 @@ class WsService {
     String type = 'text',
     Map<String, dynamic>? meta,
   }) {
-    debugPrint('[WsService] sendChat roomId=$roomId content="$content" channel=${_channel != null}');
+    debugPrint('[WsService] sendChat roomId=$roomId content="$content" state=$_state');
     sendEvent('chat.send', roomId: roomId, payload: {
       'type': type,
       'content': content,
@@ -153,8 +237,8 @@ class WsService {
   }
 
   void sendEvent(String event, {int? roomId, Map<String, dynamic> payload = const {}}) {
-    if (_channel == null) {
-      debugPrint('[WsService] sendEvent($event) DROPPED — channel is null');
+    if (_channel == null || _state != WsConnectionState.connected) {
+      debugPrint('[WsService] sendEvent($event) DROPPED — state=$_state channel=${_channel != null}');
       return;
     }
     final envelope = <String, dynamic>{
@@ -163,17 +247,22 @@ class WsService {
       'payload': payload,
       'timestamp': DateTime.now().toUtc().toIso8601String(),
     };
-    _channel!.sink.add(jsonEncode(envelope));
+    try {
+      _channel!.sink.add(jsonEncode(envelope));
+    } catch (e) {
+      debugPrint('[WsService] sendEvent($event) sink.add ERROR: $e');
+    }
   }
 
   String _buildWsUrl(String serverUrl, String token) {
-    var wsBase = serverUrl;
-    if (wsBase.startsWith('https://')) {
-      wsBase = wsBase.replaceFirst('https://', 'wss://');
-    } else if (wsBase.startsWith('http://')) {
-      wsBase = wsBase.replaceFirst('http://', 'ws://');
+    // 移除尾部斜杠
+    var base = serverUrl.endsWith('/') ? serverUrl.substring(0, serverUrl.length - 1) : serverUrl;
+    if (base.startsWith('https://')) {
+      base = base.replaceFirst('https://', 'wss://');
+    } else if (base.startsWith('http://')) {
+      base = base.replaceFirst('http://', 'ws://');
     }
-    return '$wsBase/ws?token=$token';
+    return '$base/ws?token=$token';
   }
 
   void _startHeartbeat() {
@@ -198,10 +287,14 @@ class WsService {
 
     debugPrint('[WsService] recv event=$event');
 
-    // 收到 connected 事件后启动心跳并重置重连计数器
+    // 收到 connected 事件后，标记为已连接，启动心跳
     if (event == 'connected') {
+      _connectTimeoutTimer?.cancel();
       _reconnectAttempts = 0;
+      _setState(WsConnectionState.connected);
       _startHeartbeat();
+
+      debugPrint('[WsService] CONNECTED! Rejoining ${_joinedRooms.length} rooms: $_joinedRooms');
       // 断线重连后自动重新加入之前的房间
       for (final roomId in _joinedRooms) {
         sendEvent('room.join', roomId: roomId, payload: {});
