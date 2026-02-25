@@ -58,8 +58,6 @@ sudo ufw allow 50000:50050/udp
 sudo ufw allow 51820/udp
 ```
 
-详细部署文档：[DEPLOY.md](docs/DEPLOY.md)
-
 ### 客户端编译
 
 ```bash
@@ -75,15 +73,6 @@ flutter run -d windows  # 或 macos / linux
 # 4. 编译发布版本
 flutter build windows --release
 ```
-
-详细编译文档：[BUILD_CLIENT.md](docs/BUILD_CLIENT.md)
-
-## 文档
-
-- [服务端编译文档](docs/BUILD_SERVER.md) - 服务端编译和开发指南
-- [客户端编译文档](docs/BUILD_CLIENT.md) - 客户端编译和开发指南
-- [部署文档](docs/DEPLOY.md) - 生产环境部署指南
-- [技术规范](NexusRoom.md) - 完整的技术实现规范
 
 ## 端口说明
 

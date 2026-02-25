@@ -201,7 +201,15 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
   @override
   late final GeneratedColumn<int> id = GeneratedColumn<int>(
       'id', aliasedName, false,
-      type: DriftSqlType.int, requiredDuringInsert: false);
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _serverUrlMeta =
+      const VerificationMeta('serverUrl');
+  @override
+  late final GeneratedColumn<String> serverUrl = GeneratedColumn<String>(
+      'server_url', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(''));
   static const VerificationMeta _roomIdMeta = const VerificationMeta('roomId');
   @override
   late final GeneratedColumn<int> roomId = GeneratedColumn<int>(
@@ -251,6 +259,7 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
   @override
   List<GeneratedColumn> get $columns => [
         id,
+        serverUrl,
         roomId,
         senderId,
         type,
@@ -272,6 +281,12 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
     final data = instance.toColumns(true);
     if (data.containsKey('id')) {
       context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('server_url')) {
+      context.handle(_serverUrlMeta,
+          serverUrl.isAcceptableOrUnknown(data['server_url']!, _serverUrlMeta));
     }
     if (data.containsKey('room_id')) {
       context.handle(_roomIdMeta,
@@ -323,13 +338,15 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
   }
 
   @override
-  Set<GeneratedColumn> get $primaryKey => {id};
+  Set<GeneratedColumn> get $primaryKey => {serverUrl, id};
   @override
   Message map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
     return Message(
       id: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
+      serverUrl: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}server_url'])!,
       roomId: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}room_id'])!,
       senderId: attachedDatabase.typeMapping
@@ -356,7 +373,11 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
 }
 
 class Message extends DataClass implements Insertable<Message> {
+  /// 消息在目标服务器上的 ID（不同服务器可能重复）
   final int id;
+
+  /// 消息所属服务器 URL，用于隔离不同服务器的数据
+  final String serverUrl;
   final int roomId;
   final int senderId;
   final String type;
@@ -367,6 +388,7 @@ class Message extends DataClass implements Insertable<Message> {
   final String? metaJson;
   const Message(
       {required this.id,
+      required this.serverUrl,
       required this.roomId,
       required this.senderId,
       required this.type,
@@ -379,6 +401,7 @@ class Message extends DataClass implements Insertable<Message> {
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['id'] = Variable<int>(id);
+    map['server_url'] = Variable<String>(serverUrl);
     map['room_id'] = Variable<int>(roomId);
     map['sender_id'] = Variable<int>(senderId);
     map['type'] = Variable<String>(type);
@@ -399,6 +422,7 @@ class Message extends DataClass implements Insertable<Message> {
   MessagesCompanion toCompanion(bool nullToAbsent) {
     return MessagesCompanion(
       id: Value(id),
+      serverUrl: Value(serverUrl),
       roomId: Value(roomId),
       senderId: Value(senderId),
       type: Value(type),
@@ -421,6 +445,7 @@ class Message extends DataClass implements Insertable<Message> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return Message(
       id: serializer.fromJson<int>(json['id']),
+      serverUrl: serializer.fromJson<String>(json['serverUrl']),
       roomId: serializer.fromJson<int>(json['roomId']),
       senderId: serializer.fromJson<int>(json['senderId']),
       type: serializer.fromJson<String>(json['type']),
@@ -436,6 +461,7 @@ class Message extends DataClass implements Insertable<Message> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
       'id': serializer.toJson<int>(id),
+      'serverUrl': serializer.toJson<String>(serverUrl),
       'roomId': serializer.toJson<int>(roomId),
       'senderId': serializer.toJson<int>(senderId),
       'type': serializer.toJson<String>(type),
@@ -449,6 +475,7 @@ class Message extends DataClass implements Insertable<Message> {
 
   Message copyWith(
           {int? id,
+          String? serverUrl,
           int? roomId,
           int? senderId,
           String? type,
@@ -459,6 +486,7 @@ class Message extends DataClass implements Insertable<Message> {
           Value<String?> metaJson = const Value.absent()}) =>
       Message(
         id: id ?? this.id,
+        serverUrl: serverUrl ?? this.serverUrl,
         roomId: roomId ?? this.roomId,
         senderId: senderId ?? this.senderId,
         type: type ?? this.type,
@@ -474,6 +502,7 @@ class Message extends DataClass implements Insertable<Message> {
   Message copyWithCompanion(MessagesCompanion data) {
     return Message(
       id: data.id.present ? data.id.value : this.id,
+      serverUrl: data.serverUrl.present ? data.serverUrl.value : this.serverUrl,
       roomId: data.roomId.present ? data.roomId.value : this.roomId,
       senderId: data.senderId.present ? data.senderId.value : this.senderId,
       type: data.type.present ? data.type.value : this.type,
@@ -493,6 +522,7 @@ class Message extends DataClass implements Insertable<Message> {
   String toString() {
     return (StringBuffer('Message(')
           ..write('id: $id, ')
+          ..write('serverUrl: $serverUrl, ')
           ..write('roomId: $roomId, ')
           ..write('senderId: $senderId, ')
           ..write('type: $type, ')
@@ -506,13 +536,14 @@ class Message extends DataClass implements Insertable<Message> {
   }
 
   @override
-  int get hashCode => Object.hash(id, roomId, senderId, type, content,
-      createdAt, senderNickname, senderAvatarUrl, metaJson);
+  int get hashCode => Object.hash(id, serverUrl, roomId, senderId, type,
+      content, createdAt, senderNickname, senderAvatarUrl, metaJson);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is Message &&
           other.id == this.id &&
+          other.serverUrl == this.serverUrl &&
           other.roomId == this.roomId &&
           other.senderId == this.senderId &&
           other.type == this.type &&
@@ -525,6 +556,7 @@ class Message extends DataClass implements Insertable<Message> {
 
 class MessagesCompanion extends UpdateCompanion<Message> {
   final Value<int> id;
+  final Value<String> serverUrl;
   final Value<int> roomId;
   final Value<int> senderId;
   final Value<String> type;
@@ -533,8 +565,10 @@ class MessagesCompanion extends UpdateCompanion<Message> {
   final Value<String?> senderNickname;
   final Value<String?> senderAvatarUrl;
   final Value<String?> metaJson;
+  final Value<int> rowid;
   const MessagesCompanion({
     this.id = const Value.absent(),
+    this.serverUrl = const Value.absent(),
     this.roomId = const Value.absent(),
     this.senderId = const Value.absent(),
     this.type = const Value.absent(),
@@ -543,9 +577,11 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     this.senderNickname = const Value.absent(),
     this.senderAvatarUrl = const Value.absent(),
     this.metaJson = const Value.absent(),
+    this.rowid = const Value.absent(),
   });
   MessagesCompanion.insert({
-    this.id = const Value.absent(),
+    required int id,
+    this.serverUrl = const Value.absent(),
     required int roomId,
     required int senderId,
     required String type,
@@ -554,13 +590,16 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     this.senderNickname = const Value.absent(),
     this.senderAvatarUrl = const Value.absent(),
     this.metaJson = const Value.absent(),
-  })  : roomId = Value(roomId),
+    this.rowid = const Value.absent(),
+  })  : id = Value(id),
+        roomId = Value(roomId),
         senderId = Value(senderId),
         type = Value(type),
         content = Value(content),
         createdAt = Value(createdAt);
   static Insertable<Message> custom({
     Expression<int>? id,
+    Expression<String>? serverUrl,
     Expression<int>? roomId,
     Expression<int>? senderId,
     Expression<String>? type,
@@ -569,9 +608,11 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     Expression<String>? senderNickname,
     Expression<String>? senderAvatarUrl,
     Expression<String>? metaJson,
+    Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
+      if (serverUrl != null) 'server_url': serverUrl,
       if (roomId != null) 'room_id': roomId,
       if (senderId != null) 'sender_id': senderId,
       if (type != null) 'type': type,
@@ -580,11 +621,13 @@ class MessagesCompanion extends UpdateCompanion<Message> {
       if (senderNickname != null) 'sender_nickname': senderNickname,
       if (senderAvatarUrl != null) 'sender_avatar_url': senderAvatarUrl,
       if (metaJson != null) 'meta_json': metaJson,
+      if (rowid != null) 'rowid': rowid,
     });
   }
 
   MessagesCompanion copyWith(
       {Value<int>? id,
+      Value<String>? serverUrl,
       Value<int>? roomId,
       Value<int>? senderId,
       Value<String>? type,
@@ -592,9 +635,11 @@ class MessagesCompanion extends UpdateCompanion<Message> {
       Value<DateTime>? createdAt,
       Value<String?>? senderNickname,
       Value<String?>? senderAvatarUrl,
-      Value<String?>? metaJson}) {
+      Value<String?>? metaJson,
+      Value<int>? rowid}) {
     return MessagesCompanion(
       id: id ?? this.id,
+      serverUrl: serverUrl ?? this.serverUrl,
       roomId: roomId ?? this.roomId,
       senderId: senderId ?? this.senderId,
       type: type ?? this.type,
@@ -603,6 +648,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
       senderNickname: senderNickname ?? this.senderNickname,
       senderAvatarUrl: senderAvatarUrl ?? this.senderAvatarUrl,
       metaJson: metaJson ?? this.metaJson,
+      rowid: rowid ?? this.rowid,
     );
   }
 
@@ -611,6 +657,9 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     final map = <String, Expression>{};
     if (id.present) {
       map['id'] = Variable<int>(id.value);
+    }
+    if (serverUrl.present) {
+      map['server_url'] = Variable<String>(serverUrl.value);
     }
     if (roomId.present) {
       map['room_id'] = Variable<int>(roomId.value);
@@ -636,6 +685,9 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     if (metaJson.present) {
       map['meta_json'] = Variable<String>(metaJson.value);
     }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
     return map;
   }
 
@@ -643,6 +695,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
   String toString() {
     return (StringBuffer('MessagesCompanion(')
           ..write('id: $id, ')
+          ..write('serverUrl: $serverUrl, ')
           ..write('roomId: $roomId, ')
           ..write('senderId: $senderId, ')
           ..write('type: $type, ')
@@ -650,7 +703,8 @@ class MessagesCompanion extends UpdateCompanion<Message> {
           ..write('createdAt: $createdAt, ')
           ..write('senderNickname: $senderNickname, ')
           ..write('senderAvatarUrl: $senderAvatarUrl, ')
-          ..write('metaJson: $metaJson')
+          ..write('metaJson: $metaJson, ')
+          ..write('rowid: $rowid')
           ..write(')'))
         .toString();
   }
@@ -791,7 +845,8 @@ typedef $$SettingsTableProcessedTableManager = ProcessedTableManager<
     Setting,
     PrefetchHooks Function()>;
 typedef $$MessagesTableCreateCompanionBuilder = MessagesCompanion Function({
-  Value<int> id,
+  required int id,
+  Value<String> serverUrl,
   required int roomId,
   required int senderId,
   required String type,
@@ -800,9 +855,11 @@ typedef $$MessagesTableCreateCompanionBuilder = MessagesCompanion Function({
   Value<String?> senderNickname,
   Value<String?> senderAvatarUrl,
   Value<String?> metaJson,
+  Value<int> rowid,
 });
 typedef $$MessagesTableUpdateCompanionBuilder = MessagesCompanion Function({
   Value<int> id,
+  Value<String> serverUrl,
   Value<int> roomId,
   Value<int> senderId,
   Value<String> type,
@@ -811,6 +868,7 @@ typedef $$MessagesTableUpdateCompanionBuilder = MessagesCompanion Function({
   Value<String?> senderNickname,
   Value<String?> senderAvatarUrl,
   Value<String?> metaJson,
+  Value<int> rowid,
 });
 
 class $$MessagesTableFilterComposer
@@ -824,6 +882,9 @@ class $$MessagesTableFilterComposer
   });
   ColumnFilters<int> get id => $composableBuilder(
       column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get serverUrl => $composableBuilder(
+      column: $table.serverUrl, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<int> get roomId => $composableBuilder(
       column: $table.roomId, builder: (column) => ColumnFilters(column));
@@ -864,6 +925,9 @@ class $$MessagesTableOrderingComposer
   ColumnOrderings<int> get id => $composableBuilder(
       column: $table.id, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get serverUrl => $composableBuilder(
+      column: $table.serverUrl, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<int> get roomId => $composableBuilder(
       column: $table.roomId, builder: (column) => ColumnOrderings(column));
 
@@ -902,6 +966,9 @@ class $$MessagesTableAnnotationComposer
   });
   GeneratedColumn<int> get id =>
       $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get serverUrl =>
+      $composableBuilder(column: $table.serverUrl, builder: (column) => column);
 
   GeneratedColumn<int> get roomId =>
       $composableBuilder(column: $table.roomId, builder: (column) => column);
@@ -952,6 +1019,7 @@ class $$MessagesTableTableManager extends RootTableManager<
               $$MessagesTableAnnotationComposer($db: db, $table: table),
           updateCompanionCallback: ({
             Value<int> id = const Value.absent(),
+            Value<String> serverUrl = const Value.absent(),
             Value<int> roomId = const Value.absent(),
             Value<int> senderId = const Value.absent(),
             Value<String> type = const Value.absent(),
@@ -960,9 +1028,11 @@ class $$MessagesTableTableManager extends RootTableManager<
             Value<String?> senderNickname = const Value.absent(),
             Value<String?> senderAvatarUrl = const Value.absent(),
             Value<String?> metaJson = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
           }) =>
               MessagesCompanion(
             id: id,
+            serverUrl: serverUrl,
             roomId: roomId,
             senderId: senderId,
             type: type,
@@ -971,9 +1041,11 @@ class $$MessagesTableTableManager extends RootTableManager<
             senderNickname: senderNickname,
             senderAvatarUrl: senderAvatarUrl,
             metaJson: metaJson,
+            rowid: rowid,
           ),
           createCompanionCallback: ({
-            Value<int> id = const Value.absent(),
+            required int id,
+            Value<String> serverUrl = const Value.absent(),
             required int roomId,
             required int senderId,
             required String type,
@@ -982,9 +1054,11 @@ class $$MessagesTableTableManager extends RootTableManager<
             Value<String?> senderNickname = const Value.absent(),
             Value<String?> senderAvatarUrl = const Value.absent(),
             Value<String?> metaJson = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
           }) =>
               MessagesCompanion.insert(
             id: id,
+            serverUrl: serverUrl,
             roomId: roomId,
             senderId: senderId,
             type: type,
@@ -993,6 +1067,7 @@ class $$MessagesTableTableManager extends RootTableManager<
             senderNickname: senderNickname,
             senderAvatarUrl: senderAvatarUrl,
             metaJson: metaJson,
+            rowid: rowid,
           ),
           withReferenceMapper: (p0) => p0
               .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
