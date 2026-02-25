@@ -60,22 +60,30 @@ func (h *Hub) Run() {
 			log.Printf("User %d connected", client.UserID)
 
 		case client := <-h.Unregister:
+			// 收集需要通知的房间，在释放写锁后再广播，
+			// 避免在持有 mu.Lock 的同时调用 BroadcastToRoom（发送到 h.Broadcast channel），
+			// 因为 Hub.Run() 是唯一读取 h.Broadcast 的 goroutine，会导致自死锁。
+			var roomsToNotify []uint64
+
 			h.mu.Lock()
 			// 只有当前 map 中存储的是同一个 client 指针时才删除
 			// 防止用户快速重连时，旧连接的 Unregister 误删新连接
 			if existing, ok := h.Clients[client.UserID]; ok && existing == client {
-				// 通知用户离开的所有房间
-				for _, roomID := range client.GetRooms() {
-					h.BroadcastToRoom(roomID, EventRoomMemberLeave, RoomMemberLeavePayload{
-						UserID: client.UserID,
-					}, client.UserID)
-				}
-
+				roomsToNotify = client.GetRooms()
 				delete(h.Clients, client.UserID)
 			}
 			// 始终关闭该 client 的 Send channel（使用 sync.Once 防止重复关闭）
 			client.closeSend()
 			h.mu.Unlock()
+
+			// 释放写锁后再广播「成员离开」事件
+			// 注意：直接调用 broadcastToRoom（小写，内部获取读锁），
+			// 而非 BroadcastToRoom（大写，通过 channel 发送，会导致自死锁）
+			for _, roomID := range roomsToNotify {
+				h.broadcastToRoom(roomID, EventRoomMemberLeave, RoomMemberLeavePayload{
+					UserID: client.UserID,
+				}, client.UserID)
+			}
 
 			log.Printf("User %d disconnected", client.UserID)
 
