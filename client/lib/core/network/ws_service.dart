@@ -55,7 +55,12 @@ class WsService {
   }
 
   void _open() {
+    // 先释放旧 subscription，防止旧 stream 的 onDone 延迟触发干扰新连接
+    _subscription?.cancel();
+    _subscription = null;
+
     final url = _buildWsUrl(_serverUrl!, _token!);
+    debugPrint('[WsService] _open() connecting to $url');
     _channel = WebSocketChannel.connect(Uri.parse(url));
     _subscription = _channel!.stream.listen(
       _handleMessage,
@@ -66,17 +71,21 @@ class WsService {
   }
 
   void _handleDone() {
+    debugPrint('[WsService] connection closed (onDone)');
     _stopHeartbeat();
+    _channel = null;  // 立即置空，防止 sendEvent 写入已死的 channel
     if (_shouldReconnect) {
       _scheduleReconnect();
     }
   }
 
-  void _handleError(Object _) {
+  void _handleError(Object error) {
+    debugPrint('[WsService] connection error (onError): $error');
     _stopHeartbeat();
-    if (_shouldReconnect) {
-      _scheduleReconnect();
-    }
+    _channel = null;  // 立即置空
+    // 注意：不在此处调用 _scheduleReconnect()
+    // Dart WebSocketChannel 在 onError 后必然触发 onDone，
+    // 统一在 _handleDone 中调度重连，避免 _reconnectAttempts 双重递增
   }
 
   void _scheduleReconnect() {
@@ -96,11 +105,14 @@ class WsService {
   void disconnect() {
     _shouldReconnect = false;
     _reconnectTimer?.cancel();
+    _reconnectAttempts = 0;  // 重置计数器，下次 connect 从 1s 开始退避
     _stopHeartbeat();
     _subscription?.cancel();
+    _subscription = null;
     _channel?.sink.close();
     _channel = null;
     _joinedRooms.clear();
+    debugPrint('[WsService] disconnected');
   }
 
   void dispose() {
