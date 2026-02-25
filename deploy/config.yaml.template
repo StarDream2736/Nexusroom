@@ -21,15 +21,15 @@ redis:
 auth:
   jwt_secret: "your-jwt-secret"   # 请修改，至少32位随机字符串
   jwt_expire_hours: 720           # Token 有效期（30天）
-  admin_token: ""                 # 填写后，持有此 token 注册的用户获得超管权限
+  admin_token: "admin"      # 填写后，持有此 token 注册的用户获得超管权限
                                   # 首个超管注册后建议清空此字段
 
 message:
   retention_days: 30              # 消息保留天数（0=永久）
 
 livekit:
-  url: ws://livekit:7880          # Docker 内网访问
-  public_url: ws://127.0.0.1:7880 # 客户端访问地址（本机调试可用）
+  url: ws://livekit:7880          # Docker 内网访问（保持不变）
+  public_url: ws://YOUR_PUBLIC_IP:7880 # 客户端访问地址，填服务器公网IP，例如 ws://39.107.246.201:7880
   api_key: "your-livekit-key"
   api_secret: "your-livekit-secret"
 

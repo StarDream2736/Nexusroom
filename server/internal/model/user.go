@@ -34,13 +34,7 @@ func (u *User) BeforeCreate(tx *gorm.DB) error {
 }
 
 func GenerateDisplayID() string {
-	// 6-12位随机数字
-	nLen, _ := cryptorand.Int(cryptorand.Reader, big.NewInt(7))
-	length := 6 + int(nLen.Int64()) // 6-12位
-	result := ""
-	for i := 0; i < length; i++ {
-		n, _ := cryptorand.Int(cryptorand.Reader, big.NewInt(10))
-		result += strconv.Itoa(int(n.Int64()))
-	}
-	return result
+	// 固定 5 位数字 (10000-99999)
+	n, _ := cryptorand.Int(cryptorand.Reader, big.NewInt(90000))
+	return strconv.Itoa(10000 + int(n.Int64()))
 }

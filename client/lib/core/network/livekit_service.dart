@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:livekit_client/livekit_client.dart';
 
 /// LiveKit 服务层，封装 livekit_client SDK
@@ -16,6 +17,13 @@ class LiveKitService {
   final _connectionStateController =
       StreamController<ConnectionState>.broadcast();
   final _errorController = StreamController<String>.broadcast();
+
+  /// 当前正在说话的用户 ID 集合（通过 LiveKit ActiveSpeakers 检测）
+  final _speakingUsersController = StreamController<Set<int>>.broadcast();
+  Stream<Set<int>> get speakingUsersStream => _speakingUsersController.stream;
+  Set<int> _currentSpeakers = {};
+  Set<int> get currentSpeakers => _currentSpeakers;
+
   String? _lastError;
 
   Room? get room => _room;
@@ -55,7 +63,7 @@ class LiveKitService {
     _setupListeners();
 
     _lastError = null;
-    print('[LiveKit] Connecting to $url');
+    debugPrint('[LiveKit] Connecting to $url');
     try {
       await _room!.connect(url, token).timeout(
         const Duration(seconds: 15),
@@ -63,21 +71,37 @@ class LiveKitService {
           throw TimeoutException('LiveKit 连接超时 (15s)');
         },
       );
-      print('[LiveKit] Connected successfully, participants: ${_room!.remoteParticipants.length}');
+      debugPrint('[LiveKit] Connected successfully, participants: ${_room!.remoteParticipants.length}');
       _connectedRoomId = roomId;
       _notifyParticipants();
     } catch (e) {
       final msg = 'LiveKit 连接失败: $e';
-      print('[LiveKit] $msg');
+      debugPrint('[LiveKit] $msg');
       _lastError = msg;
       _errorController.add(msg);
       rethrow;
     }
   }
 
+  /// 获取当前在线的用户 ID 集合（远端参与者，排除 ingress）
+  Set<int> get onlineUserIds {
+    if (_room == null) return {};
+    final ids = <int>{};
+    for (final p in _room!.remoteParticipants.values) {
+      if (p.identity.startsWith('ingress_')) continue;
+      final uid = int.tryParse(p.identity);
+      if (uid != null) ids.add(uid);
+    }
+    return ids;
+  }
+
   /// 断开连接
   Future<void> disconnect() async {
     _connectedRoomId = null;
+    _currentSpeakers = {};
+    if (!_speakingUsersController.isClosed) {
+      _speakingUsersController.add({});
+    }
     _listener?.dispose();
     _listener = null;
     await _room?.disconnect();
@@ -171,34 +195,46 @@ class LiveKitService {
   void _setupListeners() {
     _listener
       ?..on<ParticipantConnectedEvent>((e) {
-        print('[LiveKit] Participant connected: ${e.participant.identity}');
+        debugPrint('[LiveKit] Participant connected: ${e.participant.identity}');
         _notifyParticipants();
       })
       ..on<ParticipantDisconnectedEvent>((e) {
-        print('[LiveKit] Participant disconnected: ${e.participant.identity}');
+        debugPrint('[LiveKit] Participant disconnected: ${e.participant.identity}');
         _notifyParticipants();
       })
       ..on<TrackPublishedEvent>((e) {
-        print('[LiveKit] Track published: ${e.participant.identity} ${e.publication.sid}');
+        debugPrint('[LiveKit] Track published: ${e.participant.identity} ${e.publication.sid}');
         _notifyParticipants();
       })
       ..on<TrackUnpublishedEvent>((_) => _notifyParticipants())
       ..on<TrackSubscribedEvent>((e) {
-        print('[LiveKit] Track subscribed: ${e.participant.identity} kind=${e.track.kind}');
+        debugPrint('[LiveKit] Track subscribed: ${e.participant.identity} kind=${e.track.kind}');
         _notifyParticipants();
       })
       ..on<TrackUnsubscribedEvent>((_) => _notifyParticipants())
       ..on<RoomConnectedEvent>((_) {
         _connectionStateController.add(ConnectionState.connected);
-        print('[LiveKit] \u2705 Room connected, remote participants: ${_room?.remoteParticipants.length}');
+        debugPrint('[LiveKit] Room connected, remote participants: ${_room?.remoteParticipants.length}');
       })
       ..on<RoomReconnectingEvent>((_) {
         _connectionStateController.add(ConnectionState.reconnecting);
-        print('[LiveKit] Reconnecting...');
+        debugPrint('[LiveKit] Reconnecting...');
       })
       ..on<RoomDisconnectedEvent>((e) {
         _connectionStateController.add(ConnectionState.disconnected);
-        print('[LiveKit] Disconnected: ${e.reason}');
+        debugPrint('[LiveKit] Disconnected: ${e.reason}');
+      })
+      ..on<ActiveSpeakersChangedEvent>((e) {
+        // 通过 LiveKit 的 ActiveSpeakers 检测谁在说话
+        final speakers = <int>{};
+        for (final p in e.speakers) {
+          final uid = int.tryParse(p.identity);
+          if (uid != null) speakers.add(uid);
+        }
+        _currentSpeakers = speakers;
+        if (!_speakingUsersController.isClosed) {
+          _speakingUsersController.add(speakers);
+        }
       });
   }
 
@@ -213,5 +249,6 @@ class LiveKitService {
     _participantsController.close();
     _connectionStateController.close();
     _errorController.close();
+    _speakingUsersController.close();
   }
 }

@@ -47,10 +47,10 @@ func SetupRouter(
 	// Handler 初始化
 	authHandler := handler.NewAuthHandler(userRepo)
 	userHandler := handler.NewUserHandler(userRepo, cfg)
-	roomHandler := handler.NewRoomHandler(roomRepo, userRepo, ingressRepo, livekitSvc, hub)
+	roomHandler := handler.NewRoomHandler(roomRepo, userRepo, ingressRepo, livekitSvc, hub, cfg)
 	msgHandler := handler.NewMessageHandler(msgRepo, roomRepo)
 	livekitHandler := handler.NewLiveKitHandler(roomRepo, userRepo, livekitSvc, cfg)
-	ingressHandler := handler.NewIngressHandler(roomRepo, ingressRepo, livekitSvc, cfg)
+	ingressHandler := handler.NewIngressHandler(roomRepo, ingressRepo, livekitSvc, cfg, hub)
 	fileHandler := handler.NewFileHandler(cfg, roomRepo)
 	adminHandler := handler.NewAdminHandler(userRepo, roomRepo, msgRepo, hub, cfg)
 	friendHandler := handler.NewFriendHandler(friendRepo, userRepo, roomRepo, hub)
@@ -68,6 +68,9 @@ func SetupRouter(
 	// API v1 路由组
 	apiV1 := router.Group("/api/v1")
 	{
+		// 文件下载（handler 内部自行校验 token + 房间成员）
+		apiV1.GET("/files/:fileId", fileHandler.GetByID)
+
 		// 认证模块（公开）
 		auth := apiV1.Group("/auth")
 		{
@@ -79,9 +82,6 @@ func SetupRouter(
 		authorized := apiV1.Group("")
 		authorized.Use(middleware.AuthMiddleware())
 		{
-			// 文件访问（鉴权 + 房间成员校验）
-			authorized.GET("/files/:fileId", fileHandler.GetByID)
-
 			// 用户模块
 			users := authorized.Group("/users")
 			{
@@ -102,6 +102,9 @@ func SetupRouter(
 				rooms.DELETE("/:roomId", roomHandler.Delete)
 				rooms.DELETE("/:roomId/leave", roomHandler.Leave)
 				rooms.DELETE("/:roomId/members/:userId", roomHandler.KickMember)
+
+				// 在线用户
+				rooms.GET("/:roomId/online-users", roomHandler.OnlineUsers)
 
 				// 消息
 				rooms.GET("/:roomId/messages", msgHandler.GetMessages)

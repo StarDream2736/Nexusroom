@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -45,6 +46,8 @@ class Sidebar extends ConsumerWidget {
               _UserCard(
                 nickname: settings?.nickname ?? 'User',
                 displayId: settings?.userDisplayId,
+                avatarUrl: _resolveAvatarUrl(
+                  settings?.serverUrl, settings?.avatarUrl),
                 onTap: () => context.go('/settings'),
               ),
 
@@ -150,6 +153,14 @@ class Sidebar extends ConsumerWidget {
       ),
     );
   }
+
+  static String? _resolveAvatarUrl(String? baseUrl, String? avatarUrl) {
+    if (avatarUrl == null || avatarUrl.isEmpty) return null;
+    if (avatarUrl.startsWith('/') && baseUrl != null && baseUrl.isNotEmpty) {
+      return '$baseUrl$avatarUrl';
+    }
+    return avatarUrl;
+  }
 }
 
 // ─── Private sub-widgets ──────────────────────────────────────
@@ -158,11 +169,13 @@ class _UserCard extends StatefulWidget {
   const _UserCard({
     required this.nickname,
     this.displayId,
+    this.avatarUrl,
     this.onTap,
   });
 
   final String nickname;
   final String? displayId;
+  final String? avatarUrl;
   final VoidCallback? onTap;
 
   @override
@@ -193,14 +206,19 @@ class _UserCardState extends State<_UserCard> {
               CircleAvatar(
                 radius: 14,
                 backgroundColor: AppColors.primary.withOpacity(0.2),
-                child: Text(
-                  widget.nickname.isNotEmpty ? widget.nickname[0] : '?',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.primary,
-                  ),
-                ),
+                backgroundImage: widget.avatarUrl != null && widget.avatarUrl!.isNotEmpty
+                    ? CachedNetworkImageProvider(widget.avatarUrl!)
+                    : null,
+                child: widget.avatarUrl == null || widget.avatarUrl!.isEmpty
+                    ? Text(
+                        widget.nickname.isNotEmpty ? widget.nickname[0] : '?',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.primary,
+                        ),
+                      )
+                    : null,
               ),
               const SizedBox(width: 10),
               Expanded(

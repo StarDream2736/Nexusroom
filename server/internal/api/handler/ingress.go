@@ -15,6 +15,7 @@ import (
 	"nexusroom-server/internal/model"
 	"nexusroom-server/internal/repository"
 	"nexusroom-server/internal/service"
+	"nexusroom-server/internal/ws"
 	"nexusroom-server/pkg/util"
 )
 
@@ -23,15 +24,17 @@ type IngressHandler struct {
 	ingressRepo *repository.IngressRepository
 	livekitSvc  *service.LiveKitService
 	cfg         *config.Config
+	hub         *ws.Hub
 }
 
 func NewIngressHandler(roomRepo *repository.RoomRepository, ingressRepo *repository.IngressRepository,
-	livekitSvc *service.LiveKitService, cfg *config.Config) *IngressHandler {
+	livekitSvc *service.LiveKitService, cfg *config.Config, hub *ws.Hub) *IngressHandler {
 	return &IngressHandler{
 		roomRepo:    roomRepo,
 		ingressRepo: ingressRepo,
 		livekitSvc:  livekitSvc,
 		cfg:         cfg,
+		hub:         hub,
 	}
 }
 
@@ -67,8 +70,8 @@ func (h *IngressHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// 检查权限（房主或超管）
-	if room.OwnerID != userID && c.GetString("role") != "super_admin" {
+	// 检查权限（房间成员即可创建推流入口）
+	if !h.roomRepo.IsMember(roomID, userID) && c.GetString("role") != "super_admin" {
 		util.ErrorWithStatus(c, http.StatusForbidden, 40301, "无权创建推流入口")
 		return
 	}
@@ -117,6 +120,12 @@ func (h *IngressHandler) Create(c *gin.Context) {
 		"stream_key": rmIngress.StreamKey,
 		"label":      rmIngress.Label,
 	})
+
+	// 广播 ingress 更新事件给房间成员
+	h.hub.BroadcastToRoom(roomID, ws.EventIngressUpdate, ws.IngressUpdatePayload{
+		RoomID: roomID,
+		Action: "created",
+	}, 0)
 }
 
 func (h *IngressHandler) List(c *gin.Context) {
@@ -128,15 +137,14 @@ func (h *IngressHandler) List(c *gin.Context) {
 
 	userID := c.GetUint64("userID")
 
-	// 获取房间信息
-	room, err := h.roomRepo.FindByID(roomID)
-	if err != nil {
+	// 检查房间是否存在
+	if _, err := h.roomRepo.FindByID(roomID); err != nil {
 		util.Error(c, 40401, "房间不存在")
 		return
 	}
 
-	// 检查权限（房主或超管）—— 推流密钥是敏感信息
-	if room.OwnerID != userID && c.GetString("role") != "super_admin" {
+	// 检查权限（房间成员即可查看推流列表）
+	if !h.roomRepo.IsMember(roomID, userID) && c.GetString("role") != "super_admin" {
 		util.ErrorWithStatus(c, http.StatusForbidden, 40301, "无权访问推流入口")
 		return
 	}
@@ -177,15 +185,14 @@ func (h *IngressHandler) Delete(c *gin.Context) {
 
 	userID := c.GetUint64("userID")
 
-	// 获取房间信息
-	room, err := h.roomRepo.FindByID(roomID)
-	if err != nil {
+	// 检查房间是否存在
+	if _, err := h.roomRepo.FindByID(roomID); err != nil {
 		util.Error(c, 40401, "房间不存在")
 		return
 	}
 
-	// 检查权限（房主或超管）
-	if room.OwnerID != userID && c.GetString("role") != "super_admin" {
+	// 检查权限（房间成员即可删除推流入口）
+	if !h.roomRepo.IsMember(roomID, userID) && c.GetString("role") != "super_admin" {
 		util.ErrorWithStatus(c, http.StatusForbidden, 40301, "无权删除推流入口")
 		return
 	}
@@ -207,6 +214,12 @@ func (h *IngressHandler) Delete(c *gin.Context) {
 		util.Error(c, 50001, "删除推流入口失败")
 		return
 	}
+
+	// 广播 ingress 更新事件给房间成员
+	h.hub.BroadcastToRoom(roomID, ws.EventIngressUpdate, ws.IngressUpdatePayload{
+		RoomID: roomID,
+		Action: "deleted",
+	}, 0)
 
 	util.Success(c, nil)
 }
