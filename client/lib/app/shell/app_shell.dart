@@ -1,8 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/providers/app_providers.dart';
+import '../../features/room/presentation/providers/rooms_provider.dart';
+import '../../features/room/presentation/providers/speaking_users_provider.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/title_bar.dart';
@@ -27,14 +32,52 @@ class AppShell extends ConsumerStatefulWidget {
 
 class _AppShellState extends ConsumerState<AppShell> {
   String? _currentRoomId;
+  StreamSubscription? _disbandedSub;
+  StreamSubscription? _kickedSub;
 
   @override
   void initState() {
     super.initState();
     // 提前触发 WsService 创建，确保 WS 在进入 Shell 时就尝试连接
     // 不要等到用户进入房间才首次读取
-    ref.read(wsServiceProvider);
+    final ws = ref.read(wsServiceProvider);
     _syncRoom(widget.location);
+
+    // 全局监听 room.disbanded 事件
+    _disbandedSub = ws.on('room.disbanded').listen((payload) {
+      final disbandedRoomId = payload['room_id'];
+      debugPrint('[AppShell] room.disbanded roomId=$disbandedRoomId');
+      // 刷新房间列表
+      ref.invalidate(roomsProvider);
+      // 如果当前正在该房间中，导航回首页
+      if (_currentRoomId != null && disbandedRoomId.toString() == _currentRoomId) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('房间已被解散')),
+          );
+          context.go('/home');
+        }
+      }
+    });
+
+    // 全局监听 room.kicked 事件
+    _kickedSub = ws.on('room.kicked').listen((payload) {
+      debugPrint('[AppShell] room.kicked');
+      ref.invalidate(roomsProvider);
+      if (_currentRoomId != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('你已被移出房间: ${payload['reason'] ?? ''}')),
+        );
+        context.go('/home');
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _disbandedSub?.cancel();
+    _kickedSub?.cancel();
+    super.dispose();
   }
 
   @override
@@ -64,6 +107,9 @@ class _AppShellState extends ConsumerState<AppShell> {
           debugPrint('[AppShell] joinRoom($roomId)');
           ws.joinRoom(int.parse(roomId));
         }
+        // 更新 activeRoomIdProvider 以驱动 onlineUsersProvider
+        ref.read(activeRoomIdProvider.notifier).state =
+            roomId != null ? int.tryParse(roomId) : null;
       });
     }
   }

@@ -14,6 +14,7 @@ import (
 
 	"nexusroom-server/internal/config"
 	"nexusroom-server/internal/repository"
+	"nexusroom-server/pkg/jwt"
 	"nexusroom-server/pkg/util"
 )
 
@@ -115,7 +116,7 @@ func (h *FileHandler) Upload(c *gin.Context) {
 }
 
 // GetByID GET /api/v1/files/:fileId
-// 从 fileId 中解析 room_id，校验用户是房间成员后返回文件内容
+// 从 fileId 中解析 room_id，支持 Authorization header 或 ?token=xxx query 参数
 func (h *FileHandler) GetByID(c *gin.Context) {
 	fileID := c.Param("fileId")
 	if fileID == "" {
@@ -135,7 +136,30 @@ func (h *FileHandler) GetByID(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetUint64("userID")
+	// 从 header 或 query 参数获取 token
+	var userID uint64
+	if uid := c.GetUint64("userID"); uid != 0 {
+		userID = uid
+	} else {
+		tokenStr := c.Query("token")
+		if tokenStr == "" {
+			auth := c.GetHeader("Authorization")
+			if strings.HasPrefix(auth, "Bearer ") {
+				tokenStr = strings.TrimPrefix(auth, "Bearer ")
+			}
+		}
+		if tokenStr == "" {
+			util.ErrorWithStatus(c, http.StatusUnauthorized, 40101, "缺少认证 Token")
+			return
+		}
+		claims, err := jwt.ParseToken(tokenStr)
+		if err != nil {
+			util.ErrorWithStatus(c, http.StatusUnauthorized, 40101, "Token 无效或已过期")
+			return
+		}
+		userID = claims.UserID
+	}
+
 	if !h.roomRepo.IsMember(roomID, userID) {
 		util.ErrorWithStatus(c, http.StatusForbidden, 40301, "无权访问该文件")
 		return

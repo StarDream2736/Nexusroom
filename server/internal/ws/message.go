@@ -29,6 +29,7 @@ const (
 	EventVoiceStateUpdate MessageType = "voice.state_update"
 	EventFriendRequest    MessageType = "friend.request"
 	EventFriendAccepted   MessageType = "friend.accepted"
+	EventIngressUpdate    MessageType = "room.ingress_update"
 )
 
 // Envelope WebSocket 消息信封
@@ -130,6 +131,11 @@ type FriendRequestPayload struct {
 type FriendAcceptedPayload struct {
 	UserID   uint64 `json:"user_id"`
 	Nickname string `json:"nickname"`
+}
+
+type IngressUpdatePayload struct {
+	RoomID uint64 `json:"room_id"`
+	Action string `json:"action"` // created / deleted
 }
 
 type ChatErrorPayload struct {

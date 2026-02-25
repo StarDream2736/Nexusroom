@@ -20,6 +20,9 @@ class AppSettingsController extends StateNotifier<AsyncValue<AppSettings>> {
       final userDisplayId = await _repository.getUserDisplayId();
       final username = await _repository.getUsername();
       final nickname = await _repository.getNickname();
+      final avatarUrl = await _repository.getAvatarUrl();
+      final audioInputDeviceId = await _repository.getAudioInputDeviceId();
+      final audioOutputDeviceId = await _repository.getAudioOutputDeviceId();
       state = AsyncValue.data(AppSettings(
         serverUrl: serverUrl,
         token: token,
@@ -27,6 +30,9 @@ class AppSettingsController extends StateNotifier<AsyncValue<AppSettings>> {
         userDisplayId: userDisplayId,
         username: username,
         nickname: nickname,
+        avatarUrl: avatarUrl,
+        audioInputDeviceId: audioInputDeviceId,
+        audioOutputDeviceId: audioOutputDeviceId,
       ));
     } catch (error, stackTrace) {
       state = AsyncValue.error(error, stackTrace);
@@ -46,6 +52,30 @@ class AppSettingsController extends StateNotifier<AsyncValue<AppSettings>> {
     await _repository.setToken(result.token);
     await _repository.setUserId(result.userId.toString());
     await _repository.setUserDisplayId(result.userDisplayId);
+    await _load();
+  }
+
+  /// 更新头像 URL并重新加载设置
+  Future<void> setAvatarUrl(String url) async {
+    await _repository.setAvatarUrl(url);
+    await _load();
+  }
+
+  /// 更新昵称并重新加载设置
+  Future<void> setNickname(String nickname) async {
+    await _repository.setNickname(nickname);
+    await _load();
+  }
+
+  /// 保存麦克风设备选择
+  Future<void> setAudioInputDeviceId(String deviceId) async {
+    await _repository.setAudioInputDeviceId(deviceId);
+    await _load();
+  }
+
+  /// 保存扬声器设备选择
+  Future<void> setAudioOutputDeviceId(String deviceId) async {
+    await _repository.setAudioOutputDeviceId(deviceId);
     await _load();
   }
 

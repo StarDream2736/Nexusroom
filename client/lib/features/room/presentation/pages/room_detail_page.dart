@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -49,8 +50,11 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
   StreamSubscription? _memberJoinSub;
   StreamSubscription? _memberLeaveSub;
   StreamSubscription? _voiceStateSub;
+  StreamSubscription? _ingressRefreshSub;
+  StreamSubscription? _ingressUpdateSub;
   WsService? _wsService;
   LiveKitService? _livekitService;
+  int _lastIngressCount = -1;
 
   int get _roomId => int.parse(widget.roomId);
 
@@ -103,6 +107,20 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
 
     _connectLiveKit();
 
+    // 监听 LiveKit 参与者变化 → 自动刷新直播列表
+    _ingressRefreshSub = _livekitService!.participantsStream.listen((_) {
+      final count = _livekitService!.ingressParticipants.length;
+      if (count != _lastIngressCount) {
+        _lastIngressCount = count;
+        ref.invalidate(roomIngressesProvider(_roomId));
+      }
+    });
+
+    // 监听 WS ingress 更新事件 → 实时刷新直播列表
+    _ingressUpdateSub = _wsService!.on('room.ingress_update').listen((_) {
+      ref.invalidate(roomIngressesProvider(_roomId));
+    });
+
     // StreamPlayer listeners
     _videoTrackSub = _streamPlayer.videoTrackStream.listen((track) {
       if (mounted) setState(() => _streamVideoTrack = track);
@@ -113,6 +131,16 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
   }
 
   Future<void> _connectLiveKit() async {
+    // 如果 LiveKit 已经连接到同一个房间（从设置页返回），跳过重连
+    if (_livekitService!.connectedRoomId == _roomId) {
+      debugPrint('[LiveKit] Already connected to room $_roomId, reusing connection');
+      setState(() {
+        _livekitConnected = _livekitService!.isConnected;
+        _isMuted = !_livekitService!.isMicrophoneEnabled;
+      });
+      return;
+    }
+
     // 监听连接状态变化（每次 initState 都要绑定，因为旧 subscription 在 dispose 中已 cancel）
     _connectionStateSub = _livekitService!.connectionStateStream.listen((state) {
       if (mounted) {
@@ -134,23 +162,23 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
       }
     });
 
-    // 如果 LiveKit 已经连接到同一个房间（从设置页返回），跳过重连
-    if (_livekitService!.connectedRoomId == _roomId) {
-      debugPrint('[LiveKit] Already connected to room $_roomId, reusing connection');
-      setState(() {
-        _livekitConnected = _livekitService!.isConnected;
-        _isMuted = !_livekitService!.isMicrophoneEnabled;
-      });
-      return;
-    }
-
     try {
+      // 获取 LiveKit Token 和动态 URL
       final tokenResult =
           await ref.read(roomRepositoryProvider).getLiveKitToken(_roomId);
-      debugPrint('[LiveKit] Voice room URL: ${tokenResult.url}');
+      
+      // 获取房间详情以获取动态 LiveKit URL
+      final roomDetail = await ref.read(roomDetailProvider(_roomId).future);
+      
+      // 使用房间返回的 LiveKit URL，如果为空则 fallback 到 token 中的 URL
+      final liveKitUrl = roomDetail.liveKitUrl.isNotEmpty 
+          ? roomDetail.liveKitUrl 
+          : tokenResult.url;
+      
+      debugPrint('[LiveKit] Voice room URL: $liveKitUrl');
 
       // 连接语音房间
-      await _livekitService!.connect(tokenResult.url, tokenResult.token, roomId: _roomId);
+      await _livekitService!.connect(liveKitUrl, tokenResult.token, roomId: _roomId);
 
       // 默认静音
       await _livekitService!.setMicrophoneEnabled(false);
@@ -179,6 +207,8 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
     _memberJoinSub?.cancel();
     _memberLeaveSub?.cancel();
     _voiceStateSub?.cancel();
+    _ingressRefreshSub?.cancel();
+    _ingressUpdateSub?.cancel();
     // 房间 join/leave 由 AppShell 统一管理
     // LiveKit 语音连接也由 AppShell 在切换房间时统一断开
     // 此处只清理 StreamPlayer（直播流进入设置页时可中断，返回后重选）
@@ -187,13 +217,18 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
   }
 
   void _toggleMute() async {
+    if (!_livekitConnected || _livekitService == null) return;
     final newMuted = !_isMuted;
-    await _livekitService?.setMicrophoneEnabled(!newMuted);
-    _wsService?.sendVoiceMute(
-      roomId: _roomId,
-      muted: newMuted,
-    );
-    setState(() => _isMuted = newMuted);
+    try {
+      await _livekitService!.setMicrophoneEnabled(!newMuted);
+      _wsService?.sendVoiceMute(
+        roomId: _roomId,
+        muted: newMuted,
+      );
+      setState(() => _isMuted = newMuted);
+    } catch (e) {
+      debugPrint('[RoomDetail] toggleMute failed: $e');
+    }
   }
 
   /// 打开直播流（连接独立的直播 LiveKit 房间）
@@ -265,6 +300,7 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
       (roomId: _roomId, serverUrl: serverUrl),
     ));
     final baseUrl = ref.watch(appSettingsProvider).value?.serverUrl;
+    final authToken = ref.watch(appSettingsProvider).value?.token;
     final selectedIngress = ref.watch(selectedIngressProvider);
     final streamMuted = ref.watch(streamMutedProvider);
 
@@ -371,15 +407,22 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
                                 final message = messages[index];
                                 final sender = message.senderNickname ??
                                     '用户${message.senderId}';
+                                final avatarUrl = message.senderAvatarUrl != null
+                                    ? _resolveUrl(baseUrl, message.senderAvatarUrl!)
+                                    : null;
+                                final rawImageUrl = message.type == 'image'
+                                    ? _resolveUrl(baseUrl, message.content)
+                                    : null;
+                                final imageUrlWithToken = rawImageUrl != null && authToken != null
+                                    ? '$rawImageUrl?token=$authToken'
+                                    : rawImageUrl;
                                 return _ChatBubble(
                                   sender: sender,
+                                  senderAvatarUrl: avatarUrl,
                                   content: message.type == 'image'
                                       ? null
                                       : message.content,
-                                  imageUrl: message.type == 'image'
-                                      ? _resolveUrl(
-                                          baseUrl, message.content)
-                                      : null,
+                                  imageUrl: imageUrlWithToken,
                                 );
                               },
                             );
@@ -724,41 +767,12 @@ class _VoiceControlButton extends StatelessWidget {
               borderRadius: AppTheme.radiusSmall,
               border: Border.all(color: AppColors.border, width: 1),
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  isMuted ? Icons.mic_off : Icons.mic,
-                  size: 14,
-                  color: isMuted ? AppColors.error : AppColors.success,
-                ),
-                const SizedBox(width: 4),
-                if (isConnected)
-                  Container(
-                    width: 6,
-                    height: 6,
-                    decoration: const BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: AppColors.success,
-                    ),
-                  )
-                else if (error != null)
-                  Container(
-                    width: 6,
-                    height: 6,
-                    decoration: const BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: AppColors.error,
-                    ),
-                  )
-                else
-                  const SizedBox(
-                    width: 8,
-                    height: 8,
-                    child:
-                        CircularProgressIndicator(strokeWidth: 1.5),
-                  ),
-              ],
+            child: Icon(
+              isMuted ? Icons.mic_off : Icons.mic,
+              size: 14,
+              color: error != null
+                  ? AppColors.error
+                  : (isMuted ? AppColors.error : AppColors.success),
             ),
           ),
         ),
@@ -771,11 +785,13 @@ class _VoiceControlButton extends StatelessWidget {
 class _ChatBubble extends StatelessWidget {
   const _ChatBubble({
     required this.sender,
+    this.senderAvatarUrl,
     this.content,
     this.imageUrl,
   });
 
   final String sender;
+  final String? senderAvatarUrl;
   final String? content;
   final String? imageUrl;
 
@@ -789,13 +805,18 @@ class _ChatBubble extends StatelessWidget {
           CircleAvatar(
             radius: 12,
             backgroundColor: AppColors.primary.withOpacity(0.15),
-            child: Text(
-              sender.isNotEmpty ? sender[0] : '?',
-              style: const TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.primary),
-            ),
+            backgroundImage: senderAvatarUrl != null && senderAvatarUrl!.isNotEmpty
+                ? CachedNetworkImageProvider(senderAvatarUrl!)
+                : null,
+            child: senderAvatarUrl == null || senderAvatarUrl!.isEmpty
+                ? Text(
+                    sender.isNotEmpty ? sender[0] : '?',
+                    style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.primary),
+                  )
+                : null,
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -824,12 +845,27 @@ class _ChatBubble extends StatelessWidget {
                         )),
                   ),
                 if (imageUrl != null)
-                  ClipRRect(
-                    borderRadius: AppTheme.radiusStandard,
-                    child: Image.network(
-                      imageUrl!,
-                      height: 120,
-                      fit: BoxFit.cover,
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      maxWidth: 300,
+                      maxHeight: 200,
+                    ),
+                    child: ClipRRect(
+                      borderRadius: AppTheme.radiusStandard,
+                      child: CachedNetworkImage(
+                        imageUrl: imageUrl!,
+                        fit: BoxFit.contain,
+                        placeholder: (context, url) => const SizedBox(
+                          width: 120,
+                          height: 80,
+                          child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                        ),
+                        errorWidget: (context, url, error) => SizedBox(
+                          width: 120,
+                          height: 80,
+                          child: Center(child: Icon(Icons.broken_image, color: AppColors.textSecondary)),
+                        ),
+                      ),
                     ),
                   ),
               ],

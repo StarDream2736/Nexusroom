@@ -50,6 +50,7 @@ class RoomDetail {
     required this.livekitRoomName,
     required this.members,
     required this.ingresses,
+    this.liveKitUrl = '',
   });
 
   final int id;
@@ -59,6 +60,7 @@ class RoomDetail {
   final String livekitRoomName;
   final List<RoomMember> members;
   final List<RoomIngressSummary> ingresses;
+  final String liveKitUrl;
 
   factory RoomDetail.fromJson(Map<String, dynamic> json) {
     final membersJson = (json['members'] as List<dynamic>? ?? []);
@@ -76,6 +78,7 @@ class RoomDetail {
           .map((item) =>
               RoomIngressSummary.fromJson(item as Map<String, dynamic>))
           .toList(),
+      liveKitUrl: json['livekit_url'] as String? ?? '',
     );
   }
 }
