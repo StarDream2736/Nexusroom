@@ -7,6 +7,10 @@ class LiveKitService {
   Room? _room;
   EventsListener<RoomEvent>? _listener;
 
+  /// 当前已连接的房间 ID（用于幂等检查，避免从设置页返回时重复连接）
+  int? _connectedRoomId;
+  int? get connectedRoomId => _connectedRoomId;
+
   final _participantsController =
       StreamController<List<RemoteParticipant>>.broadcast();
   final _connectionStateController =
@@ -30,7 +34,8 @@ class LiveKitService {
       _room?.connectionState == ConnectionState.connected;
 
   /// 连接到 LiveKit 房间
-  Future<void> connect(String url, String token) async {
+  /// [roomId] 用于幂等检查，不传给 LiveKit SDK
+  Future<void> connect(String url, String token, {int? roomId}) async {
     await disconnect();
 
     _room = Room(
@@ -59,6 +64,7 @@ class LiveKitService {
         },
       );
       print('[LiveKit] Connected successfully, participants: ${_room!.remoteParticipants.length}');
+      _connectedRoomId = roomId;
       _notifyParticipants();
     } catch (e) {
       final msg = 'LiveKit 连接失败: $e';
@@ -71,6 +77,7 @@ class LiveKitService {
 
   /// 断开连接
   Future<void> disconnect() async {
+    _connectedRoomId = null;
     _listener?.dispose();
     _listener = null;
     await _room?.disconnect();

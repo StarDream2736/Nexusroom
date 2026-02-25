@@ -68,10 +68,9 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
       ref.read(voiceActiveUsersProvider.notifier).clear();
     });
 
-    // 房间 join/leave 主要由 AppShell 统一管理，此处作为冗余安全网
-    _wsService!.joinRoom(_roomId);
-    debugPrint('[RoomDetail] initState joinRoom($_roomId)');
-    ref.read(messageRepositoryProvider).syncLatest(_roomId);
+    // 房间 join/leave 由 AppShell 统一管理，此处不再冗余 join
+    final serverUrl = ref.read(appSettingsProvider).valueOrNull?.serverUrl ?? '';
+    ref.read(messageRepositoryProvider).syncLatest(_roomId, serverUrl: serverUrl);
 
     // 监听被踢出事件
     _kickedSub = _wsService!.on('room.kicked').listen((payload) {
@@ -114,34 +113,44 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
   }
 
   Future<void> _connectLiveKit() async {
+    // 监听连接状态变化（每次 initState 都要绑定，因为旧 subscription 在 dispose 中已 cancel）
+    _connectionStateSub = _livekitService!.connectionStateStream.listen((state) {
+      if (mounted) {
+        setState(() {
+          if (state == lk.ConnectionState.connected) {
+            _livekitConnected = true;
+            _livekitError = null;
+          } else if (state == lk.ConnectionState.disconnected) {
+            _livekitConnected = false;
+          }
+        });
+      }
+    });
+
+    // 监听错误
+    _errorSub = _livekitService!.errorStream.listen((error) {
+      if (mounted) {
+        setState(() => _livekitError = error);
+      }
+    });
+
+    // 如果 LiveKit 已经连接到同一个房间（从设置页返回），跳过重连
+    if (_livekitService!.connectedRoomId == _roomId) {
+      debugPrint('[LiveKit] Already connected to room $_roomId, reusing connection');
+      setState(() {
+        _livekitConnected = _livekitService!.isConnected;
+        _isMuted = !_livekitService!.isMicrophoneEnabled;
+      });
+      return;
+    }
+
     try {
       final tokenResult =
           await ref.read(roomRepositoryProvider).getLiveKitToken(_roomId);
       debugPrint('[LiveKit] Voice room URL: ${tokenResult.url}');
 
-      // 监听连接状态变化
-      _connectionStateSub = _livekitService!.connectionStateStream.listen((state) {
-        if (mounted) {
-          setState(() {
-            if (state == lk.ConnectionState.connected) {
-              _livekitConnected = true;
-              _livekitError = null;
-            } else if (state == lk.ConnectionState.disconnected) {
-              _livekitConnected = false;
-            }
-          });
-        }
-      });
-
-      // 监听错误
-      _errorSub = _livekitService!.errorStream.listen((error) {
-        if (mounted) {
-          setState(() => _livekitError = error);
-        }
-      });
-
-      // 连接语音房间（不再监听 ingress 参与者）
-      await _livekitService!.connect(tokenResult.url, tokenResult.token);
+      // 连接语音房间
+      await _livekitService!.connect(tokenResult.url, tokenResult.token, roomId: _roomId);
 
       // 默认静音
       await _livekitService!.setMicrophoneEnabled(false);
@@ -170,10 +179,9 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
     _memberJoinSub?.cancel();
     _memberLeaveSub?.cancel();
     _voiceStateSub?.cancel();
-    // 房间 leave 主要由 AppShell 统一管理，此处作为冗余安全网
-    _wsService?.leaveRoom(_roomId);
-    debugPrint('[RoomDetail] dispose leaveRoom($_roomId)');
-    _livekitService?.disconnect();
+    // 房间 join/leave 由 AppShell 统一管理
+    // LiveKit 语音连接也由 AppShell 在切换房间时统一断开
+    // 此处只清理 StreamPlayer（直播流进入设置页时可中断，返回后重选）
     _messageController.dispose();
     super.dispose();
   }
@@ -252,7 +260,10 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
   @override
   Widget build(BuildContext context) {
     final roomAsync = ref.watch(roomDetailProvider(_roomId));
-    final messagesAsync = ref.watch(messagesStreamProvider(_roomId));
+    final serverUrl = ref.watch(appSettingsProvider).value?.serverUrl ?? '';
+    final messagesAsync = ref.watch(messagesStreamProvider(
+      (roomId: _roomId, serverUrl: serverUrl),
+    ));
     final baseUrl = ref.watch(appSettingsProvider).value?.serverUrl;
     final selectedIngress = ref.watch(selectedIngressProvider);
     final streamMuted = ref.watch(streamMutedProvider);

@@ -57,6 +57,8 @@ class _AppShellState extends ConsumerState<AppShell> {
         if (oldRoomId != null) {
           debugPrint('[AppShell] leaveRoom($oldRoomId)');
           ws.leaveRoom(int.parse(oldRoomId));
+          // 离开房间时统一断开 LiveKit 语音连接
+          ref.read(livekitServiceProvider).disconnect();
         }
         if (roomId != null) {
           debugPrint('[AppShell] joinRoom($roomId)');

@@ -319,7 +319,7 @@ class WsService {
     if (event == 'chat.message' && payload != null) {
       try {
         debugPrint('[WsService] chat.message payload=$payload');
-        final message = MessageModel.fromWs(payload);
+        final message = MessageModel.fromWs(payload, serverUrl: _serverUrl ?? '');
         _db.messagesDao.upsertMessages([message.toCompanion()]);
         debugPrint('[WsService] chat.message written to DB, id=${message.id} roomId=${message.roomId}');
       } catch (e, st) {
