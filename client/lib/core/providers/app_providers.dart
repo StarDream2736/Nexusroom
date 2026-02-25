@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../db/app_database.dart';
@@ -45,27 +46,35 @@ final apiClientProvider = Provider<ApiClient>((ref) {
 });
 
 final wsServiceProvider = Provider<WsService>((ref) {
+  debugPrint('[wsServiceProvider] factory START');
   final service = WsService(db: ref.watch(appDatabaseProvider));
 
   // 尝试立即连接（应用重启时 settings 可能已加载完成）
-  final settings = ref.read(appSettingsProvider).valueOrNull;
+  final settingsState = ref.read(appSettingsProvider);
+  debugPrint('[wsServiceProvider] appSettings state: ${settingsState.runtimeType} — loading=${settingsState is AsyncLoading} data=${settingsState.valueOrNull != null}');
+  final settings = settingsState.valueOrNull;
   if (settings != null && settings.hasServerUrl && settings.hasToken) {
+    debugPrint('[wsServiceProvider] connecting immediately with url=${settings.serverUrl}');
     service.connect(settings.serverUrl!, settings.token!);
+  } else {
+    debugPrint('[wsServiceProvider] settings not ready, waiting for listen callback');
   }
 
   // 监听 settings 变化：覆盖 loading→data（重启）和 data→data（登录/切换服务器）
   ref.listen<AsyncValue<AppSettings>>(appSettingsProvider, (prev, next) {
+    debugPrint('[wsServiceProvider] listen callback: prev=${prev?.runtimeType} next=${next.runtimeType} hasValue=${next.valueOrNull != null}');
     final s = next.valueOrNull;
     if (s == null || !s.hasServerUrl || !s.hasToken) {
+      debugPrint('[wsServiceProvider] settings incomplete, disconnecting');
       service.disconnect();
       return;
     }
-    // 无论 prev 是 loading 还是旧 data 都尝试连接
-    // WsService.connect() 内部有幂等判断：相同 url+token+channel!=null 会直接 return
+    debugPrint('[wsServiceProvider] settings ready, calling connect serverUrl=${s.serverUrl}');
     service.connect(s.serverUrl!, s.token!);
   });
 
   ref.onDispose(service.dispose);
+  debugPrint('[wsServiceProvider] factory END');
   return service;
 });
 
