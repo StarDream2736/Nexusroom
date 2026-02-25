@@ -46,18 +46,25 @@ final apiClientProvider = Provider<ApiClient>((ref) {
 
 final wsServiceProvider = Provider<WsService>((ref) {
   final service = WsService(db: ref.watch(appDatabaseProvider));
+
+  // 尝试立即连接（应用重启时 settings 可能已加载完成）
   final settings = ref.read(appSettingsProvider).valueOrNull;
   if (settings != null && settings.hasServerUrl && settings.hasToken) {
     service.connect(settings.serverUrl!, settings.token!);
   }
-  ref.listen(appSettingsProvider, (_, next) {
-    final settings = next.valueOrNull;
-    if (settings == null || !settings.hasServerUrl || !settings.hasToken) {
+
+  // 监听 settings 变化：覆盖 loading→data（重启）和 data→data（登录/切换服务器）
+  ref.listen<AsyncValue<AppSettings>>(appSettingsProvider, (prev, next) {
+    final s = next.valueOrNull;
+    if (s == null || !s.hasServerUrl || !s.hasToken) {
       service.disconnect();
       return;
     }
-    service.connect(settings.serverUrl!, settings.token!);
+    // 无论 prev 是 loading 还是旧 data 都尝试连接
+    // WsService.connect() 内部有幂等判断：相同 url+token+channel!=null 会直接 return
+    service.connect(s.serverUrl!, s.token!);
   });
+
   ref.onDispose(service.dispose);
   return service;
 });

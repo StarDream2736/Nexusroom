@@ -31,6 +31,9 @@ class _AppShellState extends ConsumerState<AppShell> {
   @override
   void initState() {
     super.initState();
+    // 提前触发 WsService 创建，确保 WS 在进入 Shell 时就尝试连接
+    // 不要等到用户进入房间才首次读取
+    ref.read(wsServiceProvider);
     _syncRoom(widget.location);
   }
 
