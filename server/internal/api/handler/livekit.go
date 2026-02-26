@@ -16,18 +16,20 @@ import (
 )
 
 type LiveKitHandler struct {
-	roomRepo   *repository.RoomRepository
-	userRepo   *repository.UserRepository
-	livekitSvc *service.LiveKitService
-	cfg        *config.Config
+	roomRepo    *repository.RoomRepository
+	userRepo    *repository.UserRepository
+	ingressRepo *repository.IngressRepository
+	livekitSvc  *service.LiveKitService
+	cfg         *config.Config
 }
 
-func NewLiveKitHandler(roomRepo *repository.RoomRepository, userRepo *repository.UserRepository, livekitSvc *service.LiveKitService, cfg *config.Config) *LiveKitHandler {
+func NewLiveKitHandler(roomRepo *repository.RoomRepository, userRepo *repository.UserRepository, ingressRepo *repository.IngressRepository, livekitSvc *service.LiveKitService, cfg *config.Config) *LiveKitHandler {
 	return &LiveKitHandler{
-		roomRepo:   roomRepo,
-		userRepo:   userRepo,
-		livekitSvc: livekitSvc,
-		cfg:        cfg,
+		roomRepo:    roomRepo,
+		userRepo:    userRepo,
+		ingressRepo: ingressRepo,
+		livekitSvc:  livekitSvc,
+		cfg:         cfg,
 	}
 }
 
@@ -63,7 +65,29 @@ func (h *LiveKitHandler) GenerateToken(c *gin.Context) {
 	roomType := c.DefaultQuery("type", "voice")
 	livekitRoom := room.LiveKitRoomName
 	if roomType == "stream" {
-		livekitRoom = room.LiveKitRoomName + "_stream"
+		// 每个 Ingress 有独立的 LiveKit 房间，通过 ingress_id 查找
+		ingressIDStr := c.Query("ingress_id")
+		if ingressIDStr == "" {
+			util.Error(c, 40001, "直播观看需提供 ingress_id 参数")
+			return
+		}
+		ingressDBID, err := strconv.ParseUint(ingressIDStr, 10, 64)
+		if err != nil {
+			util.Error(c, 40001, "ingress_id 格式错误")
+			return
+		}
+		ingress, err := h.ingressRepo.FindByID(ingressDBID)
+		if err != nil {
+			util.Error(c, 40401, "推流入口不存在")
+			return
+		}
+		// 优先使用 Ingress 记录中的独立房间名（新创建的 Ingress 才有）
+		if ingress.LiveKitRoomName != "" {
+			livekitRoom = ingress.LiveKitRoomName
+		} else {
+			// 兼容旧数据：回退到共享房间
+			livekitRoom = room.LiveKitRoomName + "_stream"
+		}
 	}
 
 	var token string

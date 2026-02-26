@@ -49,7 +49,7 @@ func SetupRouter(
 	userHandler := handler.NewUserHandler(userRepo, cfg)
 	roomHandler := handler.NewRoomHandler(roomRepo, userRepo, ingressRepo, livekitSvc, hub, cfg)
 	msgHandler := handler.NewMessageHandler(msgRepo, roomRepo)
-	livekitHandler := handler.NewLiveKitHandler(roomRepo, userRepo, livekitSvc, cfg)
+	livekitHandler := handler.NewLiveKitHandler(roomRepo, userRepo, ingressRepo, livekitSvc, cfg)
 	ingressHandler := handler.NewIngressHandler(roomRepo, ingressRepo, livekitSvc, cfg, hub)
 	fileHandler := handler.NewFileHandler(cfg, roomRepo)
 	adminHandler := handler.NewAdminHandler(userRepo, roomRepo, msgRepo, hub, cfg)
