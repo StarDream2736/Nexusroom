@@ -172,7 +172,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     final confirmed = await showMacDialog<bool>(
       context: context,
       title: '更换服务器',
-      content: '更换服务器将清除本地登录状态，确认继续？',
+      content: '更换服务器将清除本地登录状态和缓存数据，确认继续？',
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context, false),
@@ -186,9 +186,13 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     );
     if (confirmed != true || !mounted) return;
 
-    // 先清除房间列表缓存，防止切换时短暂显示旧服务器房间
+    // 断开 LiveKit 语音连接
+    ref.read(livekitServiceProvider).disconnect();
+    // 清除所有本地消息缓存（跳服务器了，全清）
+    await ref.read(appDatabaseProvider).messagesDao.clearAll();
+    // 清除房间列表缓存
     ref.invalidate(roomsProvider);
-    // 先清状态，GoRouter redirect 会自动导航到 /setup
+    // 清状态，GoRouter redirect 会自动导航到 /setup
     await ref.read(appSettingsProvider.notifier).clearAll();
   }
 
@@ -210,7 +214,14 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     );
     if (confirmed != true || !mounted) return;
 
-    // 先清状态，GoRouter redirect 会自动导航到 /login
+    // 断开 LiveKit 语音连接
+    ref.read(livekitServiceProvider).disconnect();
+    // 清除当前服务器的本地消息缓存
+    final serverUrl = ref.read(appSettingsProvider).valueOrNull?.serverUrl;
+    if (serverUrl != null && serverUrl.isNotEmpty) {
+      await ref.read(appDatabaseProvider).messagesDao.clearByServerUrl(serverUrl);
+    }
+    // 清状态，GoRouter redirect 会自动导航到 /login
     await ref.read(appSettingsProvider.notifier).clearAuth();
   }
 
