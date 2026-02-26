@@ -55,6 +55,7 @@ services:
       - "7880:7880"
       - "7881:7881"
       - "50000-50050:50000-50050/udp"  # WebRTC UDP 端口范围
+      - "3478:3478/udp"                  # TURN 服务器（ICE 穿透）
     volumes:
       - ./livekit.yaml:/etc/livekit.yaml
     command: --config /etc/livekit.yaml

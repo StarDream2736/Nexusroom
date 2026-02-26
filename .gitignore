@@ -18,7 +18,7 @@ config.yaml
 !config.yaml.template
 
 # 数据目录
-data/
+/data/
 uploads/
 *.sqlite
 *.db
@@ -26,12 +26,12 @@ uploads/
 # Docker 镜像
 *.tar
 
-# 服务端
+# 服务�?
 server/nexusroom-server
 server/*.exe
 server/tmp/
 
-# 客户端
+# 客户�?
 client/.dart_tool/
 client/.packages
 client/build/

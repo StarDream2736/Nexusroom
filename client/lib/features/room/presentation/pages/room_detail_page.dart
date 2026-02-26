@@ -241,9 +241,9 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
     });
 
     try {
-      // 获取直播房间 Token
+      // 获取直播房间 Token（按 Ingress 隔离，每个 Ingress 独立房间）
       final tokenResult =
-          await ref.read(roomRepositoryProvider).getStreamToken(_roomId);
+          await ref.read(roomRepositoryProvider).getStreamToken(_roomId, ingressId: ingress.id);
       debugPrint('[StreamPlayer] Connecting to ${tokenResult.url}');
 
       await _streamPlayer.connect(tokenResult.url, tokenResult.token);

@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
+	"github.com/google/uuid"
 
 	"nexusroom-server/internal/config"
 	"nexusroom-server/internal/model"
@@ -76,8 +77,8 @@ func (h *IngressHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// 调用 LiveKit API 创建 Ingress（使用独立的直播房间，与语音房间隔离）
-	streamRoomName := room.LiveKitRoomName + "_stream"
+	// 调用 LiveKit API 创建 Ingress（每个 Ingress 使用独立的直播房间，避免串流）
+	streamRoomName := fmt.Sprintf("%s_stream_%s", room.LiveKitRoomName, uuid.New().String()[:8])
 	log.Printf("[Ingress] Creating ingress for streamRoom=%s label=%s", streamRoomName, req.Label)
 	ingressInfo, err := h.livekitSvc.CreateIngress(streamRoomName, req.Label)
 	if err != nil {
@@ -97,12 +98,13 @@ func (h *IngressHandler) Create(c *gin.Context) {
 
 	// 保存到数据库
 	rmIngress := &model.RoomIngress{
-		RoomID:    roomID,
-		IngressID: ingressInfo.IngressId,
-		StreamKey: ingressInfo.StreamKey,
-		RTMPURL:   rtmpURL,
-		Label:     req.Label,
-		CreatedBy: userID,
+		RoomID:          roomID,
+		IngressID:       ingressInfo.IngressId,
+		StreamKey:       ingressInfo.StreamKey,
+		RTMPURL:         rtmpURL,
+		Label:           req.Label,
+		LiveKitRoomName: streamRoomName,
+		CreatedBy:       userID,
 	}
 
 	if err := h.ingressRepo.Create(rmIngress); err != nil {
