@@ -53,6 +53,8 @@ class StreamPlayer {
         await mpv.setProperty('demuxer-readahead-secs', '0.2');
         await mpv.setProperty('untimed', 'yes');
         await mpv.setProperty('profile', 'low-latency');
+        // URL 无 .flv 后缀（通过 Go 代理），必须显式指定 FLV 解复用器
+        await mpv.setProperty('demuxer-lavf-format', 'flv');
       }
 
       _videoController = VideoController(_player!);
