@@ -417,13 +417,27 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
                                 final imageUrlWithToken = rawImageUrl != null && authToken != null
                                     ? '$rawImageUrl?token=$authToken'
                                     : rawImageUrl;
-                                return _ChatBubble(
-                                  sender: sender,
-                                  senderAvatarUrl: avatarUrl,
-                                  content: message.type == 'image'
-                                      ? null
-                                      : message.content,
-                                  imageUrl: imageUrlWithToken,
+                                return TweenAnimationBuilder<double>(
+                                  tween: Tween(begin: 0.0, end: 1.0),
+                                  duration: const Duration(milliseconds: 300),
+                                  curve: Curves.easeOutCubic,
+                                  builder: (context, value, child) {
+                                    return Transform.translate(
+                                      offset: Offset(0, 20 * (1 - value)),
+                                      child: Opacity(
+                                        opacity: value,
+                                        child: child,
+                                      ),
+                                    );
+                                  },
+                                  child: _ChatBubble(
+                                    sender: sender,
+                                    senderAvatarUrl: avatarUrl,
+                                    content: message.type == 'image'
+                                        ? null
+                                        : message.content,
+                                    imageUrl: imageUrlWithToken,
+                                  ),
                                 );
                               },
                             );

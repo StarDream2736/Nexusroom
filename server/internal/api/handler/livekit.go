@@ -66,7 +66,13 @@ func (h *LiveKitHandler) GenerateToken(c *gin.Context) {
 		livekitRoom = room.LiveKitRoomName + "_stream"
 	}
 
-	token, err := h.livekitSvc.GenerateToken(livekitRoom, strconv.FormatUint(userID, 10), user.Nickname)
+	var token string
+	if roomType == "stream" {
+		// 直播观看者只需订阅权限，不需要发布权限
+		token, err = h.livekitSvc.GenerateViewerToken(livekitRoom, strconv.FormatUint(userID, 10), user.Nickname)
+	} else {
+		token, err = h.livekitSvc.GenerateToken(livekitRoom, strconv.FormatUint(userID, 10), user.Nickname)
+	}
 	if err != nil {
 		util.Error(c, 50001, "生成 Token 失败")
 		return

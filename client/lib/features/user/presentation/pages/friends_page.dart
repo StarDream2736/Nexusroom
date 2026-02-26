@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -130,6 +131,14 @@ class _FriendsPageState extends ConsumerState<FriendsPage>
     }
   }
 
+  String? _resolveUrl(String? baseUrl, String? value) {
+    if (value == null || value.isEmpty) return null;
+    if (value.startsWith('/') && baseUrl != null) {
+      return '$baseUrl$value';
+    }
+    return value;
+  }
+
   @override
   void dispose() {
     _friendRequestSub?.cancel();
@@ -205,6 +214,7 @@ class _FriendsPageState extends ConsumerState<FriendsPage>
   }
 
   Widget _buildFriendsList() {
+    final baseUrl = ref.watch(appSettingsProvider).value?.serverUrl;
     if (_friends.isEmpty) {
       return Center(
           child: Text('暂无好友', style: AppTypography.bodySecondary));
@@ -215,7 +225,7 @@ class _FriendsPageState extends ConsumerState<FriendsPage>
         final f = _friends[index];
         final isOnline = f['is_online'] as bool? ?? false;
         return _FriendTile(
-          avatarUrl: f['avatar_url'] as String?,
+          avatarUrl: _resolveUrl(baseUrl, f['avatar_url'] as String?),
           nickname: f['nickname'] as String? ?? '',
           displayId: f['user_display_id']?.toString() ?? '',
           isOnline: isOnline,
@@ -225,6 +235,7 @@ class _FriendsPageState extends ConsumerState<FriendsPage>
   }
 
   Widget _buildPendingList() {
+    final baseUrl = ref.watch(appSettingsProvider).value?.serverUrl;
     if (_pendingRequests.isEmpty) {
       return Center(
           child: Text('暂无待处理申请', style: AppTypography.bodySecondary));
@@ -234,7 +245,7 @@ class _FriendsPageState extends ConsumerState<FriendsPage>
       itemBuilder: (context, index) {
         final r = _pendingRequests[index];
         return _PendingTile(
-          avatarUrl: r['requester_avatar_url'] as String?,
+          avatarUrl: _resolveUrl(baseUrl, r['requester_avatar_url'] as String?),
           nickname: r['requester_nickname'] as String? ?? '',
           displayId: r['requester_display_id']?.toString() ?? '',
           onAccept: () => _handleRequest(
@@ -325,7 +336,7 @@ class _FriendTileState extends State<_FriendTile> {
               backgroundColor: AppColors.cardActive,
               backgroundImage:
                   widget.avatarUrl != null && widget.avatarUrl!.isNotEmpty
-                      ? NetworkImage(widget.avatarUrl!)
+                      ? CachedNetworkImageProvider(widget.avatarUrl!)
                       : null,
               child: widget.avatarUrl == null || widget.avatarUrl!.isEmpty
                   ? Icon(Icons.person, size: 16, color: AppColors.textMuted)
@@ -402,7 +413,7 @@ class _PendingTileState extends State<_PendingTile> {
               backgroundColor: AppColors.cardActive,
               backgroundImage:
                   widget.avatarUrl != null && widget.avatarUrl!.isNotEmpty
-                      ? NetworkImage(widget.avatarUrl!)
+                      ? CachedNetworkImageProvider(widget.avatarUrl!)
                       : null,
               child: widget.avatarUrl == null || widget.avatarUrl!.isEmpty
                   ? Icon(Icons.person, size: 16, color: AppColors.textMuted)

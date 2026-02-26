@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"io"
 	"log"
 	"nexusroom-server/internal/config"
 	"nexusroom-server/internal/repository"
@@ -9,9 +8,9 @@ import (
 	"nexusroom-server/pkg/util"
 	"time"
 
-	"encoding/json"
-
 	"github.com/gin-gonic/gin"
+	"github.com/livekit/protocol/auth"
+	"github.com/livekit/protocol/webhook"
 
 	"nexusroom-server/internal/model"
 )
@@ -117,27 +116,13 @@ func (h *WebhookHandler) QQWebhook(c *gin.Context) {
 
 // ---------- LiveKit Webhook ----------
 
-type livekitWebhookEvent struct {
-	Event       string              `json:"event"`
-	IngressInfo *livekitIngressInfo `json:"ingressInfo"`
-}
-type livekitIngressInfo struct {
-	IngressID string `json:"ingressId"`
-}
-
 // LiveKitWebhook POST /webhook/livekit — LiveKit 服务器回调
 func (h *WebhookHandler) LiveKitWebhook(c *gin.Context) {
-	// 读取请求体
-	body, err := io.ReadAll(c.Request.Body)
+	// 使用 LiveKit SDK 验证 JWT 并解析 webhook 事件
+	provider := auth.NewSimpleKeyProvider(h.cfg.LiveKit.APIKey, h.cfg.LiveKit.APISecret)
+	event, err := webhook.ReceiveWebhookEvent(c.Request, provider)
 	if err != nil {
-		util.Error(c, 40001, "读取 webhook 请求失败")
-		return
-	}
-	defer c.Request.Body.Close()
-
-	var event livekitWebhookEvent
-	if err := json.Unmarshal(body, &event); err != nil {
-		log.Printf("[LiveKitWebhook] JSON parse failed: %v", err)
+		log.Printf("[LiveKitWebhook] JWT verify/parse failed: %v", err)
 		util.Error(c, 40001, "webhook 解析失败")
 		return
 	}
@@ -145,7 +130,7 @@ func (h *WebhookHandler) LiveKitWebhook(c *gin.Context) {
 	log.Printf("[LiveKitWebhook] event=%s ingressId=%v", event.Event,
 		func() string {
 			if event.IngressInfo != nil {
-				return event.IngressInfo.IngressID
+				return event.IngressInfo.IngressId
 			}
 			return "<nil>"
 		}())
@@ -155,9 +140,9 @@ func (h *WebhookHandler) LiveKitWebhook(c *gin.Context) {
 		if event.IngressInfo == nil {
 			break
 		}
-		ingress, err := h.ingressRepo.FindByIngressID(event.IngressInfo.IngressID)
+		ingress, err := h.ingressRepo.FindByIngressID(event.IngressInfo.IngressId)
 		if err != nil {
-			log.Printf("[LiveKitWebhook] FindByIngressID(%s) error: %v", event.IngressInfo.IngressID, err)
+			log.Printf("[LiveKitWebhook] FindByIngressID(%s) error: %v", event.IngressInfo.IngressId, err)
 			break
 		}
 		if err := h.ingressRepo.SetActive(ingress.ID, true); err != nil {
@@ -174,9 +159,9 @@ func (h *WebhookHandler) LiveKitWebhook(c *gin.Context) {
 		if event.IngressInfo == nil {
 			break
 		}
-		ingress, err := h.ingressRepo.FindByIngressID(event.IngressInfo.IngressID)
+		ingress, err := h.ingressRepo.FindByIngressID(event.IngressInfo.IngressId)
 		if err != nil {
-			log.Printf("[LiveKitWebhook] FindByIngressID(%s) error: %v", event.IngressInfo.IngressID, err)
+			log.Printf("[LiveKitWebhook] FindByIngressID(%s) error: %v", event.IngressInfo.IngressId, err)
 			break
 		}
 		if err := h.ingressRepo.SetActive(ingress.ID, false); err != nil {

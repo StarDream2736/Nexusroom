@@ -53,6 +53,27 @@ func (s *LiveKitService) GenerateToken(roomName, userID, nickname string) (strin
 	return token, err
 }
 
+// GenerateViewerToken 生成直播观看者的 LiveKit Access Token（仅订阅权限）
+func (s *LiveKitService) GenerateViewerToken(roomName, userID, nickname string) (string, error) {
+	cfg := config.GlobalConfig.LiveKit
+
+	at := auth.NewAccessToken(cfg.APIKey, cfg.APISecret)
+	grant := &auth.VideoGrant{
+		RoomJoin:       true,
+		Room:           roomName,
+		CanPublish:     boolPtr(false),
+		CanPublishData: boolPtr(false),
+		CanSubscribe:   boolPtr(true),
+	}
+
+	at.AddGrant(grant)
+	at.SetIdentity(userID)
+	at.SetName(nickname)
+	at.SetValidFor(24 * time.Hour)
+
+	return at.ToJWT()
+}
+
 // CreateIngress 创建 RTMP Ingress
 func (s *LiveKitService) CreateIngress(roomName, label string) (*livekit.IngressInfo, error) {
 	req := &livekit.CreateIngressRequest{
@@ -61,6 +82,7 @@ func (s *LiveKitService) CreateIngress(roomName, label string) (*livekit.Ingress
 		RoomName:            roomName,
 		ParticipantIdentity: fmt.Sprintf("ingress_%s", generateRandomID()),
 		ParticipantName:     label,
+		BypassTranscoding:   true, // 跳过转码，直接透传 RTMP 流，避免 CPU 过载
 	}
 
 	return s.ingress.CreateIngress(context.Background(), req)
