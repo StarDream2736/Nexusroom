@@ -2,6 +2,8 @@ package handler
 
 import (
 	"fmt"
+	"io"
+	"log"
 	"net"
 	"net/http"
 	"strconv"
@@ -228,4 +230,74 @@ func stripHostPort(host string) string {
 		return h
 	}
 	return host
+}
+
+// ProxyStream GET /stream/:streamKey — 反向代理 SRS HTTP-FLV 直播流
+// 客户端通过 8080 端口拉流，无需直连 SRS 8085 端口
+func (h *IngressHandler) ProxyStream(c *gin.Context) {
+	streamKey := c.Param("streamKey")
+	if streamKey == "" {
+		c.Status(http.StatusBadRequest)
+		return
+	}
+
+	// 构造 SRS 内网 FLV 地址
+	srsHost := h.cfg.SRS.Host
+	if srsHost == "" {
+		srsHost = "srs"
+	}
+	srsPort := h.cfg.SRS.HTTPPort
+	if srsPort == 0 {
+		srsPort = 8085
+	}
+	target := fmt.Sprintf("http://%s:%d/live/%s.flv", srsHost, srsPort, streamKey)
+
+	// 发起内部请求到 SRS
+	req, err := http.NewRequestWithContext(c.Request.Context(), "GET", target, nil)
+	if err != nil {
+		log.Printf("[StreamProxy] create request error: %v", err)
+		c.Status(http.StatusBadGateway)
+		return
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Printf("[StreamProxy] SRS unreachable: %v", err)
+		c.Status(http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		c.Status(resp.StatusCode)
+		return
+	}
+
+	// 设置响应头 — HTTP-FLV 流式传输
+	c.Header("Content-Type", "video/x-flv")
+	c.Header("Cache-Control", "no-cache, no-store")
+	c.Header("Connection", "close")
+	c.Header("Access-Control-Allow-Origin", "*")
+	c.Status(http.StatusOK)
+
+	// 流式转发：逐块读取 SRS 响应并刷新到客户端
+	flusher, _ := c.Writer.(http.Flusher)
+	buf := make([]byte, 32*1024)
+	for {
+		n, readErr := resp.Body.Read(buf)
+		if n > 0 {
+			if _, writeErr := c.Writer.Write(buf[:n]); writeErr != nil {
+				return // 客户端断开
+			}
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+		if readErr != nil {
+			if readErr != io.EOF {
+				log.Printf("[StreamProxy] read error: %v", readErr)
+			}
+			return
+		}
+	}
 }

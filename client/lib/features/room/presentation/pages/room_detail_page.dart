@@ -242,12 +242,9 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
     });
 
     try {
-      // 从 Ingress 的 RTMP URL 推导 HTTP-FLV 拉流地址
-      // RTMP 推流: rtmp://host:1935/live  + stream_key
-      // FLV 拉流:  http://host:8085/live/stream_key.flv
+      // 通过 Go 服务器反向代理获取 HTTP-FLV 直播流（无需直连 SRS 8085 端口）
       final serverUrl = ref.read(appSettingsProvider).value?.serverUrl ?? '';
-      final uri = Uri.parse(serverUrl);
-      final flvUrl = 'http://${uri.host}:8085/live/${ingress.streamKey}.flv';
+      final flvUrl = '$serverUrl/api/v1/stream/${ingress.streamKey}';
       debugPrint('[StreamPlayer] Connecting to $flvUrl');
 
       await _streamPlayer.connect(flvUrl);
