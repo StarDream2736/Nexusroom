@@ -6,6 +6,7 @@
 
 | 版本     | 变更内容                                                                                                                                                                                                                                         |
 | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| v1.3.4 | **\[LiveKit连接修复]** 服务端GetDetail端点添加智能URL推导（优先使用config.public_url，自动从Host头识别公网IP），livekit.yaml改用node_ip替代use_external_ip避免外网查询超时；**\[头像稳定性]** 修复客户端avatar组件因空字符串导致的CachedNetworkImageProvider崩溃；**\[实时功能]** 新增speakingUsersProvider和onlineUsersProvider(WS事件+REST fallback)，成员列表支持在线/说话状态指示和排序；**\[自动刷新]** 房间详情3s周期刷新、直播列表10s周期刷新；**\[权限调整]** Ingress推流入口权限从房主限制改为房间全体成员可操作 |
 | v1.3.3 | **\[Bug修复]** 修复登录页"切换服务器"按钮（clearAuth改为clearAll避免状态残留）；**\[架构优化]** AppShell重构为StatefulWidget，集中处理房间join/leave逻辑，修复GoRouterState上下文错误导致的房间切换失效；**\[稳定性]** 新增WebSocket重连后自动重新加入已加入房间机制（_joinedRooms追踪 + connected事件触发 + chat.error兜底）；**\[诊断]** 全面补充客户端与服务端消息链路诊断日志 |
 | v1.3.2 | **\[实现修订]** WebSocket Hub 初始化新增 userRepo 参数用于获取用户昵称；补充客户端时间戳必须使用 UTC 的实现细节；明确客户端本地数据库存储路径（Documents/nexusroom.sqlite）；补充 Docker Compose 环境变量配置说明（.env 文件）；修复客户端路由导航逻辑避免 widget 销毁后导航失败 |
 | v1.3.1 | **\[审校修复]** 成功响应码统一为 20000；补充遗漏的 livekit-token 接口；标注 stream.new 等 SRS 遗留事件为废弃；room_code 字段说明更新；修复 Simulcast 代码中 setScreenShareEnabled 与手动 publish 的逻辑冲突；及 Roadmap 验收标准去除硬编码网段；修复 isFocused() 缺失 await；补充 HTTP/HTTPS 启用条件说明；推流密钥安全规范更新；章节编号修正 |
@@ -1821,4 +1822,4 @@ ufw allow 3000/tcp         # Web 管理后台（可选，仅管理员访问）
 
 ---
 
-*NexusRoom Technical Documentation v1.3.1*
+*NexusRoom Technical Documentation v1.3.4*

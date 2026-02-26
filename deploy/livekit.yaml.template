@@ -27,6 +27,12 @@ redis:
 logging:
   level: info
 
+# Webhook 配置（推流状态回调）
+webhook:
+  urls:
+    - http://server:8080/api/v1/webhook/livekit
+  api_key: your-livekit-key
+
 # 房间配置
 room:
   # 空房间自动清理时间

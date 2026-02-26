@@ -44,7 +44,7 @@ class IngressModel {
       rtmpUrl: json['rtmp_url'] as String,
       streamKey: json['stream_key'] as String,
       label: json['label'] as String,
-      isActive: json['is_active'] as bool? ?? true,
+      isActive: json['is_active'] as bool? ?? false,
     );
   }
 }

@@ -62,7 +62,7 @@ class RightPanel extends ConsumerWidget {
                       '$onlineCount/$totalCount',
                       style: TextStyle(
                         fontSize: 11,
-                        color: AppColors.success,
+                        color: AppColors.textMuted,
                         fontWeight: FontWeight.w600,
                       ),
                     ),

@@ -54,7 +54,7 @@ func SetupRouter(
 	fileHandler := handler.NewFileHandler(cfg, roomRepo)
 	adminHandler := handler.NewAdminHandler(userRepo, roomRepo, msgRepo, hub, cfg)
 	friendHandler := handler.NewFriendHandler(friendRepo, userRepo, roomRepo, hub)
-	webhookHandler := handler.NewWebhookHandler(msgRepo, roomRepo, hub, cfg)
+	webhookHandler := handler.NewWebhookHandler(msgRepo, roomRepo, ingressRepo, hub, cfg)
 	vlanHandler := handler.NewVLANHandler(roomRepo, userRepo, wgCoordinator, hub)
 
 	// 健康检查
@@ -154,6 +154,9 @@ func SetupRouter(
 
 		// QQ 机器人 Webhook
 		apiV1.POST("/webhook/qq", webhookHandler.QQWebhook)
+
+		// LiveKit Webhook（推流状态回调）
+		apiV1.POST("/webhook/livekit", webhookHandler.LiveKitWebhook)
 	}
 
 	// WebSocket 路由
