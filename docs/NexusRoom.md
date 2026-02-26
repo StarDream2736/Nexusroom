@@ -6,6 +6,7 @@
 
 | 版本     | 变更内容                                                                                                                                                                                                                                         |
 | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| v1.4.1 | **\[fix*]** 修复了手误破坏了环境三个小时没复现的问题 |
 | v1.4.0 | **\[架构迁移]** 直播推流引擎从 LiveKit Ingress 迁移至 SRS 6（HTTP-FLV），单核服务器 CPU 占用从 30-80% 降至 2-5%；客户端使用 media_kit 播放 HTTP-FLV 流，替代 LiveKit SDK 直播渲染；LiveKit 仅保留语音通话功能；服务端彻底清除 LiveKit Ingress 相关代码，新增 SRS HTTP 回调处理推流状态 |
 | v1.3.4 | **\[LiveKit连接修复]** 服务端GetDetail端点添加智能URL推导（优先使用config.public_url，自动从Host头识别公网IP），livekit.yaml改用node_ip替代use_external_ip避免外网查询超时；**\[头像稳定性]** 修复客户端avatar组件因空字符串导致的CachedNetworkImageProvider崩溃；**\[实时功能]** 新增speakingUsersProvider和onlineUsersProvider(WS事件+REST fallback)，成员列表支持在线/说话状态指示和排序；**\[自动刷新]** 房间详情3s周期刷新、直播列表10s周期刷新；**\[权限调整]** Ingress推流入口权限从房主限制改为房间全体成员可操作 |
 | v1.3.3 | **\[Bug修复]** 修复登录页"切换服务器"按钮（clearAuth改为clearAll避免状态残留）；**\[架构优化]** AppShell重构为StatefulWidget，集中处理房间join/leave逻辑，修复GoRouterState上下文错误导致的房间切换失效；**\[稳定性]** 新增WebSocket重连后自动重新加入已加入房间机制（_joinedRooms追踪 + connected事件触发 + chat.error兜底）；**\[诊断]** 全面补充客户端与服务端消息链路诊断日志 |
