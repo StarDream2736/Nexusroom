@@ -67,6 +67,17 @@ class AppSettingsController extends StateNotifier<AsyncValue<AppSettings>> {
     await _load();
   }
 
+  /// 批量更新昵称和头像（只触发一次 _load，避免连续刷新导致 WS 重连风暴）
+  Future<void> setProfile({String? nickname, String? avatarUrl}) async {
+    if (nickname != null && nickname.isNotEmpty) {
+      await _repository.setNickname(nickname);
+    }
+    if (avatarUrl != null && avatarUrl.isNotEmpty) {
+      await _repository.setAvatarUrl(avatarUrl);
+    }
+    await _load();
+  }
+
   /// 保存麦克风设备选择
   Future<void> setAudioInputDeviceId(String deviceId) async {
     await _repository.setAudioInputDeviceId(deviceId);
