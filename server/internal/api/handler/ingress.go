@@ -251,8 +251,9 @@ func (h *IngressHandler) ProxyStream(c *gin.Context) {
 		srsPort = 8085
 	}
 	target := fmt.Sprintf("http://%s:%d/live/%s.flv", srsHost, srsPort, streamKey)
+	log.Printf("[StreamProxy] streamKey=%s target=%s", streamKey, target)
 
-	// 发起内部请求到 SRS
+	// 发起内部请求到 SRS（不设超时，直播流是无限时长）
 	req, err := http.NewRequestWithContext(c.Request.Context(), "GET", target, nil)
 	if err != nil {
 		log.Printf("[StreamProxy] create request error: %v", err)
@@ -269,34 +270,39 @@ func (h *IngressHandler) ProxyStream(c *gin.Context) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		log.Printf("[StreamProxy] SRS returned status %d for key=%s", resp.StatusCode, streamKey)
 		c.Status(resp.StatusCode)
 		return
 	}
 
+	log.Printf("[StreamProxy] streaming started for key=%s", streamKey)
+
 	// 设置响应头 — HTTP-FLV 流式传输
 	c.Header("Content-Type", "video/x-flv")
 	c.Header("Cache-Control", "no-cache, no-store")
-	c.Header("Connection", "close")
+	c.Header("Transfer-Encoding", "chunked")
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Status(http.StatusOK)
+	// 立即发送响应头，不等待第一块数据
+	c.Writer.WriteHeaderNow()
+	c.Writer.Flush()
 
 	// 流式转发：逐块读取 SRS 响应并刷新到客户端
-	flusher, _ := c.Writer.(http.Flusher)
 	buf := make([]byte, 32*1024)
 	for {
 		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
 			if _, writeErr := c.Writer.Write(buf[:n]); writeErr != nil {
-				return // 客户端断开
+				log.Printf("[StreamProxy] client disconnected for key=%s", streamKey)
+				return
 			}
-			if flusher != nil {
-				flusher.Flush()
-			}
+			c.Writer.Flush()
 		}
 		if readErr != nil {
 			if readErr != io.EOF {
 				log.Printf("[StreamProxy] read error: %v", readErr)
 			}
+			log.Printf("[StreamProxy] stream ended for key=%s", streamKey)
 			return
 		}
 	}
