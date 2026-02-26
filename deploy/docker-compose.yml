@@ -71,6 +71,7 @@ services:
       - "8085:8085"         # HTTP-FLV 拉流端口
     volumes:
       - ./srs.conf:/usr/local/srs/conf/srs.conf
+    command: ./objs/srs -c conf/srs.conf
     restart: unless-stopped
     networks:
       - nexusroom-network
