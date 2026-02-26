@@ -76,11 +76,14 @@ message:
 
 livekit:
   url: ws://livekit:7880
-  api_key: "$LIVEKIT_API_KEY"
-  api_secret: "$LIVEKIT_API_SECRET"
+  public_url: ws://\$SERVER_IP:7880
+  api_key: "\$LIVEKIT_API_KEY"
+  api_secret: "\$LIVEKIT_API_SECRET"
 
-livekit_ingress:
+srs:
   rtmp_port: 1935
+  http_port: 8085
+  host: srs
 
 wireguard:
   server_ip: "$SERVER_IP"
@@ -96,11 +99,10 @@ EOF
     echo '✅ config.yaml 已生成'
 fi
 
-# 更新 livekit.yaml 中的密钥
+# 更新 livekit.yaml 中的密钥（keys: 格式）
 echo '📝 更新 LiveKit 配置...'
 source .env
-sed -i "s/api_key: .*/api_key: $LIVEKIT_API_KEY/" livekit.yaml
-sed -i "s/api_secret: .*/api_secret: $LIVEKIT_API_SECRET/" livekit.yaml
+sed -i "s/  your-livekit-key: your-livekit-secret/  $LIVEKIT_API_KEY: $LIVEKIT_API_SECRET/" livekit.yaml
 
 # 创建数据目录
 mkdir -p data/uploads
@@ -136,4 +138,4 @@ echo ''
 echo '⚠️  安全提示:'
 echo '   - 请修改默认的 LiveKit API 密钥'
 echo '   - 生产环境建议配置 HTTPS'
-echo '   - 防火墙仅开放必要端口: 8080, 1935, 7880, 50000-50050/udp, 51820/udp'
+echo '   - 防火墙仅开放必要端口: 8080, 1935, 7880, 7881, 8085, 3478/udp, 50000-50050/udp, 51820/udp'

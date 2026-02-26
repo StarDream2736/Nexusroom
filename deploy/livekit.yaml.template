@@ -4,10 +4,10 @@
 
 port: 7880
 
-# API 密钥配置
+# API 密钥配置（新版格式）
 # 生产环境请修改为随机生成的密钥
-api_key: your-livekit-key
-api_secret: your-livekit-secret
+keys:
+  your-livekit-key: your-livekit-secret
 
 # WebRTC 配置
 rtc:
@@ -32,12 +32,6 @@ redis:
 # 日志级别
 logging:
   level: info
-
-# Webhook 配置（推流状态回调）
-webhook:
-  urls:
-    - http://server:8080/api/v1/webhook/livekit
-  api_key: your-livekit-key
 
 # 房间配置
 room:
