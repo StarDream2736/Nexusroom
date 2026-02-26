@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:livekit_client/livekit_client.dart' as lk;
+import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../../../app/theme/app_colors.dart';
 import '../../../../app/theme/app_theme.dart';
@@ -36,11 +37,11 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
   bool _livekitConnected = false;
   String? _livekitError;
 
-  // 直播流（独立于语音房间）
+  // 直播流（独立于语音房间，使用 media_kit HTTP-FLV）
   final StreamPlayer _streamPlayer = StreamPlayer();
-  StreamSubscription? _videoTrackSub;
+  StreamSubscription? _videoControllerSub;
   StreamSubscription? _streamStatusSub;
-  lk.VideoTrack? _streamVideoTrack;
+  VideoController? _streamVideoController;
   StreamPlayerStatus _streamStatus = StreamPlayerStatus.idle;
 
   StreamSubscription? _participantsSub;
@@ -122,8 +123,8 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
     });
 
     // StreamPlayer listeners
-    _videoTrackSub = _streamPlayer.videoTrackStream.listen((track) {
-      if (mounted) setState(() => _streamVideoTrack = track);
+    _videoControllerSub = _streamPlayer.videoControllerStream.listen((ctrl) {
+      if (mounted) setState(() => _streamVideoController = ctrl);
     });
     _streamStatusSub = _streamPlayer.statusStream.listen((status) {
       if (mounted) setState(() => _streamStatus = status);
@@ -193,11 +194,11 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
 
   @override
   void dispose() {
-    // Clear video track reference FIRST — prevents Duplicate GlobalKey
+    // Clear video controller reference FIRST — prevents issues
     // during route transition when old & new pages briefly coexist.
-    _streamVideoTrack = null;
+    _streamVideoController = null;
 
-    _videoTrackSub?.cancel();
+    _videoControllerSub?.cancel();
     _streamStatusSub?.cancel();
     _streamPlayer.dispose();
     _participantsSub?.cancel();
@@ -231,22 +232,25 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
     }
   }
 
-  /// 打开直播流（连接独立的直播 LiveKit 房间）
+  /// 打开直播流（通过 HTTP-FLV 从 SRS 拉流）
   Future<void> _selectStream(IngressModel ingress) async {
     // 断开之前的直播连接
     await _streamPlayer.disconnect();
 
     setState(() {
-      _streamVideoTrack = null;
+      _streamVideoController = null;
     });
 
     try {
-      // 获取直播房间 Token（按 Ingress 隔离，每个 Ingress 独立房间）
-      final tokenResult =
-          await ref.read(roomRepositoryProvider).getStreamToken(_roomId, ingressId: ingress.id);
-      debugPrint('[StreamPlayer] Connecting to ${tokenResult.url}');
+      // 从 Ingress 的 RTMP URL 推导 HTTP-FLV 拉流地址
+      // RTMP 推流: rtmp://host:1935/live  + stream_key
+      // FLV 拉流:  http://host:8085/live/stream_key.flv
+      final serverUrl = ref.read(appSettingsProvider).value?.serverUrl ?? '';
+      final uri = Uri.parse(serverUrl);
+      final flvUrl = 'http://${uri.host}:8085/live/${ingress.streamKey}.flv';
+      debugPrint('[StreamPlayer] Connecting to $flvUrl');
 
-      await _streamPlayer.connect(tokenResult.url, tokenResult.token);
+      await _streamPlayer.connect(flvUrl);
     } catch (e) {
       debugPrint('[StreamPlayer] Failed: $e');
       if (mounted) {
@@ -261,13 +265,13 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
   Future<void> _closeStream() async {
     await _streamPlayer.disconnect();
     setState(() {
-      _streamVideoTrack = null;
+      _streamVideoController = null;
     });
   }
 
   /// 全屏播放直播流
   void _showFullscreen() {
-    if (_streamVideoTrack == null) return;
+    if (_streamVideoController == null) return;
     showDialog(
       context: context,
       barrierColor: Colors.transparent,
@@ -277,7 +281,7 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
         body: Stack(
           fit: StackFit.expand,
           children: [
-            lk.VideoTrackRenderer(_streamVideoTrack!),
+            Video(controller: _streamVideoController!),
             Positioned(
               top: 16,
               right: 16,
@@ -538,7 +542,7 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
     bool streamMuted,
   ) {
     // 正在连接或等待推流
-    if (_streamVideoTrack == null) {
+    if (_streamVideoController == null) {
       String statusText;
       switch (_streamStatus) {
         case StreamPlayerStatus.connecting:
@@ -583,7 +587,7 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
 
     return Stack(
       children: [
-        lk.VideoTrackRenderer(_streamVideoTrack!),
+        Video(controller: _streamVideoController!),
         // ─── Label ──────────────────
         Positioned(
           bottom: 8,

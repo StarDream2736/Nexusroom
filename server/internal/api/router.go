@@ -47,10 +47,10 @@ func SetupRouter(
 	// Handler 初始化
 	authHandler := handler.NewAuthHandler(userRepo)
 	userHandler := handler.NewUserHandler(userRepo, cfg)
-	roomHandler := handler.NewRoomHandler(roomRepo, userRepo, ingressRepo, livekitSvc, hub, cfg)
+	roomHandler := handler.NewRoomHandler(roomRepo, userRepo, ingressRepo, hub, cfg)
 	msgHandler := handler.NewMessageHandler(msgRepo, roomRepo)
-	livekitHandler := handler.NewLiveKitHandler(roomRepo, userRepo, ingressRepo, livekitSvc, cfg)
-	ingressHandler := handler.NewIngressHandler(roomRepo, ingressRepo, livekitSvc, cfg, hub)
+	livekitHandler := handler.NewLiveKitHandler(roomRepo, userRepo, livekitSvc, cfg)
+	ingressHandler := handler.NewIngressHandler(roomRepo, ingressRepo, cfg, hub)
 	fileHandler := handler.NewFileHandler(cfg, roomRepo)
 	adminHandler := handler.NewAdminHandler(userRepo, roomRepo, msgRepo, hub, cfg)
 	friendHandler := handler.NewFriendHandler(friendRepo, userRepo, roomRepo, hub)
@@ -59,7 +59,7 @@ func SetupRouter(
 
 	// 健康检查
 	router.GET("/ping", func(c *gin.Context) {
-		util.Success(c, gin.H{"status": "ok", "version": "1.3.1"})
+		util.Success(c, gin.H{"status": "ok", "version": "1.4.0"})
 	})
 
 	// 静态文件（头像等公开资源）
@@ -155,8 +155,8 @@ func SetupRouter(
 		// QQ 机器人 Webhook
 		apiV1.POST("/webhook/qq", webhookHandler.QQWebhook)
 
-		// LiveKit Webhook（推流状态回调）
-		apiV1.POST("/webhook/livekit", webhookHandler.LiveKitWebhook)
+		// SRS 推流状态回调（SRS HTTP Hooks）
+		apiV1.POST("/webhook/srs", webhookHandler.SRSWebhook)
 	}
 
 	// WebSocket 路由

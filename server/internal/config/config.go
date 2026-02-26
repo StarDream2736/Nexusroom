@@ -7,15 +7,15 @@ import (
 )
 
 type Config struct {
-	Server         ServerConfig         `mapstructure:"server"`
-	Database       DatabaseConfig       `mapstructure:"database"`
-	Redis          RedisConfig          `mapstructure:"redis"`
-	Auth           AuthConfig           `mapstructure:"auth"`
-	Message        MessageConfig        `mapstructure:"message"`
-	LiveKit        LiveKitConfig        `mapstructure:"livekit"`
-	LiveKitIngress LiveKitIngressConfig `mapstructure:"livekit_ingress"`
-	WireGuard      WireGuardConfig      `mapstructure:"wireguard"`
-	Storage        StorageConfig        `mapstructure:"storage"`
+	Server    ServerConfig    `mapstructure:"server"`
+	Database  DatabaseConfig  `mapstructure:"database"`
+	Redis     RedisConfig     `mapstructure:"redis"`
+	Auth      AuthConfig      `mapstructure:"auth"`
+	Message   MessageConfig   `mapstructure:"message"`
+	LiveKit   LiveKitConfig   `mapstructure:"livekit"`
+	SRS       SRSConfig       `mapstructure:"srs"`
+	WireGuard WireGuardConfig `mapstructure:"wireguard"`
+	Storage   StorageConfig   `mapstructure:"storage"`
 }
 
 type ServerConfig struct {
@@ -55,8 +55,10 @@ type LiveKitConfig struct {
 	APISecret string `mapstructure:"api_secret"`
 }
 
-type LiveKitIngressConfig struct {
-	RTMPPort int `mapstructure:"rtmp_port"`
+type SRSConfig struct {
+	RTMPPort int    `mapstructure:"rtmp_port"`
+	HTTPPort int    `mapstructure:"http_port"`
+	Host     string `mapstructure:"host"` // SRS Docker 服务名（内网），默认 srs
 }
 
 type WireGuardConfig struct {

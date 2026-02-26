@@ -33,8 +33,10 @@ livekit:
   api_key: "your-livekit-key"
   api_secret: "your-livekit-secret"
 
-livekit_ingress:
-  rtmp_port: 1935                 # Ingress 容器对外暴露的 RTMP 接收端口
+srs:
+  rtmp_port: 1935                 # SRS 对外暴露的 RTMP 推流端口
+  http_port: 8085                 # SRS HTTP-FLV 拉流端口
+  host: srs                       # SRS Docker 服务名（内网）
 
 wireguard:
   server_ip: "your-server-public-ip"  # 服务器公网IP，客户端连接用

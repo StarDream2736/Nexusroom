@@ -1,37 +1,29 @@
 package service
 
 import (
-	"context"
-	cryptorand "crypto/rand"
-	"fmt"
-	"math/big"
 	"time"
 
 	"github.com/livekit/protocol/auth"
-	"github.com/livekit/protocol/livekit"
 	lksdk "github.com/livekit/server-sdk-go"
 
 	"nexusroom-server/internal/config"
 )
 
 type LiveKitService struct {
-	client  *lksdk.RoomServiceClient
-	ingress *lksdk.IngressClient
+	client *lksdk.RoomServiceClient
 }
 
 func NewLiveKitService() *LiveKitService {
 	cfg := config.GlobalConfig.LiveKit
 
 	roomClient := lksdk.NewRoomServiceClient(cfg.URL, cfg.APIKey, cfg.APISecret)
-	ingressClient := lksdk.NewIngressClient(cfg.URL, cfg.APIKey, cfg.APISecret)
 
 	return &LiveKitService{
-		client:  roomClient,
-		ingress: ingressClient,
+		client: roomClient,
 	}
 }
 
-// GenerateToken 生成 LiveKit Access Token
+// GenerateToken 生成 LiveKit Access Token（语音房间）
 func (s *LiveKitService) GenerateToken(roomName, userID, nickname string) (string, error) {
 	cfg := config.GlobalConfig.LiveKit
 
@@ -51,70 +43,6 @@ func (s *LiveKitService) GenerateToken(roomName, userID, nickname string) (strin
 	token, err := at.ToJWT()
 
 	return token, err
-}
-
-// GenerateViewerToken 生成直播观看者的 LiveKit Access Token（仅订阅权限）
-func (s *LiveKitService) GenerateViewerToken(roomName, userID, nickname string) (string, error) {
-	cfg := config.GlobalConfig.LiveKit
-
-	at := auth.NewAccessToken(cfg.APIKey, cfg.APISecret)
-	grant := &auth.VideoGrant{
-		RoomJoin:       true,
-		Room:           roomName,
-		CanPublish:     boolPtr(false),
-		CanPublishData: boolPtr(false),
-		CanSubscribe:   boolPtr(true),
-	}
-
-	at.AddGrant(grant)
-	at.SetIdentity(userID)
-	at.SetName(nickname)
-	at.SetValidFor(24 * time.Hour)
-
-	return at.ToJWT()
-}
-
-// CreateIngress 创建 RTMP Ingress
-func (s *LiveKitService) CreateIngress(roomName, label string) (*livekit.IngressInfo, error) {
-	req := &livekit.CreateIngressRequest{
-		InputType:           livekit.IngressInput_RTMP_INPUT,
-		Name:                label,
-		RoomName:            roomName,
-		ParticipantIdentity: fmt.Sprintf("ingress_%s", generateRandomID()),
-		ParticipantName:     label,
-		BypassTranscoding:   true, // 跳过转码，直接透传 RTMP 流，避免 CPU 过载
-	}
-
-	return s.ingress.CreateIngress(context.Background(), req)
-}
-
-// DeleteIngress 删除 Ingress
-func (s *LiveKitService) DeleteIngress(ingressID string) error {
-	_, err := s.ingress.DeleteIngress(context.Background(), &livekit.DeleteIngressRequest{
-		IngressId: ingressID,
-	})
-	return err
-}
-
-// ListIngresses 列出房间的 Ingress
-func (s *LiveKitService) ListIngresses(roomName string) ([]*livekit.IngressInfo, error) {
-	res, err := s.ingress.ListIngress(context.Background(), &livekit.ListIngressRequest{
-		RoomName: roomName,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return res.Items, nil
-}
-
-func generateRandomID() string {
-	const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
-	result := make([]byte, 8)
-	for i := range result {
-		n, _ := cryptorand.Int(cryptorand.Reader, big.NewInt(int64(len(chars))))
-		result[i] = chars[n.Int64()]
-	}
-	return string(result)
 }
 
 func boolPtr(b bool) *bool {

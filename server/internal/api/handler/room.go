@@ -13,7 +13,6 @@ import (
 	"nexusroom-server/internal/config"
 	"nexusroom-server/internal/model"
 	"nexusroom-server/internal/repository"
-	"nexusroom-server/internal/service"
 	"nexusroom-server/internal/ws"
 	"nexusroom-server/pkg/util"
 )
@@ -22,18 +21,16 @@ type RoomHandler struct {
 	roomRepo    *repository.RoomRepository
 	userRepo    *repository.UserRepository
 	ingressRepo *repository.IngressRepository
-	livekitSvc  *service.LiveKitService
 	hub         *ws.Hub
 	cfg         *config.Config
 }
 
 func NewRoomHandler(roomRepo *repository.RoomRepository, userRepo *repository.UserRepository,
-	ingressRepo *repository.IngressRepository, livekitSvc *service.LiveKitService, hub *ws.Hub, cfg *config.Config) *RoomHandler {
+	ingressRepo *repository.IngressRepository, hub *ws.Hub, cfg *config.Config) *RoomHandler {
 	return &RoomHandler{
 		roomRepo:    roomRepo,
 		userRepo:    userRepo,
 		ingressRepo: ingressRepo,
-		livekitSvc:  livekitSvc,
 		hub:         hub,
 		cfg:         cfg,
 	}

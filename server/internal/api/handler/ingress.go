@@ -2,7 +2,6 @@ package handler
 
 import (
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"strconv"
@@ -15,7 +14,6 @@ import (
 	"nexusroom-server/internal/config"
 	"nexusroom-server/internal/model"
 	"nexusroom-server/internal/repository"
-	"nexusroom-server/internal/service"
 	"nexusroom-server/internal/ws"
 	"nexusroom-server/pkg/util"
 )
@@ -23,17 +21,15 @@ import (
 type IngressHandler struct {
 	roomRepo    *repository.RoomRepository
 	ingressRepo *repository.IngressRepository
-	livekitSvc  *service.LiveKitService
 	cfg         *config.Config
 	hub         *ws.Hub
 }
 
 func NewIngressHandler(roomRepo *repository.RoomRepository, ingressRepo *repository.IngressRepository,
-	livekitSvc *service.LiveKitService, cfg *config.Config, hub *ws.Hub) *IngressHandler {
+	cfg *config.Config, hub *ws.Hub) *IngressHandler {
 	return &IngressHandler{
 		roomRepo:    roomRepo,
 		ingressRepo: ingressRepo,
-		livekitSvc:  livekitSvc,
 		cfg:         cfg,
 		hub:         hub,
 	}
@@ -64,9 +60,8 @@ func (h *IngressHandler) Create(c *gin.Context) {
 
 	userID := c.GetUint64("userID")
 
-	// 获取房间信息
-	room, err := h.roomRepo.FindByID(roomID)
-	if err != nil {
+	// 检查房间存在
+	if _, err := h.roomRepo.FindByID(roomID); err != nil {
 		util.Error(c, 40401, "房间不存在")
 		return
 	}
@@ -77,40 +72,24 @@ func (h *IngressHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// 调用 LiveKit API 创建 Ingress（每个 Ingress 使用独立的直播房间，避免串流）
-	streamRoomName := fmt.Sprintf("%s_stream_%s", room.LiveKitRoomName, uuid.New().String()[:8])
-	log.Printf("[Ingress] Creating ingress for streamRoom=%s label=%s", streamRoomName, req.Label)
-	ingressInfo, err := h.livekitSvc.CreateIngress(streamRoomName, req.Label)
-	if err != nil {
-		log.Printf("[Ingress] LiveKit CreateIngress failed: %v", err)
-		util.Error(c, 50001, "创建推流入口失败: "+err.Error())
-		return
-	}
-	log.Printf("[Ingress] Created ingress_id=%s stream_key=%s url=%s",
-		ingressInfo.IngressId, ingressInfo.StreamKey, ingressInfo.Url)
+	// 生成本地 stream key（SRS 模式，不调用外部 API）
+	streamKey := uuid.New().String()[:12]
+	ingressID := uuid.New().String() // 本地唯一标识
 
-	// 如果 LiveKit 没返回 RTMP URL，根据请求来源自行构造
-	rtmpURL := ingressInfo.Url
-	if rtmpURL == "" {
-		rtmpURL = h.deriveRTMPURL(c)
-		log.Printf("[Ingress] LiveKit returned empty URL, derived: %s", rtmpURL)
-	}
+	// 构造 RTMP 推流地址（指向 SRS）
+	rtmpURL := h.deriveRTMPURL(c)
 
 	// 保存到数据库
 	rmIngress := &model.RoomIngress{
-		RoomID:          roomID,
-		IngressID:       ingressInfo.IngressId,
-		StreamKey:       ingressInfo.StreamKey,
-		RTMPURL:         rtmpURL,
-		Label:           req.Label,
-		LiveKitRoomName: streamRoomName,
-		CreatedBy:       userID,
+		RoomID:    roomID,
+		IngressID: ingressID,
+		StreamKey: streamKey,
+		RTMPURL:   rtmpURL,
+		Label:     req.Label,
+		CreatedBy: userID,
 	}
 
 	if err := h.ingressRepo.Create(rmIngress); err != nil {
-		log.Printf("[Ingress] DB save failed: %v", err)
-		// 尝试删除 LiveKit 端的 Ingress
-		h.livekitSvc.DeleteIngress(ingressInfo.IngressId)
 		util.Error(c, 50001, "保存推流入口失败: "+err.Error())
 		return
 	}
@@ -199,16 +178,10 @@ func (h *IngressHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// 获取 Ingress 信息
-	ingress, err := h.ingressRepo.FindByID(ingressID)
-	if err != nil {
+	// 获取 Ingress 信息（确认存在）
+	if _, err := h.ingressRepo.FindByID(ingressID); err != nil {
 		util.Error(c, 40401, "推流入口不存在")
 		return
-	}
-
-	// 删除 LiveKit 端的 Ingress
-	if err := h.livekitSvc.DeleteIngress(ingress.IngressID); err != nil {
-		// 继续删除数据库记录
 	}
 
 	// 删除数据库记录
@@ -226,7 +199,7 @@ func (h *IngressHandler) Delete(c *gin.Context) {
 	util.Success(c, nil)
 }
 
-// deriveRTMPURL 根据请求来源+配置构造 RTMP 推流地址
+// deriveRTMPURL 根据请求来源+配置构造 RTMP 推流地址（指向 SRS）
 func (h *IngressHandler) deriveRTMPURL(c *gin.Context) string {
 	// 优先使用配置中的服务器公网 IP / 域名
 	host := h.cfg.Server.Domain
@@ -242,7 +215,7 @@ func (h *IngressHandler) deriveRTMPURL(c *gin.Context) string {
 		host = stripHostPort(host)
 	}
 
-	port := h.cfg.LiveKitIngress.RTMPPort
+	port := h.cfg.SRS.RTMPPort
 	if port == 0 {
 		port = 1935
 	}
