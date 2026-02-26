@@ -115,12 +115,22 @@ func (h *WebhookHandler) QQWebhook(c *gin.Context) {
 // ---------- SRS Webhook ----------
 
 // SRSWebhook POST /webhook/srs — SRS HTTP 回调（推流状态通知）
-// SRS 以 form-urlencoded 方式 POST，包含 action / stream 等字段。
+// SRS 6 以 JSON 方式 POST，包含 action / stream / app 等字段。
 func (h *WebhookHandler) SRSWebhook(c *gin.Context) {
-	action := c.PostForm("action")
-	stream := c.PostForm("stream") // stream key（推流时作为流名称）
+	var body struct {
+		Action string `json:"action"`
+		Stream string `json:"stream"`
+		App    string `json:"app"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		log.Printf("[SRSWebhook] parse body failed: %v", err)
+		c.JSON(200, gin.H{"code": 0})
+		return
+	}
+	action := body.Action
+	stream := body.Stream
 
-	log.Printf("[SRSWebhook] action=%s stream=%s", action, stream)
+	log.Printf("[SRSWebhook] action=%s stream=%s app=%s", action, stream, body.App)
 
 	switch action {
 	case "on_publish":
