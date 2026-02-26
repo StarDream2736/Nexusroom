@@ -39,4 +39,16 @@ class MessagesDao extends DatabaseAccessor<AppDatabase> with _$MessagesDaoMixin 
               tbl.roomId.equals(roomId) & tbl.serverUrl.equals(serverUrl)))
         .go();
   }
+
+  /// 清除某个服务器下的所有消息缓存（登出时调用）
+  Future<void> clearByServerUrl(String serverUrl) async {
+    await (delete(messages)
+          ..where((tbl) => tbl.serverUrl.equals(serverUrl)))
+        .go();
+  }
+
+  /// 清除所有消息缓存（换服务器时调用）
+  Future<void> clearAll() async {
+    await delete(messages).go();
+  }
 }
