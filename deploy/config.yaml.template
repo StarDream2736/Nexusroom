@@ -1,50 +1,66 @@
-# NexusRoom Server Configuration
-# 首次部署后修改此文件，重启服务生效
+# ============================================================
+# NexusRoom Server 配置文件模板
+# ============================================================
+# 使用方式：复制本文件为 config.yaml，修改所有带【必改】标记的选项
+# 修改后重启服务生效：docker-compose restart server
+#
+# 标记说明：
+#   【必改】 — 部署前必须修改，否则服务不安全或无法正常工作
+#   【可选】 — 可保持默认值，按需修改
+# ============================================================
 
 server:
-  port: 8080                      # 主服务 HTTP 端口
-  mode: release                   # debug / release
-  domain: ""                      # 可选，配置域名后启用 HTTPS
+  port: 8080                        # 【可选】HTTP 监听端口
+  mode: release                     # 【可选】运行模式: debug / release
+  domain: ""                        # 【可选】绑定域名，留空则不启用
 
+# ------ 数据库（PostgreSQL） ------
 database:
-  host: postgres                  # Docker 服务名
+  host: postgres                    # Docker 内部服务名，勿改
   port: 5432
   name: nexusroom
   user: nexusroom
-  password: "your-db-password"    # 请修改此密码
+  password: "CHANGE_ME"             # 【必改】数据库密码，需与 .env 中 DB_PASSWORD 一致
 
+# ------ 缓存（Redis） ------
 redis:
-  host: redis
+  host: redis                       # Docker 内部服务名，勿改
   port: 6379
-  password: ""
+  password: ""                      # 【可选】Redis 密码，默认无密码
 
+# ------ 认证 ------
 auth:
-  jwt_secret: "your-jwt-secret"   # 请修改，至少32位随机字符串
-  jwt_expire_hours: 720           # Token 有效期（30天）
-  admin_token: "admin"      # 填写后，持有此 token 注册的用户获得超管权限
-                                  # 首个超管注册后建议清空此字段
+  jwt_secret: "CHANGE_ME"           # 【必改】JWT 签名密钥，建议至少 32 位随机字符串
+  jwt_expire_hours: 720             # 【可选】Token 有效期（默认 30 天）
+  admin_token: ""                   # 【可选】超管注册令牌，持此令牌注册的用户获超管权限
+                                    #         首个超管注册后建议清空
 
+# ------ 消息 ------
 message:
-  retention_days: 30              # 消息保留天数（0=永久）
+  retention_days: 30                # 【可选】消息保留天数（0 = 永久保留）
 
+# ------ LiveKit（仅用于语音通话） ------
 livekit:
-  url: ws://livekit:7880          # Docker 内网访问（保持不变）
-  public_url: ws://YOUR_PUBLIC_IP:7880 # 客户端访问地址，填服务器公网IP，例如 ws://39.107.246.201:7880
-  api_key: "your-livekit-key"
-  api_secret: "your-livekit-secret"
+  url: ws://livekit:7880            # Docker 内部服务名，勿改
+  public_url: ws://YOUR_IP:7880     # 【必改】客户端连接的公网地址，例如 ws://1.2.3.4:7880
+  api_key: "CHANGE_ME"              # 【必改】LiveKit API Key，需与 livekit.yaml 中 keys 一致
+  api_secret: "CHANGE_ME"           # 【必改】LiveKit API Secret，需与 livekit.yaml 中 keys 一致
 
+# ------ SRS 6（RTMP 推流 + HTTP-FLV 拉流） ------
 srs:
-  rtmp_port: 1935                 # SRS 对外暴露的 RTMP 推流端口
-  http_port: 8085                 # SRS HTTP-FLV 拉流端口
-  host: srs                       # SRS Docker 服务名（内网）
+  rtmp_port: 1935                   # 【可选】SRS RTMP 推流端口
+  http_port: 8085                   # 【可选】SRS HTTP-FLV 内部端口（客户端通过 /api/v1/stream/ 代理访问）
+  host: srs                         # Docker 内部服务名，勿改
 
+# ------ WireGuard VPN ------
 wireguard:
-  server_ip: "your-server-public-ip"  # 服务器公网IP，客户端连接用
-  listen_port: 51820
-  server_private_key: ""          # 首次启动时自动生成并写入
-  subnet: "10.0.8.0/24"          # 可配置！若与用户物理网段冲突请修改
-  gateway_ip: "10.0.8.1"
+  server_ip: "YOUR_IP"              # 【必改】服务器公网 IP
+  listen_port: 51820                # 【可选】WireGuard 监听端口
+  server_private_key: ""            # 首次启动时自动生成，无需手动填写
+  subnet: "10.0.8.0/24"            # 【可选】VPN 子网，与物理网段冲突时修改
+  gateway_ip: "10.0.8.1"           # 【可选】VPN 网关 IP
 
+# ------ 文件存储 ------
 storage:
-  path: ./data/uploads            # 文件上传存储路径
-  max_file_size_mb: 20
+  path: ./data/uploads              # 【可选】上传文件存储路径
+  max_file_size_mb: 20              # 【可选】单文件大小上限（MB）
