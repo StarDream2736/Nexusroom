@@ -1,42 +1,47 @@
-# LiveKit Server Configuration
-# 必须与 docker-compose.yml 中的端口映射保持一致
-# 使用前复制为 livekit.yaml 并修改 api_key 和 api_secret
+# ============================================================
+# LiveKit Server 配置模板（仅语音通话）
+# ============================================================
+# 使用方式：复制本文件为 livekit.yaml，修改所有带【必改】的选项
+# 端口映射必须与 docker-compose.yml 一致
+#
+# 标记说明：
+#   【必改】 — 部署前必须修改
+#   【可选】 — 可保持默认值
+# ============================================================
 
 port: 7880
 
-# API 密钥配置（新版格式）
-# 生产环境请修改为随机生成的密钥
+# ------ API 密钥 ------
+# 【必改】格式为 key: secret，需与 config.yaml 中 livekit.api_key / api_secret 一致
 keys:
-  your-livekit-key: your-livekit-secret
+  CHANGE_ME_KEY: CHANGE_ME_SECRET
 
-# WebRTC 配置
+# ------ WebRTC ------
 rtc:
-  # UDP 端口范围（必须与 docker-compose.yml 中的端口映射一致）
-  port_range_start: 50000
+  port_range_start: 50000         # 【可选】与 docker-compose.yml 端口映射一致
   port_range_end: 50050
 
-  # 【必填】服务器公网 IP，LiveKit 将此 IP 作为 ICE candidate 发给客户端
-  # 不要使用 use_external_ip: true，它会向外网查询公网 IP，出站受限的服务器会超时崩溃
-  node_ip: YOUR_PUBLIC_IP
+  # 【必改】服务器公网 IP，LiveKit 将此 IP 作为 ICE candidate 通告给客户端
+  # 注意：避免开启 use_external_ip，出站受限的服务器查询公网 IP 可能会超时导致崩溃
+  node_ip: YOUR_IP
   use_external_ip: false
 
-# 内置 TURN 服务器 — 解决对称 NAT / 严格防火墙下 ICE 穿透失败
+# ------ 内置 TURN 服务器 ------
+# 解决对称 NAT / 严格防火墙下 ICE 穿透失败
 turn:
   enabled: true
   udp_port: 3478
-  domain: YOUR_PUBLIC_IP
+  domain: YOUR_IP                 # 【必改】填服务器公网 IP
 
+# ------ Redis ------
 redis:
-  address: redis:6379
+  address: redis:6379             # Docker 内部服务名，勿改
 
-# 日志级别
+# ------ 日志 ------
 logging:
-  level: info
+  level: info                     # 【可选】debug / info / warn / error
 
-# 房间配置
+# ------ 房间 ------
 room:
-  # 空房间自动清理时间
-  empty_timeout: 300  # 5分钟
-  
-  # 启用自动订阅
+  empty_timeout: 300              # 【可选】空房间自动清理（秒）
   auto_subscribe: true
