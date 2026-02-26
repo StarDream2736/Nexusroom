@@ -14,6 +14,8 @@ class StreamPlayer {
 
   VideoTrack? _currentVideoTrack;
   StreamPlayerStatus _status = StreamPlayerStatus.idle;
+  String? _lastUrl;
+  String? _lastToken;
 
   Stream<VideoTrack?> get videoTrackStream => _videoTrackController.stream;
   Stream<StreamPlayerStatus> get statusStream => _statusController.stream;
@@ -40,13 +42,15 @@ class StreamPlayer {
   /// 连接到直播房间并自动订阅 ingress 视频+音频
   Future<void> connect(String url, String token) async {
     await disconnect();
+    _lastUrl = url;
+    _lastToken = token;
 
     _setStatus(StreamPlayerStatus.connecting);
 
     _room = Room(
       roomOptions: const RoomOptions(
-        adaptiveStream: true,
-        dynacast: true,
+        adaptiveStream: false,
+        dynacast: false,
         // 直播观看者不发布任何轨道
         defaultAudioPublishOptions: AudioPublishOptions(dtx: true),
       ),
@@ -76,6 +80,8 @@ class StreamPlayer {
 
   /// 断开直播房间连接
   Future<void> disconnect() async {
+    _lastUrl = null;
+    _lastToken = null;
     _listener?.dispose();
     _listener = null;
     _currentVideoTrack = null;
@@ -121,6 +127,16 @@ class StreamPlayer {
       ..on<RoomDisconnectedEvent>((_) {
         debugPrint('[StreamPlayer] Room disconnected');
         _setStatus(StreamPlayerStatus.idle);
+        // 自动重连：如果非主动断开（_lastUrl 仍有值），延迟 2 秒重连
+        final url = _lastUrl;
+        final token = _lastToken;
+        if (url != null && token != null) {
+          Future.delayed(const Duration(seconds: 2), () {
+            if (_lastUrl == null) return; // 已主动断开或已 dispose
+            debugPrint('[StreamPlayer] Auto-reconnecting...');
+            connect(url, token);
+          });
+        }
       });
   }
 
@@ -157,6 +173,8 @@ class StreamPlayer {
   void dispose() {
     // Synchronously detach listener and clear track reference first,
     // so no callbacks can fire into closed controllers.
+    _lastUrl = null;
+    _lastToken = null;
     _listener?.dispose();
     _listener = null;
     _currentVideoTrack = null;
