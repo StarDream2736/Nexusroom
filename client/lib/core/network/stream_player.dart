@@ -39,7 +39,22 @@ class StreamPlayer {
     _setStatus(StreamPlayerStatus.connecting);
 
     try {
-      _player = Player();
+      _player = Player(
+        configuration: const PlayerConfiguration(
+          bufferSize: 2 * 1024 * 1024, // 2 MB — 直播低延迟
+        ),
+      );
+
+      // MPV 直播优化参数：低延迟、无缓存、实时模式
+      final mpv = _player!.platform;
+      if (mpv is NativePlayer) {
+        await mpv.setProperty('cache', 'no');
+        await mpv.setProperty('demuxer-max-bytes', '500KiB');
+        await mpv.setProperty('demuxer-readahead-secs', '0.2');
+        await mpv.setProperty('untimed', 'yes');
+        await mpv.setProperty('profile', 'low-latency');
+      }
+
       _videoController = VideoController(_player!);
 
       // 监听播放状态

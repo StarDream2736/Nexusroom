@@ -33,7 +33,8 @@ redis:
   address: redis:6379
 
 # 日志级别
-log_level: info
+logging:
+  level: info
 
 # 房间配置
 room:

@@ -281,7 +281,7 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
         body: Stack(
           fit: StackFit.expand,
           children: [
-            Video(controller: _streamVideoController!),
+            Video(controller: _streamVideoController!, controls: NoVideoControls),
             Positioned(
               top: 16,
               right: 16,
@@ -587,7 +587,7 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
 
     return Stack(
       children: [
-        Video(controller: _streamVideoController!),
+        Video(controller: _streamVideoController!, controls: NoVideoControls),
         // ─── Label ──────────────────
         Positioned(
           bottom: 8,
