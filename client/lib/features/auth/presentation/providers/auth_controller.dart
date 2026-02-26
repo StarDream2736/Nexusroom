@@ -28,12 +28,11 @@ class AuthController {
       final me = await _userRepo.getMe();
       final nickname = me['nickname'] as String?;
       final avatarUrl = me['avatar_url'] as String?;
-      if (nickname != null && nickname.isNotEmpty) {
-        await _settingsController.setNickname(nickname);
-      }
-      if (avatarUrl != null && avatarUrl.isNotEmpty) {
-        await _settingsController.setAvatarUrl(avatarUrl);
-      }
+      // 批量写入，只触发一次 _load()，避免 WS 重连风暴
+      await _settingsController.setProfile(
+        nickname: nickname,
+        avatarUrl: avatarUrl,
+      );
     } catch (e) {
       debugPrint('[AuthController] _syncProfile failed: $e');
     }

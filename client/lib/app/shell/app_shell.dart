@@ -8,7 +8,6 @@ import 'package:go_router/go_router.dart';
 import '../../core/providers/app_providers.dart';
 import '../../features/room/presentation/providers/rooms_provider.dart';
 import '../../features/room/presentation/providers/speaking_users_provider.dart';
-import '../../features/user/data/user_repository.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/title_bar.dart';
@@ -43,8 +42,6 @@ class _AppShellState extends ConsumerState<AppShell> {
     // 不要等到用户进入房间才首次读取
     final ws = ref.read(wsServiceProvider);
     _syncRoom(widget.location);
-    // 每次进入 Shell 同步用户资料（昵称、头像）
-    _syncUserProfile();
 
     // 全局监听 room.disbanded 事件
     _disbandedSub = ws.on('room.disbanded').listen((payload) {
@@ -117,25 +114,6 @@ class _AppShellState extends ConsumerState<AppShell> {
         ref.read(activeRoomIdProvider.notifier).state =
             roomId != null ? int.tryParse(roomId) : null;
       });
-    }
-  }
-
-  /// 同步用户资料（昵称、头像）到本地
-  Future<void> _syncUserProfile() async {
-    try {
-      final userRepo = ref.read(userRepositoryProvider);
-      final me = await userRepo.getMe();
-      final settings = ref.read(appSettingsProvider.notifier);
-      final nickname = me['nickname'] as String?;
-      final avatarUrl = me['avatar_url'] as String?;
-      if (nickname != null && nickname.isNotEmpty) {
-        await settings.setNickname(nickname);
-      }
-      if (avatarUrl != null && avatarUrl.isNotEmpty) {
-        await settings.setAvatarUrl(avatarUrl);
-      }
-    } catch (e) {
-      debugPrint('[AppShell] _syncUserProfile failed: $e');
     }
   }
 

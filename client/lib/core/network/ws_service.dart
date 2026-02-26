@@ -66,8 +66,9 @@ class WsService {
   void connect(String serverUrl, String token) {
     debugPrint('[WsService] connect() called  serverUrl=${serverUrl.length > 30 ? '${serverUrl.substring(0, 30)}...' : serverUrl}  token=${token.length > 15 ? '${token.substring(0, 15)}...' : token}  _channel=${_channel != null}  _state=$_state');
 
-    if (_serverUrl == serverUrl && _token == token && _state == WsConnectionState.connected) {
-      debugPrint('[WsService] connect() — already connected with same config, skip');
+    if (_serverUrl == serverUrl && _token == token &&
+        (_state == WsConnectionState.connected || _state == WsConnectionState.connecting)) {
+      debugPrint('[WsService] connect() — same config & already connected/connecting, skip');
       return;
     }
 
