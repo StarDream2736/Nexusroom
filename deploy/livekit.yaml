@@ -47,3 +47,8 @@ room:
   empty_timeout: 300
   # 参与者离开后保留时间（秒）
   departure_timeout: 20
+
+# 限制配置
+limits:
+  # 每个房间的参与者数量限制
+  num_tracks: 100

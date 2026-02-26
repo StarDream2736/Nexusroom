@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:media_kit/media_kit.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app/router/app_router.dart';
@@ -8,6 +9,9 @@ import 'core/providers/app_providers.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // 初始化 media_kit（HTTP-FLV 直播播放器）
+  MediaKit.ensureInitialized();
   
   // 初始化窗口管理器
   await windowManager.ensureInitialized();

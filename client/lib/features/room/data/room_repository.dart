@@ -47,13 +47,6 @@ class RoomRepository {
     return LiveKitTokenResult.fromJson(data as Map<String, dynamic>);
   }
 
-  /// 获取 LiveKit Token（直播房间，按 Ingress 隔离）
-  Future<LiveKitTokenResult> getStreamToken(int roomId, {required int ingressId}) async {
-    final data = await _client
-        .postData('/api/v1/rooms/$roomId/livekit-token?type=stream&ingress_id=$ingressId');
-    return LiveKitTokenResult.fromJson(data as Map<String, dynamic>);
-  }
-
   /// 获取 Ingress 列表
   Future<List<IngressModel>> listIngresses(int roomId) async {
     final data = await _client.getData('/api/v1/rooms/$roomId/ingresses');

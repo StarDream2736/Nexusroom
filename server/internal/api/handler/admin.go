@@ -158,17 +158,18 @@ func (h *AdminHandler) DeleteRoom(c *gin.Context) {
 // GetConfig GET /admin/config — 获取当前服务器配置（脱敏）
 func (h *AdminHandler) GetConfig(c *gin.Context) {
 	util.Success(c, gin.H{
-		"server_port":               h.cfg.Server.Port,
-		"server_mode":               h.cfg.Server.Mode,
-		"server_domain":             h.cfg.Server.Domain,
-		"message_retention_days":    h.cfg.Message.RetentionDays,
-		"livekit_url":               h.cfg.LiveKit.URL,
-		"livekit_ingress_rtmp_port": h.cfg.LiveKitIngress.RTMPPort,
-		"wireguard_subnet":          h.cfg.WireGuard.Subnet,
-		"wireguard_gateway_ip":      h.cfg.WireGuard.GatewayIP,
-		"wireguard_listen_port":     h.cfg.WireGuard.ListenPort,
-		"storage_path":              h.cfg.Storage.Path,
-		"storage_max_file_size_mb":  h.cfg.Storage.MaxFileSizeMB,
+		"server_port":              h.cfg.Server.Port,
+		"server_mode":              h.cfg.Server.Mode,
+		"server_domain":            h.cfg.Server.Domain,
+		"message_retention_days":   h.cfg.Message.RetentionDays,
+		"livekit_url":              h.cfg.LiveKit.URL,
+		"srs_rtmp_port":            h.cfg.SRS.RTMPPort,
+		"srs_http_port":            h.cfg.SRS.HTTPPort,
+		"wireguard_subnet":         h.cfg.WireGuard.Subnet,
+		"wireguard_gateway_ip":     h.cfg.WireGuard.GatewayIP,
+		"wireguard_listen_port":    h.cfg.WireGuard.ListenPort,
+		"storage_path":             h.cfg.Storage.Path,
+		"storage_max_file_size_mb": h.cfg.Storage.MaxFileSizeMB,
 	})
 }
 

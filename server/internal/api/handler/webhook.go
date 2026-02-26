@@ -9,8 +9,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/livekit/protocol/auth"
-	"github.com/livekit/protocol/webhook"
 
 	"nexusroom-server/internal/model"
 )
@@ -114,66 +112,51 @@ func (h *WebhookHandler) QQWebhook(c *gin.Context) {
 	util.Success(c, nil)
 }
 
-// ---------- LiveKit Webhook ----------
+// ---------- SRS Webhook ----------
 
-// LiveKitWebhook POST /webhook/livekit — LiveKit 服务器回调
-func (h *WebhookHandler) LiveKitWebhook(c *gin.Context) {
-	// 使用 LiveKit SDK 验证 JWT 并解析 webhook 事件
-	provider := auth.NewSimpleKeyProvider(h.cfg.LiveKit.APIKey, h.cfg.LiveKit.APISecret)
-	event, err := webhook.ReceiveWebhookEvent(c.Request, provider)
-	if err != nil {
-		log.Printf("[LiveKitWebhook] JWT verify/parse failed: %v", err)
-		util.Error(c, 40001, "webhook 解析失败")
-		return
-	}
+// SRSWebhook POST /webhook/srs — SRS HTTP 回调（推流状态通知）
+// SRS 以 form-urlencoded 方式 POST，包含 action / stream 等字段。
+func (h *WebhookHandler) SRSWebhook(c *gin.Context) {
+	action := c.PostForm("action")
+	stream := c.PostForm("stream") // stream key（推流时作为流名称）
 
-	log.Printf("[LiveKitWebhook] event=%s ingressId=%v", event.Event,
-		func() string {
-			if event.IngressInfo != nil {
-				return event.IngressInfo.IngressId
-			}
-			return "<nil>"
-		}())
+	log.Printf("[SRSWebhook] action=%s stream=%s", action, stream)
 
-	switch event.Event {
-	case "ingress_started":
-		if event.IngressInfo == nil {
-			break
-		}
-		ingress, err := h.ingressRepo.FindByIngressID(event.IngressInfo.IngressId)
+	switch action {
+	case "on_publish":
+		ingress, err := h.ingressRepo.FindByStreamKey(stream)
 		if err != nil {
-			log.Printf("[LiveKitWebhook] FindByIngressID(%s) error: %v", event.IngressInfo.IngressId, err)
-			break
+			log.Printf("[SRSWebhook] FindByStreamKey(%s) not found: %v", stream, err)
+			// 返回 0 让 SRS 接受推流（即使 DB 没找到也别阻断）
+			c.JSON(200, gin.H{"code": 0})
+			return
 		}
 		if err := h.ingressRepo.SetActive(ingress.ID, true); err != nil {
-			log.Printf("[LiveKitWebhook] SetActive(true) error: %v", err)
-			break
+			log.Printf("[SRSWebhook] SetActive(true) error: %v", err)
 		}
-		log.Printf("[LiveKitWebhook] ingress %d (%s) → active", ingress.ID, ingress.Label)
+		log.Printf("[SRSWebhook] ingress %d (%s) → active", ingress.ID, ingress.Label)
 		h.hub.BroadcastToRoom(ingress.RoomID, ws.EventIngressUpdate, ws.IngressUpdatePayload{
 			RoomID: ingress.RoomID,
 			Action: "status_changed",
 		}, 0)
 
-	case "ingress_ended":
-		if event.IngressInfo == nil {
-			break
-		}
-		ingress, err := h.ingressRepo.FindByIngressID(event.IngressInfo.IngressId)
+	case "on_unpublish":
+		ingress, err := h.ingressRepo.FindByStreamKey(stream)
 		if err != nil {
-			log.Printf("[LiveKitWebhook] FindByIngressID(%s) error: %v", event.IngressInfo.IngressId, err)
-			break
+			log.Printf("[SRSWebhook] FindByStreamKey(%s) not found: %v", stream, err)
+			c.JSON(200, gin.H{"code": 0})
+			return
 		}
 		if err := h.ingressRepo.SetActive(ingress.ID, false); err != nil {
-			log.Printf("[LiveKitWebhook] SetActive(false) error: %v", err)
-			break
+			log.Printf("[SRSWebhook] SetActive(false) error: %v", err)
 		}
-		log.Printf("[LiveKitWebhook] ingress %d (%s) → inactive", ingress.ID, ingress.Label)
+		log.Printf("[SRSWebhook] ingress %d (%s) → inactive", ingress.ID, ingress.Label)
 		h.hub.BroadcastToRoom(ingress.RoomID, ws.EventIngressUpdate, ws.IngressUpdatePayload{
 			RoomID: ingress.RoomID,
 			Action: "status_changed",
 		}, 0)
 	}
 
-	util.Success(c, nil)
+	// SRS 要求返回 {"code": 0} 表示允许
+	c.JSON(200, gin.H{"code": 0})
 }

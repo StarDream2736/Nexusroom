@@ -1,8 +1,9 @@
 package repository
 
 import (
-	"gorm.io/gorm"
 	"nexusroom-server/internal/model"
+
+	"gorm.io/gorm"
 )
 
 type IngressRepository struct {
@@ -29,6 +30,15 @@ func (r *IngressRepository) FindByID(id uint64) (*model.RoomIngress, error) {
 func (r *IngressRepository) FindByIngressID(ingressID string) (*model.RoomIngress, error) {
 	var ingress model.RoomIngress
 	err := r.db.Where("ingress_id = ?", ingressID).First(&ingress).Error
+	if err != nil {
+		return nil, err
+	}
+	return &ingress, nil
+}
+
+func (r *IngressRepository) FindByStreamKey(streamKey string) (*model.RoomIngress, error) {
+	var ingress model.RoomIngress
+	err := r.db.Where("stream_key = ?", streamKey).First(&ingress).Error
 	if err != nil {
 		return nil, err
 	}
