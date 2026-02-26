@@ -40,8 +40,3 @@ room:
   
   # 启用自动订阅
   auto_subscribe: true
-
-# 限制配置
-limits:
-  # 每个房间的参与者数量限制
-  num_tracks: 100
