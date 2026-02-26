@@ -1,11 +1,15 @@
 package handler
 
 import (
+	"io"
+	"log"
 	"nexusroom-server/internal/config"
 	"nexusroom-server/internal/repository"
 	"nexusroom-server/internal/ws"
 	"nexusroom-server/pkg/util"
 	"time"
+
+	"encoding/json"
 
 	"github.com/gin-gonic/gin"
 
@@ -13,23 +17,26 @@ import (
 )
 
 type WebhookHandler struct {
-	msgRepo  *repository.MessageRepository
-	roomRepo *repository.RoomRepository
-	hub      *ws.Hub
-	cfg      *config.Config
+	msgRepo     *repository.MessageRepository
+	roomRepo    *repository.RoomRepository
+	ingressRepo *repository.IngressRepository
+	hub         *ws.Hub
+	cfg         *config.Config
 }
 
 func NewWebhookHandler(
 	msgRepo *repository.MessageRepository,
 	roomRepo *repository.RoomRepository,
+	ingressRepo *repository.IngressRepository,
 	hub *ws.Hub,
 	cfg *config.Config,
 ) *WebhookHandler {
 	return &WebhookHandler{
-		msgRepo:  msgRepo,
-		roomRepo: roomRepo,
-		hub:      hub,
-		cfg:      cfg,
+		msgRepo:     msgRepo,
+		roomRepo:    roomRepo,
+		ingressRepo: ingressRepo,
+		hub:         hub,
+		cfg:         cfg,
 	}
 }
 
@@ -104,6 +111,84 @@ func (h *WebhookHandler) QQWebhook(c *gin.Context) {
 	}
 
 	h.hub.BroadcastToRoom(req.RoomID, ws.EventChatMessage, chatMsg, 0)
+
+	util.Success(c, nil)
+}
+
+// ---------- LiveKit Webhook ----------
+
+type livekitWebhookEvent struct {
+	Event       string              `json:"event"`
+	IngressInfo *livekitIngressInfo `json:"ingressInfo"`
+}
+type livekitIngressInfo struct {
+	IngressID string `json:"ingressId"`
+}
+
+// LiveKitWebhook POST /webhook/livekit — LiveKit 服务器回调
+func (h *WebhookHandler) LiveKitWebhook(c *gin.Context) {
+	// 读取请求体
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		util.Error(c, 40001, "读取 webhook 请求失败")
+		return
+	}
+	defer c.Request.Body.Close()
+
+	var event livekitWebhookEvent
+	if err := json.Unmarshal(body, &event); err != nil {
+		log.Printf("[LiveKitWebhook] JSON parse failed: %v", err)
+		util.Error(c, 40001, "webhook 解析失败")
+		return
+	}
+
+	log.Printf("[LiveKitWebhook] event=%s ingressId=%v", event.Event,
+		func() string {
+			if event.IngressInfo != nil {
+				return event.IngressInfo.IngressID
+			}
+			return "<nil>"
+		}())
+
+	switch event.Event {
+	case "ingress_started":
+		if event.IngressInfo == nil {
+			break
+		}
+		ingress, err := h.ingressRepo.FindByIngressID(event.IngressInfo.IngressID)
+		if err != nil {
+			log.Printf("[LiveKitWebhook] FindByIngressID(%s) error: %v", event.IngressInfo.IngressID, err)
+			break
+		}
+		if err := h.ingressRepo.SetActive(ingress.ID, true); err != nil {
+			log.Printf("[LiveKitWebhook] SetActive(true) error: %v", err)
+			break
+		}
+		log.Printf("[LiveKitWebhook] ingress %d (%s) → active", ingress.ID, ingress.Label)
+		h.hub.BroadcastToRoom(ingress.RoomID, ws.EventIngressUpdate, ws.IngressUpdatePayload{
+			RoomID: ingress.RoomID,
+			Action: "status_changed",
+		}, 0)
+
+	case "ingress_ended":
+		if event.IngressInfo == nil {
+			break
+		}
+		ingress, err := h.ingressRepo.FindByIngressID(event.IngressInfo.IngressID)
+		if err != nil {
+			log.Printf("[LiveKitWebhook] FindByIngressID(%s) error: %v", event.IngressInfo.IngressID, err)
+			break
+		}
+		if err := h.ingressRepo.SetActive(ingress.ID, false); err != nil {
+			log.Printf("[LiveKitWebhook] SetActive(false) error: %v", err)
+			break
+		}
+		log.Printf("[LiveKitWebhook] ingress %d (%s) → inactive", ingress.ID, ingress.Label)
+		h.hub.BroadcastToRoom(ingress.RoomID, ws.EventIngressUpdate, ws.IngressUpdatePayload{
+			RoomID: ingress.RoomID,
+			Action: "status_changed",
+		}, 0)
+	}
 
 	util.Success(c, nil)
 }

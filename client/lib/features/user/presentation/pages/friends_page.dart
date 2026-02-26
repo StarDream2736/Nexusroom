@@ -56,7 +56,8 @@ class _FriendsPageState extends ConsumerState<FriendsPage>
         _friends = results[0];
         _pendingRequests = results[1];
       });
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[FriendsPage] _loadData failed: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

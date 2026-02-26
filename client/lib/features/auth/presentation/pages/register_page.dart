@@ -109,12 +109,12 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
                         TextFormField(
                           controller: _usernameController,
                           decoration: const InputDecoration(
-                            labelText: '用户名',
+                            labelText: '账号',
                             prefixIcon: Icon(Icons.person_outline),
                           ),
                           validator: (value) {
-                            if (value == null || value.isEmpty) return '请输入用户名';
-                            if (value.length < 3) return '用户名至少3个字符';
+                            if (value == null || value.isEmpty) return '请输入账号';
+                            if (value.length < 3) return '账号至少3个字符';
                             return null;
                           },
                         ),

@@ -399,12 +399,13 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
                               );
                             }
                             return ListView.builder(
+                              reverse: true,
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 12, vertical: 8),
                               physics: const BouncingScrollPhysics(),
                               itemCount: messages.length,
                               itemBuilder: (context, index) {
-                                final message = messages[index];
+                                final message = messages[messages.length - 1 - index];
                                 final sender = message.senderNickname ??
                                     '用户${message.senderId}';
                                 final avatarUrl = message.senderAvatarUrl != null

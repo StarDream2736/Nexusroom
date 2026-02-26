@@ -83,11 +83,11 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       TextFormField(
                         controller: _usernameController,
                         decoration: const InputDecoration(
-                          labelText: '用户名',
+                          labelText: '账号',
                           prefixIcon: Icon(Icons.person_outline),
                         ),
                         validator: (value) {
-                          if (value == null || value.isEmpty) return '请输入用户名';
+                          if (value == null || value.isEmpty) return '请输入账号';
                           return null;
                         },
                       ),

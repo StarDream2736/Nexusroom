@@ -11,7 +11,7 @@ type RoomIngress struct {
 	StreamKey  string    `gorm:"uniqueIndex;size:128;not null" json:"stream_key"`
 	RTMPURL    string    `gorm:"size:256;not null" json:"rtmp_url"`
 	Label      string    `gorm:"size:64" json:"label"`
-	IsActive   bool      `gorm:"not null;default:true" json:"is_active"`
+	IsActive   bool      `gorm:"not null;default:false" json:"is_active"`
 	CreatedBy  uint64    `gorm:"not null" json:"created_by"`
 	CreatedAt  time.Time `json:"created_at"`
 }
