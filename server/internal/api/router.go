@@ -157,6 +157,9 @@ func SetupRouter(
 
 		// SRS 推流状态回调（SRS HTTP Hooks）
 		apiV1.POST("/webhook/srs", webhookHandler.SRSWebhook)
+
+		// HTTP-FLV 直播流代理（公开，无需认证）
+		apiV1.GET("/stream/:streamKey", ingressHandler.ProxyStream)
 	}
 
 	// WebSocket 路由
