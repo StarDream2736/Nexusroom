@@ -12,6 +12,12 @@ class LiveKitService {
   int? _connectedRoomId;
   int? get connectedRoomId => _connectedRoomId;
 
+  /// 连接代数计数器，用于防止旧 connect() 的悬空 Future 覆盖新连接
+  int _connectGeneration = 0;
+
+  /// 上一次 disconnect() 的 Future，用于让 connect() 等待其完成
+  Future<void>? _pendingDisconnect;
+
   final _participantsController =
       StreamController<List<RemoteParticipant>>.broadcast();
   final _connectionStateController =
@@ -44,7 +50,18 @@ class LiveKitService {
   /// 连接到 LiveKit 房间
   /// [roomId] 用于幂等检查，不传给 LiveKit SDK
   Future<void> connect(String url, String token, {int? roomId}) async {
+    final myGeneration = ++_connectGeneration;
+    debugPrint('[LiveKit] connect() generation=$myGeneration roomId=$roomId');
+
+    // 等待上一次正在进行的 disconnect 完成
+    await _pendingDisconnect;
     await disconnect();
+
+    // 如果在 disconnect 期间有新的 connect() 被调用，放弃当前操作
+    if (myGeneration != _connectGeneration) {
+      debugPrint('[LiveKit] connect() generation=$myGeneration STALE after disconnect (current=$_connectGeneration), aborting');
+      return;
+    }
 
     _room = Room(
       roomOptions: const RoomOptions(
@@ -71,10 +88,27 @@ class LiveKitService {
           throw TimeoutException('LiveKit 连接超时 (15s)');
         },
       );
+
+      // 连接成功后再次检查代数，防止被更新的 connect() 覆盖
+      if (myGeneration != _connectGeneration) {
+        debugPrint('[LiveKit] connect() generation=$myGeneration STALE after connect (current=$_connectGeneration), cleaning up');
+        _listener?.dispose();
+        _listener = null;
+        await _room?.disconnect();
+        await _room?.dispose();
+        _room = null;
+        return;
+      }
+
       debugPrint('[LiveKit] Connected successfully, participants: ${_room!.remoteParticipants.length}');
       _connectedRoomId = roomId;
       _notifyParticipants();
     } catch (e) {
+      // 如果已经被更新的 connect() 取代，忽略错误
+      if (myGeneration != _connectGeneration) {
+        debugPrint('[LiveKit] connect() generation=$myGeneration STALE error ignored');
+        return;
+      }
       final msg = 'LiveKit 连接失败: $e';
       debugPrint('[LiveKit] $msg');
       _lastError = msg;
@@ -95,18 +129,35 @@ class LiveKitService {
     return ids;
   }
 
-  /// 断开连接
+  /// 断开连接（并发安全：立即清除字段，异步清理旧对象）
   Future<void> disconnect() async {
     _connectedRoomId = null;
     _currentSpeakers = {};
     if (!_speakingUsersController.isClosed) {
       _speakingUsersController.add({});
     }
-    _listener?.dispose();
-    _listener = null;
-    await _room?.disconnect();
-    await _room?.dispose();
+
+    final oldRoom = _room;
+    final oldListener = _listener;
     _room = null;
+    _listener = null;
+
+    if (oldRoom == null && oldListener == null) return;
+
+    _pendingDisconnect = _cleanupRoom(oldRoom, oldListener);
+    await _pendingDisconnect;
+    _pendingDisconnect = null;
+  }
+
+  /// 安全清理旧的 Room / Listener（内部 try-catch 防止异常泄漏）
+  Future<void> _cleanupRoom(Room? room, EventsListener<RoomEvent>? listener) async {
+    try {
+      listener?.dispose();
+      await room?.disconnect();
+      await room?.dispose();
+    } catch (e) {
+      debugPrint('[LiveKit] _cleanupRoom error (ignored): $e');
+    }
   }
 
   /// 设置麦克风开关
@@ -222,7 +273,9 @@ class LiveKitService {
       })
       ..on<RoomDisconnectedEvent>((e) {
         _connectionStateController.add(ConnectionState.disconnected);
-        debugPrint('[LiveKit] Disconnected: ${e.reason}');
+        // 意外断线时清除 connectedRoomId，避免后续「跳过重连」误判
+        _connectedRoomId = null;
+        debugPrint('[LiveKit] Disconnected: ${e.reason}, connectedRoomId cleared');
       })
       ..on<ActiveSpeakersChangedEvent>((e) {
         // 通过 LiveKit 的 ActiveSpeakers 检测谁在说话

@@ -94,21 +94,25 @@ class _AppShellState extends ConsumerState<AppShell> {
     if (roomId != _currentRoomId) {
       final oldRoomId = _currentRoomId;
       _currentRoomId = roomId;
+
+      // 离开旧房间时立即发起 LiveKit 断开（fire-and-forget）
+      // disconnect() 是并发安全的：立即清除字段，异步释放旧 Room 对象
+      // 新页面的 connect() 会 await _pendingDisconnect，不会竞态
+      if (oldRoomId != null) {
+        debugPrint('[AppShell] disconnecting LiveKit (leaving room $oldRoomId)');
+        ref.read(livekitServiceProvider).disconnect();
+      }
+
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         final ws = ref.read(wsServiceProvider);
         if (oldRoomId != null) {
           debugPrint('[AppShell] leaveRoom($oldRoomId)');
           ws.leaveRoom(int.parse(oldRoomId));
-          // 注意：不在这里 disconnect LiveKit，而是由新房间页面的
-          // connect() 内部先 disconnect 再 connect，避免竞态
         }
         if (roomId != null) {
           debugPrint('[AppShell] joinRoom($roomId)');
           ws.joinRoom(int.parse(roomId));
-        } else {
-          // 离开房间且没有进入新房间，断开 LiveKit
-          ref.read(livekitServiceProvider).disconnect();
         }
         // 更新 activeRoomIdProvider 以驱动 onlineUsersProvider
         ref.read(activeRoomIdProvider.notifier).state =

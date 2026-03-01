@@ -311,9 +311,14 @@ class WsService {
       }
     }
 
-    // 推送到事件总线
+    // 推送到事件总线（将信封顶层的 room_id 合并到 payload 中）
     if (!_eventController.isClosed) {
-      _eventController.add(WsEvent(event: event, payload: payload));
+      final mergedPayload = <String, dynamic>{...?payload};
+      final envelopeRoomId = decoded['room_id'];
+      if (envelopeRoomId != null && envelopeRoomId != 0) {
+        mergedPayload['room_id'] ??= envelopeRoomId;
+      }
+      _eventController.add(WsEvent(event: event, payload: mergedPayload));
     }
 
     // 处理 chat.message 写入本地数据库

@@ -101,12 +101,14 @@ type SenderInfo struct {
 
 type RoomMemberJoinPayload struct {
 	UserID    uint64 `json:"user_id"`
+	RoomID    uint64 `json:"room_id"`
 	Nickname  string `json:"nickname"`
 	AvatarURL string `json:"avatar_url"`
 }
 
 type RoomMemberLeavePayload struct {
 	UserID uint64 `json:"user_id"`
+	RoomID uint64 `json:"room_id"`
 }
 
 type RoomKickedPayload struct {
@@ -119,6 +121,7 @@ type RoomDisbandedPayload struct {
 
 type VoiceStateUpdatePayload struct {
 	UserID   uint64 `json:"user_id"`
+	RoomID   uint64 `json:"room_id"`
 	Muted    bool   `json:"muted"`
 	Speaking bool   `json:"speaking"`
 }

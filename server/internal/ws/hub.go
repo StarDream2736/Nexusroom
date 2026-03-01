@@ -82,6 +82,7 @@ func (h *Hub) Run() {
 			for _, roomID := range roomsToNotify {
 				h.broadcastToRoom(roomID, EventRoomMemberLeave, RoomMemberLeavePayload{
 					UserID: client.UserID,
+					RoomID: roomID,
 				}, client.UserID)
 			}
 
@@ -113,7 +114,7 @@ func (h *Hub) broadcastToRoom(roomID uint64, event MessageType, payload interfac
 		}
 
 		if client.IsInRoom(roomID) {
-			client.SendEvent(event, payload)
+			client.SendEventToRoom(event, payload, roomID)
 		}
 	}
 }
@@ -238,6 +239,7 @@ func (h *Hub) KickUserFromRoom(roomID, userID uint64, reason string) {
 	// 广播成员离开事件
 	h.BroadcastToRoom(roomID, EventRoomMemberLeave, RoomMemberLeavePayload{
 		UserID: userID,
+		RoomID: roomID,
 	}, userID)
 
 	// 如果用户在线，将其从房间中移除
