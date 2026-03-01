@@ -398,6 +398,7 @@ func (h *RoomHandler) Leave(c *gin.Context) {
 	// 通过 WebSocket 通知房间其他成员
 	h.hub.BroadcastToRoom(roomID, ws.EventRoomMemberLeave, ws.RoomMemberLeavePayload{
 		UserID: userID,
+		RoomID: roomID,
 	}, userID)
 
 	util.Success(c, nil)

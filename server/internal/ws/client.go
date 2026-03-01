@@ -201,6 +201,7 @@ func (c *Client) handleRoomJoin(env Envelope) {
 	// 广播成员加入事件
 	c.Hub.BroadcastToRoom(roomID, EventRoomMemberJoin, RoomMemberJoinPayload{
 		UserID:    c.UserID,
+		RoomID:    roomID,
 		Nickname:  nickname,
 		AvatarURL: avatarURL,
 	}, c.UserID)
@@ -222,6 +223,7 @@ func (c *Client) handleRoomLeave(env Envelope) {
 	// 广播成员离开事件
 	c.Hub.BroadcastToRoom(roomID, EventRoomMemberLeave, RoomMemberLeavePayload{
 		UserID: c.UserID,
+		RoomID: roomID,
 	}, c.UserID)
 }
 
@@ -253,9 +255,16 @@ func (c *Client) handleVoiceMute(env Envelope) {
 		roomID = p.RoomID
 	}
 
+	// 校验用户是否在该房间
+	if !c.IsInRoom(roomID) {
+		log.Printf("[WS] User %d voice.mute for room %d but not in room", c.UserID, roomID)
+		return
+	}
+
 	// 广播语音状态变更
 	c.Hub.BroadcastToRoom(roomID, EventVoiceStateUpdate, VoiceStateUpdatePayload{
 		UserID: c.UserID,
+		RoomID: roomID,
 		Muted:  p.Muted,
 	}, 0) // 0 表示广播给所有人，包括自己
 }
@@ -267,10 +276,16 @@ func (c *Client) closeSend() {
 	})
 }
 
-// SendEvent 发送事件给客户端
+// SendEvent 发送事件给客户端（不带 roomID）
 func (c *Client) SendEvent(event MessageType, payload interface{}) {
+	c.SendEventToRoom(event, payload, 0)
+}
+
+// SendEventToRoom 发送事件给客户端（携带 roomID）
+func (c *Client) SendEventToRoom(event MessageType, payload interface{}, roomID uint64) {
 	envelope := Envelope{
 		Event:     event,
+		RoomID:    roomID,
 		Payload:   mustMarshal(payload),
 		Timestamp: time.Now(),
 	}

@@ -37,6 +37,8 @@ final onlineUsersProvider = StreamProvider<Set<int>>((ref) {
 
   // 监听 WS member_join 事件
   final joinSub = ws.on('room.member_join').listen((payload) {
+    final eventRoomId = payload['room_id'] as int?;
+    if (eventRoomId != null && eventRoomId != roomId) return;
     final userId = payload['user_id'] as int?;
     if (userId != null) {
       onlineSet.add(userId);
@@ -46,6 +48,8 @@ final onlineUsersProvider = StreamProvider<Set<int>>((ref) {
 
   // 监听 WS member_leave 事件
   final leaveSub = ws.on('room.member_leave').listen((payload) {
+    final eventRoomId = payload['room_id'] as int?;
+    if (eventRoomId != null && eventRoomId != roomId) return;
     final userId = payload['user_id'] as int?;
     if (userId != null) {
       onlineSet.remove(userId);

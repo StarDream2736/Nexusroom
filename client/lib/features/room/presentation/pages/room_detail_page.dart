@@ -88,15 +88,21 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
     });
 
     // 成员加入/离开时刷新房间详情
-    _memberJoinSub = _wsService!.on('room.member_join').listen((_) {
+    _memberJoinSub = _wsService!.on('room.member_join').listen((payload) {
+      final eventRoomId = payload['room_id'] as int?;
+      if (eventRoomId != null && eventRoomId != _roomId) return;
       ref.invalidate(roomDetailProvider(_roomId));
     });
-    _memberLeaveSub = _wsService!.on('room.member_leave').listen((_) {
+    _memberLeaveSub = _wsService!.on('room.member_leave').listen((payload) {
+      final eventRoomId = payload['room_id'] as int?;
+      if (eventRoomId != null && eventRoomId != _roomId) return;
       ref.invalidate(roomDetailProvider(_roomId));
     });
 
     // 语音状态更新 → 呼吸灯指示器
     _voiceStateSub = _wsService!.on('voice.state_update').listen((payload) {
+      final eventRoomId = payload['room_id'] as int?;
+      if (eventRoomId != null && eventRoomId != _roomId) return;
       final userId = payload['user_id'] as int?;
       final muted = payload['muted'] as bool? ?? true;
       if (userId != null) {
@@ -132,17 +138,7 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
   }
 
   Future<void> _connectLiveKit() async {
-    // 如果 LiveKit 已经连接到同一个房间（从设置页返回），跳过重连
-    if (_livekitService!.connectedRoomId == _roomId) {
-      debugPrint('[LiveKit] Already connected to room $_roomId, reusing connection');
-      setState(() {
-        _livekitConnected = _livekitService!.isConnected;
-        _isMuted = !_livekitService!.isMicrophoneEnabled;
-      });
-      return;
-    }
-
-    // 监听连接状态变化（每次 initState 都要绑定，因为旧 subscription 在 dispose 中已 cancel）
+    // 无论是否复用连接，都必须设置监听器（旧页面 dispose 已 cancel 了旧 subscription）
     _connectionStateSub = _livekitService!.connectionStateStream.listen((state) {
       if (mounted) {
         setState(() {
@@ -156,39 +152,67 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
       }
     });
 
-    // 监听错误
     _errorSub = _livekitService!.errorStream.listen((error) {
       if (mounted) {
         setState(() => _livekitError = error);
       }
     });
 
+    // 如果 LiveKit 确实仍在连接同一房间（从设置页返回），复用连接
+    if (_livekitService!.connectedRoomId == _roomId && _livekitService!.isConnected) {
+      debugPrint('[LiveKit] Already connected to room $_roomId, reusing connection');
+      setState(() {
+        _livekitConnected = true;
+        _isMuted = !_livekitService!.isMicrophoneEnabled;
+      });
+      return;
+    }
+
     try {
       // 获取 LiveKit Token 和动态 URL
       final tokenResult =
           await ref.read(roomRepositoryProvider).getLiveKitToken(_roomId);
-      
+      if (!mounted) return; // 页面已 dispose，放弃连接
+
       // 获取房间详情以获取动态 LiveKit URL
       final roomDetail = await ref.read(roomDetailProvider(_roomId).future);
-      
+      if (!mounted) return; // 页面已 dispose，放弃连接
+
       // 使用房间返回的 LiveKit URL，如果为空则 fallback 到 token 中的 URL
       final liveKitUrl = roomDetail.liveKitUrl.isNotEmpty 
           ? roomDetail.liveKitUrl 
           : tokenResult.url;
       
-      debugPrint('[LiveKit] Voice room URL: $liveKitUrl');
+      debugPrint('[LiveKit] Voice room URL: $liveKitUrl, roomId=$_roomId');
 
-      // 连接语音房间
+      // 连接语音房间（LiveKitService 内部有代数计数器，旧调用不会覆盖新连接）
       await _livekitService!.connect(liveKitUrl, tokenResult.token, roomId: _roomId);
+      if (!mounted) return;
 
       // 默认静音
       await _livekitService!.setMicrophoneEnabled(false);
     } catch (e) {
       // LiveKit 连接失败不阻塞聊天，但在 UI 上显示
       debugPrint('[LiveKit] Connection failed: $e');
+      // 连接失败时主动断开，避免残留旧连接
+      _livekitService?.disconnect();
       if (mounted) {
         setState(() => _livekitError = '$e');
       }
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant RoomDetailPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // GoRouter 可能复用 State 对象（roomId 变了但 State 没重建）
+    // 安全网：重新初始化连接
+    if (oldWidget.roomId != widget.roomId) {
+      debugPrint('[RoomDetail] didUpdateWidget: roomId changed ${oldWidget.roomId} -> ${widget.roomId}');
+      _livekitConnected = false;
+      _livekitError = null;
+      _isMuted = true;
+      _connectLiveKit();
     }
   }
 
@@ -211,8 +235,8 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
     _ingressRefreshSub?.cancel();
     _ingressUpdateSub?.cancel();
     // 房间 join/leave 由 AppShell 统一管理
-    // LiveKit 语音连接也由 AppShell 在切换房间时统一断开
-    // 此处只清理 StreamPlayer（直播流进入设置页时可中断，返回后重选）
+    // LiveKit 语音连接由 AppShell._syncRoom 在切换房间时统一断开
+    // 此处只清理 StreamPlayer和事件订阅
     _messageController.dispose();
     super.dispose();
   }
