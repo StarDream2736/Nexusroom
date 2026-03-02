@@ -106,3 +106,17 @@ install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
+
+# === WireGuard Helper ===
+# Install nexusroom-wg.exe and wintun.dll if they exist in the wg-helper directory.
+set(WG_HELPER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../wg-helper")
+if(EXISTS "${WG_HELPER_DIR}/nexusroom-wg.exe")
+  install(FILES "${WG_HELPER_DIR}/nexusroom-wg.exe"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}"
+    COMPONENT Runtime)
+endif()
+if(EXISTS "${WG_HELPER_DIR}/wintun.dll")
+  install(FILES "${WG_HELPER_DIR}/wintun.dll"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}"
+    COMPONENT Runtime)
+endif()

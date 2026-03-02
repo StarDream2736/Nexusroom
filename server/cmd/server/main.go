@@ -19,6 +19,7 @@ import (
 	"nexusroom-server/internal/config"
 	"nexusroom-server/internal/model"
 	"nexusroom-server/internal/repository"
+	"nexusroom-server/internal/wg"
 	"nexusroom-server/internal/ws"
 )
 
@@ -52,12 +53,20 @@ func main() {
 	friendRepo := repository.NewFriendshipRepository(db)
 	wgPeerRepo := repository.NewWGPeerRepository(db)
 
+	// Initialize WireGuard interface
+	wgCoordinator := wg.NewCoordinator(&cfg.WireGuard, wgPeerRepo)
+	if err := wgCoordinator.InitInterface(); err != nil {
+		log.Printf("Warning: WireGuard initialization failed: %v", err)
+		log.Printf("VLAN features will run in database-only mode (no tunnel)")
+	}
+
 	// 初始化 WebSocket Hub
 	hub := ws.NewHub(msgRepo, roomRepo, userRepo)
+	hub.SetWGCoordinator(wgCoordinator) // VLAN peer 自动清理
 	go hub.Run()
 
 	// 设置路由
-	ginRouter := api.SetupRouter(cfg, userRepo, roomRepo, msgRepo, ingressRepo, friendRepo, wgPeerRepo, hub)
+	ginRouter := api.SetupRouter(cfg, userRepo, roomRepo, msgRepo, ingressRepo, friendRepo, wgCoordinator, hub)
 
 	// 创建 HTTP 服务器
 	srv := &http.Server{

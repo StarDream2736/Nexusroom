@@ -1,12 +1,15 @@
 # NexusRoom 技术实现规划 & 开发文档
 
-> **版本** v1.4.0 ｜ **定位** 私有化部署 · 自建服务端 ｜ **核心功能** IM · 语音 · 直播 · VLAN
+> **版本** v1.6.0 ｜ **定位** 私有化部署 · 自建服务端 ｜ **核心功能** IM · 语音 · 直播 · VLAN
 
 ## 变更日志
 
 | 版本     | 变更内容                                                                                                                                                                                                                                         |
 | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| v1.4.1 | **\[fix\*]** 修复了手误破坏了环境三个小时没复现的问题 |
+| v1.6.0 | **\[VLAN 端到端贯通]** IPC 架构从 stdin/stdout 重写为 TCP localhost（解决 UAC 提权后 stdin 不可用导致的堆损坏崩溃）；客户端 `WireGuardService` 先绑定随机 TCP 端口再通过 `PowerShell Start-Process -Verb RunAs -WindowStyle Hidden` 提权启动 helper，helper 通过 `--port N` 参数回连；服务端 `coordinator.go` 新增 wireguard-go 用户态回退（CentOS 8 等无内核模块环境自动切换），`createInterface()` 双路径策略；`InitInterface()` 新增 `rp_filter=0` 内核参数设置（通过 docker-compose sysctls）和 iptables FORWARD 规则（wg0↔wg0 peer 互通）；`addPeerToDevice` 添加 `wg show` 诊断日志；Dockerfile 新增 `wireguard-go iptables iproute2`；修复房间切换时 VLAN 不同步：`_syncRoom()` 增加 `vlanRepo.leave(oldRoomId)` 服务端清理，`VlanPanel._leaveVlan` 支持 `roomIdOverride` 传入旧 roomId；WebSocket Hub 断连时兜底清理 VLAN peer（`SetWGCoordinator` 注入 + Unregister 自动 `UnregisterPeer`）；**已验证：多设备 WireGuard 握手成功，peer 间 ping 互通** |
+| v1.5.0 | **\[VLAN全面实现]** 新增 `wg-helper/` Go 辅助进程：基于 wireguard-go + wintun 实现 Windows 用户空间 WireGuard 隧道，支持 `genkey`（密钥对生成）和 `up`（隧道管理）两个子命令，通过 stdin/stdout JSON IPC 与 Flutter 客户端通信，内嵌 UAC requireAdministrator manifest；客户端 `WireGuardService` 从 MethodChannel 彻底重写为 `dart:io Process` 调用，解决 `MissingPluginException`；服务端 `coordinator.go` 增加 `InitInterface()` 方法使用 wgctrl 库实际创建并配置 wg0 内核接口（自动生成私钥、绑定端口、分配网关IP），`RegisterPeer`/`UnregisterPeer` 现在同步操作 WG 设备添加/移除 peer；Dockerfile 新增 `wireguard-tools` 安装；CMake 新增 nexusroom-wg.exe + wintun.dll 打包规则 |
+| v1.4.2 | **\[BUG修复]** 修复语音频道在房间间串联问题：LiveKitService.disconnect()改为并发安全（立即清除字段，异步释放旧Room），AppShell._syncRoom在任何房间切换时均立即主动断开LiveKit（而非仅在返回首页时），RoomDetailPage在连接失败和房间切换时主动断开避免残留连接；server端添加voiceStateUpdate.room_id字段和voice.mute房间验证；**\[功能优化]** 房间切换时自动将麦克风重置为静音；**\[应用重命名]** Windows EXE从client改名为Nexusroom |
+| v1.4.1 | **\[fix*]** 修复了手误破坏了环境三个小时没复现的问题 |
 | v1.4.0 | **\[架构迁移]** 直播推流引擎从 LiveKit Ingress 迁移至 SRS 6（HTTP-FLV），单核服务器 CPU 占用从 30-80% 降至 2-5%；客户端使用 media_kit 播放 HTTP-FLV 流，替代 LiveKit SDK 直播渲染；LiveKit 仅保留语音通话功能；服务端彻底清除 LiveKit Ingress 相关代码，新增 SRS HTTP 回调处理推流状态 |
 | v1.3.4 | **\[LiveKit连接修复]** 服务端GetDetail端点添加智能URL推导（优先使用config.public_url，自动从Host头识别公网IP），livekit.yaml改用node_ip替代use_external_ip避免外网查询超时；**\[头像稳定性]** 修复客户端avatar组件因空字符串导致的CachedNetworkImageProvider崩溃；**\[实时功能]** 新增speakingUsersProvider和onlineUsersProvider(WS事件+REST fallback)，成员列表支持在线/说话状态指示和排序；**\[自动刷新]** 房间详情3s周期刷新、直播列表10s周期刷新；**\[权限调整]** Ingress推流入口权限从房主限制改为房间全体成员可操作 |
 | v1.3.3 | **\[Bug修复]** 修复登录页"切换服务器"按钮（clearAuth改为clearAll避免状态残留）；**\[架构优化]** AppShell重构为StatefulWidget，集中处理房间join/leave逻辑，修复GoRouterState上下文错误导致的房间切换失效；**\[稳定性]** 新增WebSocket重连后自动重新加入已加入房间机制（_joinedRooms追踪 + connected事件触发 + chat.error兜底）；**\[诊断]** 全面补充客户端与服务端消息链路诊断日志 |
@@ -888,60 +891,148 @@ func (h *RoomHandler) OnlineUsers(c *gin.Context) {
 
 ### 9.1 方案说明
 
-VLAN 功能基于 WireGuard VPN 协议实现，完全内嵌于客户端安装包中，用户无需安装任何额外软件。服务端运行一个 WireGuard 实例作为 Hub，客户端通过 Platform Channel 调用内嵌的 `wireguard-go` 库建立隧道。
+VLAN 功能基于 WireGuard VPN 协议实现，完全内嵌于客户端安装包中，用户无需安装任何额外软件。服务端 Docker 容器内运行 wireguard-go 用户态实例作为 Hub，客户端通过独立的 Go 辅助进程 `nexusroom-wg.exe`（内嵌 wireguard-go + wintun）建立隧道，两者通过 TCP localhost JSON 协议通信。
 
 ### 9.2 组件说明
 
 | 组件 | 运行位置 | 作用 |
 |------|---------|------|
-| WireGuard 服务端 | Docker 容器（服务器） | 作为 VPN Hub，维护所有 Peer 的路由，虚拟IP段由 config.yaml 中 `wireguard.subnet` 配置（默认 10.0.8.0/24，可改为 172.29.0.0/24 等避免冲突） |
-| WireGuard 协调服务 | Golang 主服务内 | 管理 Peer 注册、IP 分配、密钥下发，与 WG 实例通过 wgctrl 通信 |
-| wireguard-go（客户端） | Flutter 客户端（内嵌） | 纯 Go 实现的 WireGuard 用户态实现，通过 Platform Channel 调用 |
-| wintun.dll（Windows） | 客户端安装包内置 | Windows 虚拟网卡驱动，安装包阶段静默安装 |
+| wireguard-go (服务端) | Docker 容器（Alpine） | 用户态 WireGuard Hub，自动回退（优先内核模块 → wireguard-go），通过 wgctrl UAPI 管理 |
+| WireGuard 协调服务 | Golang 主服务内 `internal/wg/coordinator.go` | Peer 注册/注销、IP 分配、wgctrl 设备配置、iptables 转发规则 |
+| nexusroom-wg.exe | Flutter 客户端（内嵌辅助进程） | Go 编译的独立 EXE，基于 wireguard-go 库 + wintun 驱动创建 TUN 隧道，支持 `genkey` 和 `up --port N` 两个子命令 |
+| wintun.dll | 客户端安装包内置 | Windows TUN 虚拟网卡驱动，nexusroom-wg.exe 运行时自动加载 |
+| WireGuardService | Flutter 客户端 `core/native/wireguard_service.dart` | Dart 层封装，管理 TCP IPC 通信和 helper 进程生命周期 |
 
-### 9.3 VLAN 建立流程
+### 9.3 IPC 架构（TCP localhost）
 
-1. 用户在房间内点击"开启联机组网"开关
-2. 客户端在本地生成 WireGuard 密钥对（公钥/私钥）
-3. 客户端调用 `POST /rooms/:id/vlan/join`，上传公钥
-4. 服务端协调服务：分配虚拟 IP、将新 Peer 注册到服务端 WireGuard 实例、返回配置
-5. 服务端通过 WebSocket 广播 `vlan.peer_update` 事件，通知房间内其他成员新 Peer 加入
-6. 客户端通过 Platform Channel 启动 wireguard-go，应用配置建立隧道
-7. 隧道建立完成，房间内用户可通过各自分配的虚拟 IP 地址互相访问，游戏局域网功能生效（默认网段 10.0.8.x，可在 config.yaml 中修改）
+由于 Windows 下创建 TUN 设备需要管理员权限（UAC），而 Flutter 应用本身不以管理员运行，需要通过 PowerShell 提权启动 helper 进程。提权后 stdin/stdout 重定向不可用（会导致堆损坏崩溃），因此采用 TCP localhost 回连方案：
 
-### 9.4 Flutter Platform Channel 实现
+```
+┌─────────────────────────────────────┐
+│ Flutter 客户端（普通权限）            │
+│                                     │
+│  1. ServerSocket.bind(loopback, 0)  │
+│     → 获得随机端口 N                 │
+│  2. PowerShell Start-Process        │
+│     -Verb RunAs -WindowStyle Hidden │
+│     nexusroom-wg.exe up --port N    │
+│  3. _ipcServer.first.timeout(30s)   │
+│     → 等待 helper 回连              │
+│  4. 发送 JSON 配置 → 等待 "up" 响应  │
+└──────────────┬──────────────────────┘
+               │ TCP 127.0.0.1:N
+┌──────────────▼──────────────────────┐
+│ nexusroom-wg.exe（管理员权限）       │
+│                                     │
+│  1. net.Dial("tcp", "127.0.0.1:N") │
+│  2. 读取 JSON 配置                   │
+│  3. tun.CreateTUN → device.IpcSet   │
+│     → dev.Up → configureInterface   │
+│  4. 回写 {"status":"up"} 确认       │
+│  5. 等待 {"action":"down"} 或信号    │
+└─────────────────────────────────────┘
+```
+
+### 9.4 VLAN 建立流程（完整链路）
+
+1. 用户在房间右侧面板点击 VLAN 开关
+2. 客户端调用 `WireGuardService.generateKeyPair()` → helper 执行 `genkey` 返回 WireGuard 密钥对
+3. 客户端调用 `POST /api/v1/rooms/:id/vlan/join`，上传公钥
+4. 服务端 `coordinator.RegisterPeer()`：分配虚拟 IP（10.0.8.x/24）、通过 wgctrl 将 Peer 添加到 wg0 设备（AllowedIPs=/32）、保存到数据库
+5. 服务端通过 WebSocket 广播 `vlan.peer_update(join)` 事件
+6. 服务端返回：`assigned_ip`、`server_public_key`、`server_endpoint`（公网IP:51820）、`dns`
+7. 客户端构建 `WgConfig`（server 作为唯一 Peer，AllowedIPs=10.0.8.0/24），通过 TCP IPC 发送给 helper
+8. Helper 创建 TUN 设备 `NexusRoom0`、配置 WireGuard、设置 IP 地址和路由
+9. WireGuard 握手完成（客户端主动发起 → 服务器 endpoint 已知），隧道建立
+10. 房间内所有 VLAN 用户可通过虚拟 IP 互相访问（流量路径：Client A → wg0 服务端 → Client B）
+
+### 9.5 服务端 WireGuard 初始化
+
+`coordinator.go InitInterface()` 在服务启动时执行：
+
+```go
+// 双路径创建 wg0 接口
+func (c *Coordinator) createInterface() error {
+    // 1. 尝试内核模块（最快）
+    err := exec.Command("ip", "link", "add", "dev", "wg0", "type", "wireguard").Run()
+    if err == nil { return nil }
+
+    // 2. 回退到 wireguard-go 用户态（适用于 CentOS 8 等无模块环境）
+    cmd := exec.Command("wireguard-go", "wg0")
+    cmd.Env = append(cmd.Environ(), "WG_I_PREFER_BUGGY_USERSPACE_TO_POLISHED_KMOD=1")
+    cmd.CombinedOutput()
+
+    // 等待 UAPI socket /var/run/wireguard/wg0.sock
+    for i := 0; i < 20; i++ {
+        if _, err := os.Stat(socketPath); err == nil { return nil }
+        time.Sleep(100 * time.Millisecond)
+    }
+}
+```
+
+初始化后续步骤：
+- `wgctrl.New()` → `ConfigureDevice(wg0, privateKey, listenPort=51820)`
+- `ip addr add 10.0.8.1/24 dev wg0` → `ip link set wg0 up`
+- 设置内核参数（通过 docker-compose sysctls）：`ip_forward=1`、`rp_filter=0`
+- iptables FORWARD 规则：`-i wg0 -o wg0 -j ACCEPT`（peer 互通必需）
+
+### 9.6 客户端 WireGuardService 实现
 
 ```dart
-// Dart 层调用
 class WireGuardService {
-  static const _channel = MethodChannel('nexusroom/wireguard');
+  Socket? _helperSocket;
+  ServerSocket? _ipcServer;
+  bool get isConnected => _helperSocket != null;
 
-  // 启动 WireGuard 隧道
-  static Future<void> startTunnel(WgConfig config) async {
-    await _channel.invokeMethod('startTunnel', config.toMap());
+  Future<void> startTunnel(WgConfig config) async {
+    // 1. 绑定随机 TCP 端口
+    _ipcServer = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final port = _ipcServer!.port;
+
+    // 2. 提权启动 helper（隐藏窗口）
+    await Process.start('powershell', [
+      '-WindowStyle', 'Hidden', '-Command',
+      "Start-Process -FilePath '...nexusroom-wg.exe' "
+      "-ArgumentList 'up --port $port' -Verb RunAs -WindowStyle Hidden",
+    ]);
+
+    // 3. 等待 helper 回连（30秒超时）
+    _helperSocket = await _ipcServer!.first.timeout(Duration(seconds: 30));
+
+    // 4. 发送配置 JSON
+    _helperSocket!.writeln(jsonEncode(config.toMap()));
+
+    // 5. 等待 "up" 确认（15秒超时）
+    // ... Completer + stream listener
   }
 
-  // 停止隧道
-  static Future<void> stopTunnel() async {
-    await _channel.invokeMethod('stopTunnel');
-  }
-
-  // 生成密钥对（由 native 层生成，更安全）
-  static Future<KeyPair> generateKeyPair() async {
-    final result = await _channel.invokeMethod('generateKeyPair');
-    return KeyPair.fromMap(result);
+  Future<void> stopTunnel() async {
+    _helperSocket?.writeln(jsonEncode({'action': 'down'}));
+    await Future.delayed(Duration(milliseconds: 500));
+    _cleanup();
   }
 }
 ```
 
-### 9.5 IP 分配规则
+### 9.7 房间切换时的 VLAN 生命周期管理
+
+三层保护确保切换房间时 VLAN 正确清理：
+
+| 层级 | 触发点 | 行为 |
+|------|--------|------|
+| 1. AppShell._syncRoom() | 路由切换时 oldRoomId != null | `wgService.stopTunnel()` + `vlanRepo.leave(oldRoomId)` |
+| 2. VlanPanel.didUpdateWidget() | roomId 变化且 _isEnabled | `_leaveVlan(roomIdOverride: oldWidget.roomId)` |
+| 3. VlanPanel.dispose() | Widget 卸载时 _isEnabled | `_leaveVlan()` 兜底 |
+| 4. Hub.Unregister (服务端) | WebSocket 断连 | `coordinator.UnregisterPeer(roomID, userID)` 自动清理 |
+
+### 9.8 IP 分配规则
 
 - **服务端 VPN Hub**：子网网关地址，默认 `10.0.8.1`（与 `wireguard.subnet` 联动）
 - **客户端分配范围**：子网内 `.2 ~ .254`，最多 253 个同房间 VLAN 成员
-- **每个房间**使用独立的 WireGuard 网络命名空间（或通过 AllowedIPs 隔离）
-- **IP 分配策略**：按注册顺序递增分配，用户离开后 IP 释放回池，10 分钟后可被复用
+- **IP 分配策略**：顺序递增，用户离开后 IP 释放回池
+- **AllowedIPs**：服务端对每个 peer 设为 `/32`（单主机路由），客户端对服务端设为 `/24`（整个子网走隧道）
 
-### 9.6 网段冲突风险与配置
+### 9.9 网段冲突风险与配置
 
 > **⚠️ 重要**：若服务端默认使用的 `10.0.8.0/24` 网段与用户物理局域网网段重叠（如家用路由器也在 `10.0.x.x` 段），WireGuard 会将原本应走物理网卡的流量全部劫持到虚拟网卡，导致用户网络中断、VLAN 功能失效。
 
@@ -954,18 +1045,57 @@ class WireGuardService {
 wireguard:
   subnet: "172.29.0.0/24"    # 推荐备选
   gateway_ip: "172.29.0.1"
-
-# 其他可选：
-#   subnet: "192.168.200.0/24"  gateway_ip: "192.168.200.1"
-#   subnet: "10.88.0.0/24"      gateway_ip: "10.88.0.1"
 ```
 
-**修改后的影响**：
-- 修改需重启服务端（`docker compose restart server`）
-- 所有当前活跃的 VLAN 连接会断开，成员需重新点击"开启联机组网"执行 join
-- Web 管理后台在保存此配置时应弹出确认警告：**"修改子网段将断开所有当前 VLAN 连接，确认继续？"**
+### 9.10 Docker 部署要求
 
-> **注意**：Windows 下 wintun 驱动加载需要管理员权限，建议在安装包（NSIS/Inno Setup）的安装阶段以管理员权限静默安装驱动，运行时不再需要提权。
+```yaml
+# docker-compose.yml server 服务必需配置
+services:
+  server:
+    cap_add:
+      - NET_ADMIN              # WireGuard 网络管理
+      - SYS_MODULE             # 内核模块加载（回退用）
+    devices:
+      - /dev/net/tun:/dev/net/tun  # TUN 设备
+    sysctls:
+      - net.ipv4.ip_forward=1          # IP 转发
+      - net.ipv4.conf.all.rp_filter=0      # 禁用反向路径过滤
+      - net.ipv4.conf.default.rp_filter=0  # 新接口继承
+    ports:
+      - "51820:51820/udp"      # WireGuard 端口
+```
+
+**防火墙要求**：
+- 云服务器安全组需放行 **UDP 51820** 入方向
+- CentOS/RHEL：`firewall-cmd --add-port=51820/udp --permanent && firewall-cmd --reload`
+
+### 9.11 诊断与排查
+
+```bash
+# 检查 wg0 接口和 peer 握手状态
+docker exec nexusroom-server wg show wg0
+
+# 检查 IP 转发和 rp_filter
+docker exec nexusroom-server cat /proc/sys/net/ipv4/ip_forward
+docker exec nexusroom-server cat /proc/sys/net/ipv4/conf/all/rp_filter
+
+# 检查 iptables 转发规则
+docker exec nexusroom-server iptables -L FORWARD -n -v
+
+# 检查 UDP 端口监听
+ss -ulnp | grep 51820
+```
+
+**常见问题**：
+
+| 现象 | 原因 | 解决 |
+|------|------|------|
+| 握手从不完成 | UDP 51820 被防火墙/安全组阻止 | 开放云安全组 + 系统防火墙 |
+| 握手成功但 peer 间无法互 ping | rp_filter=1 阻止同接口转发 | docker-compose sysctls 添加 rp_filter=0 |
+| 握手成功但 peer 间无法互 ping | iptables FORWARD 链无 ACCEPT 规则 | 检查 Dockerfile 是否包含 iptables 包 |
+| helper 启动后无 UAC 弹窗 | PowerShell 执行策略限制 | 检查 nexusroom-wg.exe 路径是否正确 |
+| 客户端连接超时 (30s) | helper 未成功回连 TCP 端口 | 检查 helper 是否有管理员权限窗口被阻止 |
 
 ---
 
@@ -1765,4 +1895,4 @@ ufw allow 3000/tcp         # Web 管理后台（可选）
 
 ---
 
-*NexusRoom Technical Documentation v1.4.0*
+*NexusRoom Technical Documentation v1.4.1*

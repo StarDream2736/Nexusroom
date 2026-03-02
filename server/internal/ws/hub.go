@@ -7,6 +7,7 @@ import (
 
 	"nexusroom-server/internal/model"
 	"nexusroom-server/internal/repository"
+	"nexusroom-server/internal/wg"
 )
 
 // Hub 管理所有 WebSocket 连接
@@ -19,9 +20,10 @@ type Hub struct {
 	mu sync.RWMutex
 
 	// 依赖
-	msgRepo  *repository.MessageRepository
-	roomRepo *repository.RoomRepository
-	userRepo *repository.UserRepository
+	msgRepo       *repository.MessageRepository
+	roomRepo      *repository.RoomRepository
+	userRepo      *repository.UserRepository
+	wgCoordinator *wg.Coordinator // VLAN peer 清理
 }
 
 type BroadcastMessage struct {
@@ -41,6 +43,11 @@ func NewHub(msgRepo *repository.MessageRepository, roomRepo *repository.RoomRepo
 		roomRepo:   roomRepo,
 		userRepo:   userRepo,
 	}
+}
+
+// SetWGCoordinator 设置 WireGuard Coordinator（在 main.go 中初始化后调用）
+func (h *Hub) SetWGCoordinator(c *wg.Coordinator) {
+	h.wgCoordinator = c
 }
 
 func (h *Hub) Run() {
@@ -84,6 +91,21 @@ func (h *Hub) Run() {
 					UserID: client.UserID,
 					RoomID: roomID,
 				}, client.UserID)
+
+				// 兜底：清理该用户在此房间的 VLAN peer
+				if h.wgCoordinator != nil {
+					if err := h.wgCoordinator.UnregisterPeer(roomID, client.UserID); err != nil {
+						log.Printf("[WG] Auto-cleanup peer for user %d room %d: %v", client.UserID, roomID, err)
+					} else {
+						log.Printf("[WG] Auto-cleaned peer for user %d room %d", client.UserID, roomID)
+						// 广播 VLAN peer 离开事件
+						h.broadcastToRoom(roomID, EventVlanPeerUpdate, VlanPeerUpdatePayload{
+							RoomID:   roomID,
+							Action:   "leave",
+							PeerInfo: PeerInfo{UserID: client.UserID},
+						}, client.UserID)
+					}
+				}
 			}
 
 			log.Printf("User %d disconnected", client.UserID)

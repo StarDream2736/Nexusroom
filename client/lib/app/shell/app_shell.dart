@@ -101,6 +101,19 @@ class _AppShellState extends ConsumerState<AppShell> {
       if (oldRoomId != null) {
         debugPrint('[AppShell] disconnecting LiveKit (leaving room $oldRoomId)');
         ref.read(livekitServiceProvider).disconnect();
+
+        // 同时断开 VLAN 隧道 + 通知服务器移除 peer
+        final wgService = ref.read(wireguardServiceProvider);
+        if (wgService.isConnected) {
+          debugPrint('[AppShell] disconnecting VLAN (leaving room $oldRoomId)');
+          wgService.stopTunnel();
+          // 通知服务器移除 peer，避免其他客户端仍显示该用户在 VLAN 中
+          try {
+            ref.read(vlanRepositoryProvider).leave(oldRoomId);
+          } catch (e) {
+            debugPrint('[AppShell] VLAN leave API failed: $e');
+          }
+        }
       }
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -146,7 +159,10 @@ class _AppShellState extends ConsumerState<AppShell> {
                   AnimatedContainer(
                     duration: AppTheme.durationPage,
                     curve: AppTheme.curveMovement,
-                    child: RightPanel(roomId: roomId),
+                    child: KeyedSubtree(
+                      key: ValueKey('right_$roomId'),
+                      child: RightPanel(roomId: roomId!),
+                    ),
                   ),
               ],
             ),

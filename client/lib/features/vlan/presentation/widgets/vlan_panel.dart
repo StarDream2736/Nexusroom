@@ -33,6 +33,16 @@ class _VlanPanelState extends ConsumerState<VlanPanel> {
     _listenPeerUpdates();
   }
 
+  @override
+  void didUpdateWidget(covariant VlanPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.roomId != widget.roomId && _isEnabled) {
+      // 房间切换时自动离开旧房间的 VLAN（使用旧 roomId）
+      debugPrint('[VLAN] Room changed ${oldWidget.roomId} -> ${widget.roomId}, auto-leaving');
+      _leaveVlan(roomIdOverride: oldWidget.roomId);
+    }
+  }
+
   void _listenPeerUpdates() {
     final ws = ref.read(wsServiceProvider);
     _peerUpdateSub = ws.on('vlan.peer_update').listen((event) {
@@ -50,6 +60,19 @@ class _VlanPanelState extends ConsumerState<VlanPanel> {
       } else {
         await _joinVlan();
       }
+    } on WgHelperNotFoundException {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('WireGuard 组件缺失，请确认 nexusroom-wg.exe 和 wintun.dll 已部署'),
+          duration: Duration(seconds: 5),
+        ),
+      );
+    } on WgException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('VLAN 操作失败: ${e.message}')),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -72,38 +95,46 @@ class _VlanPanelState extends ConsumerState<VlanPanel> {
     final serverEndpoint = result['server_endpoint'] as String? ?? '';
     final dns = result['dns'] as String? ?? '';
 
-    try {
-      await wgService.startTunnel(
-        _buildWgConfig(
-          assignedIP: assignedIP,
-          privateKey: keyPair.privateKey,
-          serverPublicKey: serverPublicKey,
-          serverEndpoint: serverEndpoint,
-          dns: dns,
-        ),
-      );
-    } catch (_) {}
+    // Start the tunnel — let errors propagate to _toggleVlan for user display
+    await wgService.startTunnel(
+      _buildWgConfig(
+        assignedIP: assignedIP,
+        privateKey: keyPair.privateKey,
+        serverPublicKey: serverPublicKey,
+        serverEndpoint: serverEndpoint,
+        dns: dns,
+      ),
+    );
 
+    // Only set enabled state if tunnel started successfully
     setState(() {
       _isEnabled = true;
       _assignedIP = assignedIP;
     });
 
-    await _loadPeers();
+    // Peer list load is best-effort — don't let it fail the VLAN join
+    unawaited(_loadPeers());
   }
 
-  Future<void> _leaveVlan() async {
+  Future<void> _leaveVlan({String? roomIdOverride}) async {
+    final leaveRoomId = roomIdOverride ?? widget.roomId;
     final wgService = ref.read(wireguardServiceProvider);
     final vlanRepo = ref.read(vlanRepositoryProvider);
 
+    // Always stop the local tunnel and reset UI, even if the server call fails
     await wgService.stopTunnel();
-    await vlanRepo.leave(widget.roomId);
-
     setState(() {
       _isEnabled = false;
       _assignedIP = null;
       _peers = [];
     });
+
+    // Best-effort server-side unregister — report but don't block
+    try {
+      await vlanRepo.leave(leaveRoomId);
+    } catch (e) {
+      debugPrint('[VLAN] Leave API failed (local tunnel already stopped): $e');
+    }
   }
 
   Future<void> _loadPeers() async {
@@ -123,7 +154,7 @@ class _VlanPanelState extends ConsumerState<VlanPanel> {
     required String dns,
   }) {
     return WgConfig(
-      assignedIP: assignedIP,
+      address: assignedIP,
       privateKey: privateKey,
       serverPublicKey: serverPublicKey,
       serverEndpoint: serverEndpoint,
@@ -134,6 +165,10 @@ class _VlanPanelState extends ConsumerState<VlanPanel> {
   @override
   void dispose() {
     _peerUpdateSub?.cancel();
+    // 面板卸载时自动离开 VLAN（兜底，主逻辑在 AppShell._syncRoom）
+    if (_isEnabled) {
+      _leaveVlan();
+    }
     super.dispose();
   }
 
