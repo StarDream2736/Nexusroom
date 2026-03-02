@@ -1,11 +1,12 @@
 # NexusRoom 技术实现规划 & 开发文档
 
-> **版本** v1.6.0 ｜ **定位** 私有化部署 · 自建服务端 ｜ **核心功能** IM · 语音 · 直播 · VLAN
+> **版本** v1.6.1 ｜ **定位** 私有化部署 · 自建服务端 ｜ **核心功能** IM · 语音 · 直播 · VLAN
 
 ## 变更日志
 
 | 版本     | 变更内容                                                                                                                                                                                                                                         |
 | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| v1.6.1 | **\[忏悔]** 我再也随便尝试从桌面端移植安卓端了TvT；**\[fix]**修复了移植过程中未破坏环境的问题；修复了移植过程中破坏的环境；更新了一下文档 |
 | v1.6.0 | **\[VLAN 端到端贯通]** IPC 架构从 stdin/stdout 重写为 TCP localhost（解决 UAC 提权后 stdin 不可用导致的堆损坏崩溃）；客户端 `WireGuardService` 先绑定随机 TCP 端口再通过 `PowerShell Start-Process -Verb RunAs -WindowStyle Hidden` 提权启动 helper，helper 通过 `--port N` 参数回连；服务端 `coordinator.go` 新增 wireguard-go 用户态回退（CentOS 8 等无内核模块环境自动切换），`createInterface()` 双路径策略；`InitInterface()` 新增 `rp_filter=0` 内核参数设置（通过 docker-compose sysctls）和 iptables FORWARD 规则（wg0↔wg0 peer 互通）；`addPeerToDevice` 添加 `wg show` 诊断日志；Dockerfile 新增 `wireguard-go iptables iproute2`；修复房间切换时 VLAN 不同步：`_syncRoom()` 增加 `vlanRepo.leave(oldRoomId)` 服务端清理，`VlanPanel._leaveVlan` 支持 `roomIdOverride` 传入旧 roomId；WebSocket Hub 断连时兜底清理 VLAN peer（`SetWGCoordinator` 注入 + Unregister 自动 `UnregisterPeer`）；**已验证：多设备 WireGuard 握手成功，peer 间 ping 互通** |
 | v1.5.0 | **\[VLAN全面实现]** 新增 `wg-helper/` Go 辅助进程：基于 wireguard-go + wintun 实现 Windows 用户空间 WireGuard 隧道，支持 `genkey`（密钥对生成）和 `up`（隧道管理）两个子命令，通过 stdin/stdout JSON IPC 与 Flutter 客户端通信，内嵌 UAC requireAdministrator manifest；客户端 `WireGuardService` 从 MethodChannel 彻底重写为 `dart:io Process` 调用，解决 `MissingPluginException`；服务端 `coordinator.go` 增加 `InitInterface()` 方法使用 wgctrl 库实际创建并配置 wg0 内核接口（自动生成私钥、绑定端口、分配网关IP），`RegisterPeer`/`UnregisterPeer` 现在同步操作 WG 设备添加/移除 peer；Dockerfile 新增 `wireguard-tools` 安装；CMake 新增 nexusroom-wg.exe + wintun.dll 打包规则 |
 | v1.4.2 | **\[BUG修复]** 修复语音频道在房间间串联问题：LiveKitService.disconnect()改为并发安全（立即清除字段，异步释放旧Room），AppShell._syncRoom在任何房间切换时均立即主动断开LiveKit（而非仅在返回首页时），RoomDetailPage在连接失败和房间切换时主动断开避免残留连接；server端添加voiceStateUpdate.room_id字段和voice.mute房间验证；**\[功能优化]** 房间切换时自动将麦克风重置为静音；**\[应用重命名]** Windows EXE从client改名为Nexusroom |
@@ -1895,4 +1896,4 @@ ufw allow 3000/tcp         # Web 管理后台（可选）
 
 ---
 
-*NexusRoom Technical Documentation v1.4.1*
+*NexusRoom Technical Documentation v1.6.1*
