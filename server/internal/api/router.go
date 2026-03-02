@@ -32,7 +32,7 @@ func SetupRouter(
 	msgRepo *repository.MessageRepository,
 	ingressRepo *repository.IngressRepository,
 	friendRepo *repository.FriendshipRepository,
-	wgPeerRepo *repository.WGPeerRepository,
+	wgCoordinator *wg.Coordinator,
 	hub *ws.Hub,
 ) *gin.Engine {
 	router := gin.Default()
@@ -42,7 +42,6 @@ func SetupRouter(
 
 	// 服务初始化
 	livekitSvc := service.NewLiveKitService()
-	wgCoordinator := wg.NewCoordinator(&cfg.WireGuard, wgPeerRepo)
 
 	// Handler 初始化
 	authHandler := handler.NewAuthHandler(userRepo)

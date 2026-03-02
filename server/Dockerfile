@@ -27,8 +27,8 @@ FROM alpine:3.23.2
 
 WORKDIR /app
 
-# 安装 ca-certificates 用于 HTTPS
-RUN apk --no-cache add ca-certificates
+# Install ca-certificates, wireguard-tools, wireguard-go, iproute2, and iptables
+RUN apk --no-cache add ca-certificates wireguard-tools wireguard-go iproute2 iptables
 
 # 从构建阶段复制二进制文件
 COPY --from=builder /app/server .
