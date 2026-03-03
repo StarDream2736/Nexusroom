@@ -2,7 +2,7 @@
 
 > 专为小型私有圈子设计的自托管集成通讯平台
 
-[![Version](https://img.shields.io/badge/version-1.6.1-blue.svg)](https://github.com/StarDream2736/Nexusroom)
+[![Version](https://img.shields.io/badge/version-1.7.9-blue.svg)](https://github.com/StarDream2736/Nexusroom)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 ## 功能特性
