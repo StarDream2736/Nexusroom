@@ -6,6 +6,7 @@ Thumbs.db
 *.swo
 *~
 .metadata
+tools/
 
 # IDE
 .idea/
