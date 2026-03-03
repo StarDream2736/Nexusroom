@@ -63,7 +63,14 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
       final service = ref.read(screenCaptureServiceProvider);
 
       CaptureSource source;
-      if (_sourceType == _SourceType.window && _selectedWindow != null) {
+      if (_sourceType == _SourceType.window) {
+        if (_selectedWindow == null) {
+          setState(() {
+            _error = '请先选择要捕获的窗口';
+            _isStarting = false;
+          });
+          return;
+        }
         source = CaptureSource.window(_selectedWindow!.title);
       } else {
         final display = _selectedDisplay;

@@ -84,9 +84,20 @@ class ScreenCaptureService {
 
     // ── Input ────────────────────────────────────────────────────────────
     if (Platform.isWindows) {
+      // Real-time buffer: gdigrab is a real-time capture source.  Without a
+      // large buffer, frames are dropped when the encoder stalls momentarily
+      // (e.g. encoding a complex frame).  150 MB holds ~2 seconds of raw
+      // 1080p BGRA frames, preventing capture-side frame drops.
+      args.addAll(['-rtbufsize', '150M']);
+      // Thread queue: number of frames buffered in the input thread before
+      // the encoder consumes them.  Default is too small for real-time.
+      args.addAll(['-thread_queue_size', '1024']);
+
       // gdigrab for Windows – reliable software-mode capture.
       args.addAll(['-f', 'gdigrab']);
       args.addAll(['-framerate', '$fps']);
+      // Capture the mouse cursor for utility (can be toggled off later).
+      args.addAll(['-draw_mouse', '1']);
 
       if (source.isWindow) {
         args.addAll(['-i', 'title=${source.windowTitle}']);
@@ -106,6 +117,19 @@ class ScreenCaptureService {
       args.addAll(['-i', source.isWindow ? source.windowTitle! : '1']);
     }
 
+    // ── Video filter ─────────────────────────────────────────────────────
+    // libx264 requires width and height to be divisible by 2.  Window
+    // capture can produce any size (e.g. 1471x982), so we pad to the
+    // nearest even dimensions.  "pad=ceil(iw/2)*2:ceil(ih/2)*2" adds at
+    // most 1 pixel of black border.
+    args.addAll(['-vf', 'pad=ceil(iw/2)*2:ceil(ih/2)*2']);
+
+    // ── Frame rate mode ──────────────────────────────────────────────────
+    // Force constant frame rate output.  gdigrab delivers VFR frames with
+    // wall-clock timestamps; without CFR the FLV muxer produces
+    // non-monotonic DTS errors that cause SRS and media_kit to stutter.
+    args.addAll(['-fps_mode', 'cfr']);
+
     // ── Encoding ─────────────────────────────────────────────────────────
     if (useHwAccel && Platform.isWindows) {
       // Try NVIDIA NVENC; if the GPU doesn't support it ffmpeg will exit and
@@ -113,12 +137,16 @@ class ScreenCaptureService {
       args.addAll(['-c:v', 'h264_nvenc']);
       args.addAll(['-preset', 'p4']); // NVENC preset
       args.addAll(['-b:v', '${bitrate}k']);
+      args.addAll(['-maxrate', '${(bitrate * 1.5).round()}k']);
+      args.addAll(['-bufsize', '${bitrate * 2}k']);
     } else {
       args.addAll(['-c:v', 'libx264']);
       args.addAll(['-preset', preset]);
       args.addAll(['-tune', 'zerolatency']);
       args.addAll(['-b:v', '${bitrate}k']);
-      args.addAll(['-maxrate', '${bitrate}k']);
+      // maxrate must be HIGHER than b:v to give the encoder headroom for
+      // motion-heavy frames.  Equal values cause constant quality drops.
+      args.addAll(['-maxrate', '${(bitrate * 1.5).round()}k']);
       args.addAll(['-bufsize', '${bitrate * 2}k']);
     }
 
@@ -129,6 +157,9 @@ class ScreenCaptureService {
     args.addAll(['-an']);
 
     // ── Output ───────────────────────────────────────────────────────────
+    // -flvflags no_duration_filesize: required for live FLV streaming to
+    // prevent the muxer from trying to write duration at file end.
+    args.addAll(['-flvflags', 'no_duration_filesize']);
     args.addAll(['-f', 'flv', destination]);
 
     debugPrint('[ScreenCapture] Starting: $ffmpeg ${args.join(' ')}');
