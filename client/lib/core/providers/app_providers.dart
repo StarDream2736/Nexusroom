@@ -6,6 +6,7 @@ import '../models/app_settings.dart';
 import '../network/api_client.dart';
 import '../network/livekit_service.dart';
 import '../network/ws_service.dart';
+import '../native/screen_capture_service.dart';
 import '../native/wireguard_service.dart';
 import '../repositories/settings_repository.dart';
 import '../repositories/file_repository.dart';
@@ -125,6 +126,12 @@ final vlanRepositoryProvider = Provider<VlanRepository>((ref) {
 
 final wireguardServiceProvider = Provider<WireGuardService>((ref) {
   final service = WireGuardService();
+  ref.onDispose(service.dispose);
+  return service;
+});
+
+final screenCaptureServiceProvider = Provider<ScreenCaptureService>((ref) {
+  final service = ScreenCaptureService();
   ref.onDispose(service.dispose);
   return service;
 });

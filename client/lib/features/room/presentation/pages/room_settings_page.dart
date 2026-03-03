@@ -8,10 +8,13 @@ import '../../../../app/theme/app_typography.dart';
 import '../../../../app/widgets/glass_container.dart';
 import '../../../../app/widgets/mac_dialog.dart';
 import '../../../../core/models/livekit_models.dart';
+import '../../../../core/native/screen_capture_service.dart';
 import '../../../../core/providers/app_providers.dart';
 import '../providers/room_detail_provider.dart';
 import '../providers/room_stream_provider.dart';
 import '../providers/rooms_provider.dart';
+import '../providers/screen_capture_provider.dart';
+import '../widgets/screen_capture_dialog.dart';
 
 class RoomSettingsPage extends ConsumerStatefulWidget {
   final String roomId;
@@ -323,7 +326,7 @@ class _RoomSettingsPageState extends ConsumerState<RoomSettingsPage> {
   }
 }
 
-class _IngressCard extends StatelessWidget {
+class _IngressCard extends ConsumerWidget {
   final IngressModel ingress;
   final VoidCallback onDelete;
 
@@ -336,8 +339,21 @@ class _IngressCard extends StatelessWidget {
     );
   }
 
+  void _openCaptureDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      useRootNavigator: false,
+      builder: (_) => ScreenCaptureDialog(ingress: ingress),
+    );
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Check if this ingress is currently being captured.
+    final captureKey = ref.watch(captureStreamKeyProvider);
+    final isCapturing = ref.watch(isCapturingProvider);
+    final isThisCapturing = isCapturing && captureKey == ingress.streamKey;
+
     return GlassContainer(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -357,6 +373,19 @@ class _IngressCard extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                   child: Text(ingress.label, style: AppTypography.h3)),
+              // Screen capture button
+              Tooltip(
+                message: isThisCapturing ? '正在屏幕捕获推流' : '屏幕捕获推流',
+                child: IconButton(
+                  icon: Icon(
+                    isThisCapturing ? Icons.stop_screen_share : Icons.screen_share,
+                    size: 18,
+                    color: isThisCapturing ? Colors.red : AppColors.accent,
+                  ),
+                  onPressed: () => _openCaptureDialog(context),
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
               IconButton(
                 icon: Icon(Icons.delete_outline,
                     size: 18, color: AppColors.error),
@@ -378,6 +407,27 @@ class _IngressCard extends StatelessWidget {
             onCopy: () => _copy(context, ingress.streamKey, '推流密钥'),
             obscure: true,
           ),
+          // Capture status indicator
+          if (isThisCapturing) ...[            const SizedBox(height: 10),
+            Row(
+              children: [
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.red,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text('屏幕捕获推流中',
+                    style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.red.shade300,
+                        fontWeight: FontWeight.w500)),
+              ],
+            ),
+          ],
         ],
       ),
     );

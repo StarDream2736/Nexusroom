@@ -120,3 +120,14 @@ if(EXISTS "${WG_HELPER_DIR}/wintun.dll")
     DESTINATION "${CMAKE_INSTALL_PREFIX}"
     COMPONENT Runtime)
 endif()
+
+# === FFmpeg (Screen Capture) ===
+# Install ffmpeg.exe if it exists in the tools directory (used by ScreenCaptureService).
+# Download a static ffmpeg build from https://www.gyan.dev/ffmpeg/builds/ and place
+# ffmpeg.exe in the tools/ directory at the project root.
+set(TOOLS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../tools")
+if(EXISTS "${TOOLS_DIR}/ffmpeg.exe")
+  install(FILES "${TOOLS_DIR}/ffmpeg.exe"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}"
+    COMPONENT Runtime)
+endif()
