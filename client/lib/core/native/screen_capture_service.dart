@@ -5,6 +5,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
+import 'screen_source_enumerator.dart';
+
 /// FFmpeg-based screen capture and RTMP streaming service.
 ///
 /// Launches an ffmpeg subprocess to capture the desktop (or a specific window)
@@ -139,12 +141,21 @@ class ScreenCaptureService {
     // always stream 0:v and audio streams are 1:a, 2:a, etc.
     int audioInputCount = 0;
     if (captureSystemAudio && Platform.isWindows) {
-      final device = systemAudioDevice ?? 'Stereo Mix';
-      args.addAll(['-thread_queue_size', '1024']);
-      args.addAll(['-f', 'dshow']);
-      args.addAll(['-audio_buffer_size', '50']);
-      args.addAll(['-i', 'audio=$device']);
-      audioInputCount++;
+      String? device = systemAudioDevice;
+      if (device == null) {
+        // Auto-detect: use the first available dshow audio device.
+        final devices = await ScreenSourceEnumerator.listAudioDevices();
+        if (devices.isNotEmpty) {
+          device = devices.first.name;
+        }
+      }
+      if (device != null) {
+        args.addAll(['-thread_queue_size', '1024']);
+        args.addAll(['-f', 'dshow']);
+        args.addAll(['-audio_buffer_size', '50']);
+        args.addAll(['-i', 'audio=$device']);
+        audioInputCount++;
+      }
     }
     if (captureMicrophone && Platform.isWindows) {
       final device = micDevice ?? 'Microphone';

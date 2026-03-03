@@ -96,7 +96,7 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
         useHwAccel: _useHwAccel,
         captureSystemAudio: _captureSystemAudio,
         captureMicrophone: _captureMicrophone,
-        systemAudioDevice: _selectedSystemAudioDevice?.name,
+
         micDevice: _selectedMicDevice?.name,
       );
     } catch (e) {
@@ -163,19 +163,24 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
               ),
               const SizedBox(height: 16),
 
-              // ── Status banner ────────────────────────────────────
-              if (isStreaming) _buildStreamingBanner(),
-              if (_error != null) _buildErrorBanner(),
-
-              // ── Settings (disabled while streaming) ─────────────
-              if (!isStreaming) ...[
-                _buildSourceSelector(),
-                const SizedBox(height: 16),
-                _buildQualitySettings(),
-              ],
-
-              // ── Stats (visible while streaming) ─────────────────
-              if (isStreaming) _buildStats(),
+              // ── Scrollable content ──────────────────────────────
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (isStreaming) _buildStreamingBanner(),
+                      if (_error != null) _buildErrorBanner(),
+                      if (!isStreaming) ...[
+                        _buildSourceSelector(),
+                        const SizedBox(height: 16),
+                        _buildQualitySettings(),
+                      ],
+                      if (isStreaming) _buildStats(),
+                    ],
+                  ),
+                ),
+              ),
 
               const SizedBox(height: 20),
 
@@ -185,8 +190,10 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
                 children: [
                   TextButton(
                     onPressed: () => Navigator.of(context).pop(),
-                    child: Text('关闭',
-                        style: TextStyle(color: AppColors.textSecondary)),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.textSecondary,
+                    ),
+                    child: const Text('关闭'),
                   ),
                   const SizedBox(width: 8),
                   if (!isStreaming)
@@ -545,9 +552,6 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
                 ),
               ),
             ],
-          ),
-          if (_captureSystemAudio) _buildAudioDeviceSelector(
-            isSystemAudio: true,
           ),
           const SizedBox(height: 4),
 

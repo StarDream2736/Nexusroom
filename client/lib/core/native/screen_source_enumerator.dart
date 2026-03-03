@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -181,14 +182,31 @@ Add-Type -AssemblyName System.Windows.Forms
     if (!File(ffmpegPath).existsSync()) return [];
 
     try {
-      final result = await Process.run(ffmpegPath, [
+      // Use Process.start to capture raw bytes — FFmpeg may output device
+      // names in UTF-8 or in the console code page (GBK on Chinese Windows).
+      // By decoding raw bytes ourselves we avoid garbled CJK text.
+      final process = await Process.start(ffmpegPath, [
         '-f', 'dshow',
         '-list_devices', 'true',
         '-i', 'dummy',
       ]);
 
-      // FFmpeg prints device list to stderr.
-      final output = result.stderr as String;
+      final stderrBytes = <int>[];
+      final stdoutDrain = process.stdout.drain<void>();
+      await for (final chunk in process.stderr) {
+        stderrBytes.addAll(chunk);
+      }
+      await stdoutDrain;
+      await process.exitCode;
+
+      // Try UTF-8 first (modern FFmpeg builds), fall back to system encoding.
+      String output;
+      try {
+        output = utf8.decode(stderrBytes);
+      } catch (_) {
+        output = systemEncoding.decode(stderrBytes);
+      }
+
       final lines = output.split('\n');
 
       final devices = <AudioDevice>[];
