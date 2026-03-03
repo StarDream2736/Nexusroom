@@ -49,18 +49,26 @@ class ScreenCaptureService {
   ///   • `CaptureSource.window(title)`     – a specific window
   ///
   /// Optional parameters control encoding quality:
-  ///   • [fps]       – frame rate (default 30)
+  ///   • [fps]       – frame rate (default 60)
   ///   • [bitrate]   – video bitrate in kbps (default 3000)
   ///   • [preset]    – x264 preset (default "veryfast")
   ///   • [useHwAccel] – attempt NVENC hardware encoding (default false)
+  ///   • [captureSystemAudio] – capture desktop audio via dshow (default true)
+  ///   • [captureMicrophone]  – capture microphone via dshow (default false)
+  ///   • [systemAudioDevice]  – dshow device name for system audio
+  ///   • [micDevice]          – dshow device name for microphone
   Future<void> startCapture({
     required String rtmpUrl,
     required String streamKey,
     CaptureSource source = const CaptureSource.fullScreen(),
-    int fps = 30,
+    int fps = 60,
     int bitrate = 3000,
     String preset = 'veryfast',
     bool useHwAccel = false,
+    bool captureSystemAudio = true,
+    bool captureMicrophone = false,
+    String? systemAudioDevice,
+    String? micDevice,
   }) async {
     if (_ffmpegProcess != null) {
       await stopCapture();
@@ -126,31 +134,72 @@ class ScreenCaptureService {
     //    Window capture can produce any size (e.g. 1471x982).
     args.addAll(['-vf', 'fps=$fps,pad=ceil(iw/2)*2:ceil(ih/2)*2']);
 
+    // ── Audio inputs (dshow) ────────────────────────────────────────
+    // Audio inputs are added AFTER the video input so that the video is
+    // always stream 0:v and audio streams are 1:a, 2:a, etc.
+    int audioInputCount = 0;
+    if (captureSystemAudio && Platform.isWindows) {
+      final device = systemAudioDevice ?? 'Stereo Mix';
+      args.addAll(['-thread_queue_size', '1024']);
+      args.addAll(['-f', 'dshow']);
+      args.addAll(['-audio_buffer_size', '50']);
+      args.addAll(['-i', 'audio=$device']);
+      audioInputCount++;
+    }
+    if (captureMicrophone && Platform.isWindows) {
+      final device = micDevice ?? 'Microphone';
+      args.addAll(['-thread_queue_size', '1024']);
+      args.addAll(['-f', 'dshow']);
+      args.addAll(['-audio_buffer_size', '50']);
+      args.addAll(['-i', 'audio=$device']);
+      audioInputCount++;
+    }
+
     // ── Encoding ─────────────────────────────────────────────────────────
     if (useHwAccel && Platform.isWindows) {
       // Try NVIDIA NVENC; if the GPU doesn't support it ffmpeg will exit and
       // we can fall back to software.
       args.addAll(['-c:v', 'h264_nvenc']);
       args.addAll(['-preset', 'p4']); // NVENC preset
+      args.addAll(['-rc', 'vbr']);
+      args.addAll(['-cq', '20']); // quality-based with VBV cap
       args.addAll(['-b:v', '${bitrate}k']);
-      args.addAll(['-maxrate', '${(bitrate * 1.5).round()}k']);
+      args.addAll(['-maxrate', '${bitrate}k']);
       args.addAll(['-bufsize', '${bitrate * 2}k']);
     } else {
       args.addAll(['-c:v', 'libx264']);
       args.addAll(['-preset', preset]);
       args.addAll(['-tune', 'zerolatency']);
-      args.addAll(['-b:v', '${bitrate}k']);
-      // maxrate must be HIGHER than b:v to give the encoder headroom for
-      // motion-heavy frames.  Equal values cause constant quality drops.
-      args.addAll(['-maxrate', '${(bitrate * 1.5).round()}k']);
+      // CRF + VBV mode: CRF sets quality target, maxrate caps the peak.
+      // This avoids the ABR problem where static scenes get far less than
+      // the requested bitrate.  CRF 18 is near-visually-lossless; the
+      // encoder will use whatever bitrate is needed (up to maxrate) to
+      // maintain that quality.
+      args.addAll(['-crf', '18']);
+      args.addAll(['-maxrate', '${bitrate}k']);
       args.addAll(['-bufsize', '${bitrate * 2}k']);
     }
 
     args.addAll(['-pix_fmt', 'yuv420p']);
     args.addAll(['-g', '${fps * 2}']); // keyframe interval
 
-    // No audio capture by default (voice goes through LiveKit).
-    args.addAll(['-an']);
+    // ── Audio encoding ─────────────────────────────────────────────────
+    if (audioInputCount == 0) {
+      args.addAll(['-an']);
+    } else {
+      if (audioInputCount == 2) {
+        // Mix both audio inputs into a single stereo stream.
+        // Input 0 is video, input 1 is first audio, input 2 is second.
+        args.addAll([
+          '-filter_complex', '[1:a][2:a]amix=inputs=2:duration=longest[aout]',
+          '-map', '0:v',
+          '-map', '[aout]',
+        ]);
+      }
+      args.addAll(['-c:a', 'aac']);
+      args.addAll(['-b:a', '128k']);
+      args.addAll(['-ar', '44100']);
+    }
 
     // ── Output ───────────────────────────────────────────────────────────
     // -flvflags no_duration_filesize: required for live FLV streaming to

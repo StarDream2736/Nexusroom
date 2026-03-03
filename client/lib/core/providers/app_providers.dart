@@ -88,7 +88,8 @@ final livekitServiceProvider = Provider<LiveKitService>((ref) {
 final windowLifecycleServiceProvider =
     Provider<WindowLifecycleService>((ref) {
   final livekitService = ref.watch(livekitServiceProvider);
-  final service = WindowLifecycleService(livekitService);
+  final screenCaptureService = ref.watch(screenCaptureServiceProvider);
+  final service = WindowLifecycleService(livekitService, screenCaptureService);
   ref.onDispose(service.dispose);
   return service;
 });

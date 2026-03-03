@@ -3,13 +3,15 @@ import 'dart:ui';
 
 import 'package:window_manager/window_manager.dart';
 
+import '../native/screen_capture_service.dart';
 import '../network/livekit_service.dart';
 
 /// 窗口生命周期管理：最小化/失焦时暂停视频解码
 class WindowLifecycleService with WindowListener {
-  WindowLifecycleService(this._livekitService);
+  WindowLifecycleService(this._livekitService, this._screenCaptureService);
 
   final LiveKitService _livekitService;
+  final ScreenCaptureService _screenCaptureService;
   bool _isBackground = false;
   bool _initialized = false;
   Timer? _blurTimer;
@@ -23,13 +25,21 @@ class WindowLifecycleService with WindowListener {
     windowManager.addListener(this);
 
     // 设置窗口属性
-    await windowManager.setPreventClose(false);
+    await windowManager.setPreventClose(true);
     await windowManager.setMinimumSize(const Size(900, 600));
   }
 
   void dispose() {
     _blurTimer?.cancel();
     windowManager.removeListener(this);
+  }
+
+  @override
+  void onWindowClose() {
+    // Synchronously kill FFmpeg before the window is destroyed.
+    // dispose() calls Process.kill() which is synchronous on Windows.
+    _screenCaptureService.dispose();
+    windowManager.destroy();
   }
 
   @override

@@ -34,9 +34,13 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
   DisplaySource? _selectedDisplay;
   WindowSource? _selectedWindow;
 
-  int _fps = 30;
+  int _fps = 60;
   int _bitrate = 3000;
   bool _useHwAccel = false;
+  bool _captureSystemAudio = true;
+  bool _captureMicrophone = false;
+  AudioDevice? _selectedSystemAudioDevice;
+  AudioDevice? _selectedMicDevice;
 
   bool _isStarting = false;
   String? _error;
@@ -48,6 +52,7 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
     Future.microtask(() {
       ref.invalidate(displaySourcesProvider);
       ref.invalidate(windowSourcesProvider);
+      ref.invalidate(audioDevicesProvider);
     });
   }
 
@@ -89,6 +94,10 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
         fps: _fps,
         bitrate: _bitrate,
         useHwAccel: _useHwAccel,
+        captureSystemAudio: _captureSystemAudio,
+        captureMicrophone: _captureMicrophone,
+        systemAudioDevice: _selectedSystemAudioDevice?.name,
+        micDevice: _selectedMicDevice?.name,
       );
     } catch (e) {
       setState(() => _error = e.toString());
@@ -131,7 +140,7 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
               Row(
                 children: [
                   Icon(Icons.screen_share,
-                      size: 20, color: AppColors.accent),
+                      size: 20, color: AppColors.primary),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text('屏幕捕获推流',
@@ -301,17 +310,17 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
         decoration: BoxDecoration(
           color: isSelected
-              ? AppColors.accent.withOpacity(0.2)
+              ? AppColors.primary.withOpacity(0.2)
               : Colors.transparent,
           borderRadius: BorderRadius.circular(6),
           border: Border.all(
-            color: isSelected ? AppColors.accent : AppColors.border,
+            color: isSelected ? AppColors.primary : AppColors.border,
           ),
         ),
         child: Text(label,
             style: TextStyle(
               fontSize: 13,
-              color: isSelected ? AppColors.accent : AppColors.textSecondary,
+              color: isSelected ? AppColors.primary : AppColors.textSecondary,
               fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
             )),
       ),
@@ -444,10 +453,11 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
                   items: const [
                     DropdownMenuItem(value: 15, child: Text('15 FPS (低)')),
                     DropdownMenuItem(value: 24, child: Text('24 FPS')),
-                    DropdownMenuItem(value: 30, child: Text('30 FPS (推荐)')),
-                    DropdownMenuItem(value: 60, child: Text('60 FPS (高)')),
+                    DropdownMenuItem(value: 30, child: Text('30 FPS')),
+                    DropdownMenuItem(value: 60, child: Text('60 FPS (推荐)')),
+                    DropdownMenuItem(value: 120, child: Text('120 FPS (高)')),
                   ],
-                  onChanged: (v) => setState(() => _fps = v ?? 30),
+                  onChanged: (v) => setState(() => _fps = v ?? 60),
                 ),
               ),
             ],
@@ -498,7 +508,7 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
               Switch(
                 value: _useHwAccel,
                 onChanged: (v) => setState(() => _useHwAccel = v),
-                activeColor: AppColors.accent,
+                activeColor: AppColors.primary,
               ),
               Text(
                 _useHwAccel ? 'NVENC (需要 NVIDIA 显卡)' : '软件编码 (x264)',
@@ -507,7 +517,123 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
               ),
             ],
           ),
+          const Divider(height: 20),
+
+          // ── Audio settings ────────────────────────────────────
+          Text('音频设置', style: AppTypography.h3),
+          const SizedBox(height: 10),
+
+          // System audio
+          Row(
+            children: [
+              SizedBox(
+                  width: 70,
+                  child: Text('系统音频',
+                      style: TextStyle(
+                          fontSize: 13, color: AppColors.textSecondary))),
+              Switch(
+                value: _captureSystemAudio,
+                onChanged: (v) => setState(() => _captureSystemAudio = v),
+                activeColor: AppColors.primary,
+              ),
+              Expanded(
+                child: Text(
+                  _captureSystemAudio ? '捕获桌面声音' : '关闭',
+                  style: TextStyle(
+                      fontSize: 12, color: AppColors.textMuted),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          if (_captureSystemAudio) _buildAudioDeviceSelector(
+            isSystemAudio: true,
+          ),
+          const SizedBox(height: 4),
+
+          // Microphone
+          Row(
+            children: [
+              SizedBox(
+                  width: 70,
+                  child: Text('麦克风',
+                      style: TextStyle(
+                          fontSize: 13, color: AppColors.textSecondary))),
+              Switch(
+                value: _captureMicrophone,
+                onChanged: (v) => setState(() => _captureMicrophone = v),
+                activeColor: AppColors.primary,
+              ),
+              Expanded(
+                child: Text(
+                  _captureMicrophone ? '捕获麦克风输入' : '关闭',
+                  style: TextStyle(
+                      fontSize: 12, color: AppColors.textMuted),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          if (_captureMicrophone) _buildAudioDeviceSelector(
+            isSystemAudio: false,
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildAudioDeviceSelector({required bool isSystemAudio}) {
+    final devicesAsync = ref.watch(audioDevicesProvider);
+
+    return Padding(
+      padding: const EdgeInsets.only(left: 70, top: 4),
+      child: devicesAsync.when(
+        data: (devices) {
+          if (devices.isEmpty) {
+            return Text('未检测到音频设备',
+                style: TextStyle(color: AppColors.textMuted, fontSize: 12));
+          }
+
+          final selected = isSystemAudio
+              ? _selectedSystemAudioDevice
+              : _selectedMicDevice;
+
+          // Validate that the selected device is still in the list.
+          final validSelected =
+              selected != null && devices.contains(selected) ? selected : null;
+
+          return DropdownButton<AudioDevice>(
+            value: validSelected,
+            hint: Text(isSystemAudio ? '选择音频输出设备' : '选择麦克风',
+                style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
+            isExpanded: true,
+            dropdownColor: AppColors.sidebar,
+            style: TextStyle(fontSize: 12, color: AppColors.textPrimary),
+            underline: Container(height: 1, color: AppColors.border),
+            items: devices.map((d) {
+              return DropdownMenuItem(
+                value: d,
+                child: Text(d.displayName, overflow: TextOverflow.ellipsis),
+              );
+            }).toList(),
+            onChanged: (v) => setState(() {
+              if (isSystemAudio) {
+                _selectedSystemAudioDevice = v;
+              } else {
+                _selectedMicDevice = v;
+              }
+            }),
+          );
+        },
+        loading: () => const SizedBox(
+            height: 24,
+            child: Center(
+                child: SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2)))),
+        error: (e, _) => Text('加载失败: $e',
+            style: TextStyle(color: AppColors.error, fontSize: 11)),
       ),
     );
   }

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
 
 /// Enumerates available screen-capture sources (displays and windows).
 ///
@@ -164,6 +165,69 @@ Add-Type -AssemblyName System.Windows.Forms
       ),
     ];
   }
+
+  /// List available DirectShow audio devices using FFmpeg.
+  ///
+  /// Runs `ffmpeg -f dshow -list_devices true -i dummy` and parses the
+  /// stderr output for `(audio)` device entries.  Returns both the
+  /// human-readable name and alternative name (stable device ID).
+  static Future<List<AudioDevice>> listAudioDevices() async {
+    if (!Platform.isWindows) return [];
+
+    final ffmpegPath = p.join(
+      p.dirname(Platform.resolvedExecutable),
+      'ffmpeg.exe',
+    );
+    if (!File(ffmpegPath).existsSync()) return [];
+
+    try {
+      final result = await Process.run(ffmpegPath, [
+        '-f', 'dshow',
+        '-list_devices', 'true',
+        '-i', 'dummy',
+      ]);
+
+      // FFmpeg prints device list to stderr.
+      final output = result.stderr as String;
+      final lines = output.split('\n');
+
+      final devices = <AudioDevice>[];
+      String? pendingName;
+
+      for (final rawLine in lines) {
+        final line = rawLine.trim();
+
+        // Match: [dshow ...] "Device Name" (audio)
+        final nameMatch = RegExp(
+          r'"(.+?)"\s+\(audio\)',
+        ).firstMatch(line);
+
+        if (nameMatch != null) {
+          pendingName = nameMatch.group(1);
+          continue;
+        }
+
+        // Match: Alternative name "@device_cm_..."
+        if (pendingName != null) {
+          final altMatch = RegExp(
+            r'Alternative name\s+"(.+?)"',
+          ).firstMatch(line);
+          final altName = altMatch?.group(1);
+
+          devices.add(AudioDevice(
+            name: pendingName,
+            alternativeName: altName,
+          ));
+          pendingName = null;
+        }
+      }
+
+      return devices;
+    } catch (e) {
+      debugPrint('[ScreenSourceEnum] Failed to enumerate audio devices: $e');
+      return [];
+    }
+  }
 }
 
 // ─── Data classes ──────────────────────────────────────────────────────────
@@ -226,4 +290,25 @@ class DisplaySource {
   @override
   String toString() =>
       'DisplaySource($name, ${width}x$height @ $offsetX,$offsetY)';
+}
+
+class AudioDevice {
+  final String name;
+  final String? alternativeName;
+
+  const AudioDevice({required this.name, this.alternativeName});
+
+  /// Short display name (strip long parenthetical suffixes if too long).
+  String get displayName => name;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AudioDevice && name == other.name;
+
+  @override
+  int get hashCode => name.hashCode;
+
+  @override
+  String toString() => 'AudioDevice("$name")';
 }

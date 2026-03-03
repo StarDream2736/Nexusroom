@@ -40,3 +40,8 @@ final windowSourcesProvider = FutureProvider<List<WindowSource>>((ref) async {
 final displaySourcesProvider = FutureProvider<List<DisplaySource>>((ref) async {
   return ScreenSourceEnumerator.listDisplays();
 });
+
+/// Available audio devices for capture (async, refreshable).
+final audioDevicesProvider = FutureProvider<List<AudioDevice>>((ref) async {
+  return ScreenSourceEnumerator.listAudioDevices();
+});

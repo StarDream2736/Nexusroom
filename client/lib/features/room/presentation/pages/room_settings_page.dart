@@ -380,7 +380,7 @@ class _IngressCard extends ConsumerWidget {
                   icon: Icon(
                     isThisCapturing ? Icons.stop_screen_share : Icons.screen_share,
                     size: 18,
-                    color: isThisCapturing ? Colors.red : AppColors.accent,
+                    color: isThisCapturing ? AppColors.error : AppColors.primary,
                   ),
                   onPressed: () => _openCaptureDialog(context),
                   visualDensity: VisualDensity.compact,
