@@ -1,4 +1,0 @@
-# Don't track binary files
-ffmpeg.exe
-ffprobe.exe
-*.dll
