@@ -30,17 +30,11 @@ class ScreenCaptureDialog extends ConsumerStatefulWidget {
 
 class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
   // ─── Capture settings ──────────────────────────────────────────────────
-  _SourceType _sourceType = _SourceType.fullScreen;
   DisplaySource? _selectedDisplay;
-  WindowSource? _selectedWindow;
 
   int _fps = 60;
   int _bitrate = 8000;
   bool _useHwAccel = true;
-  bool _captureSystemAudio = false;
-  bool _captureMicrophone = false;
-  AudioDevice? _selectedSystemAudioDevice;
-  AudioDevice? _selectedMicDevice;
 
   bool _isStarting = false;
   String? _error;
@@ -48,11 +42,9 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
   @override
   void initState() {
     super.initState();
-    // Pre-refresh source lists.
+    // Pre-refresh display list.
     Future.microtask(() {
       ref.invalidate(displaySourcesProvider);
-      ref.invalidate(windowSourcesProvider);
-      ref.invalidate(audioDevicesProvider);
     });
   }
 
@@ -67,31 +59,13 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
     try {
       final service = ref.read(screenCaptureServiceProvider);
 
-      CaptureSource source;
-      if (_sourceType == _SourceType.window) {
-        if (_selectedWindow == null) {
-          setState(() {
-            _error = '请先选择要捕获的窗口';
-            _isStarting = false;
-          });
-          return;
-        }
-        source = CaptureSource.window(
-          _selectedWindow!.title,
-          left: _selectedWindow!.left,
-          top: _selectedWindow!.top,
-          width: _selectedWindow!.width,
-          height: _selectedWindow!.height,
-        );
-      } else {
-        final display = _selectedDisplay;
-        source = CaptureSource.fullScreen(
-          displayIndex: display?.index ?? 0,
-          offsetX: display?.offsetX ?? 0,
-          offsetY: display?.offsetY ?? 0,
-          videoSize: display?.videoSize,
-        );
-      }
+      final display = _selectedDisplay;
+      final source = CaptureSource.fullScreen(
+        displayIndex: display?.index ?? 0,
+        offsetX: display?.offsetX ?? 0,
+        offsetY: display?.offsetY ?? 0,
+        videoSize: display?.videoSize,
+      );
 
       await service.startCapture(
         rtmpUrl: widget.ingress.rtmpUrl,
@@ -100,10 +74,6 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
         fps: _fps,
         bitrate: _bitrate,
         useHwAccel: _useHwAccel,
-        captureSystemAudio: _captureSystemAudio,
-        captureMicrophone: _captureMicrophone,
-        systemAudioDevice: _selectedSystemAudioDevice?.name,
-        micDevice: _selectedMicDevice?.name,
       );
     } catch (e) {
       setState(() => _error = e.toString());
@@ -293,49 +263,8 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
         children: [
           Text('捕获源', style: AppTypography.h3),
           const SizedBox(height: 10),
-
-          // Source type tabs
-          Row(
-            children: [
-              _buildSourceTab('全屏', _SourceType.fullScreen),
-              const SizedBox(width: 8),
-              _buildSourceTab('窗口', _SourceType.window),
-            ],
-          ),
-          const SizedBox(height: 10),
-
-          // Source-specific selector
-          if (_sourceType == _SourceType.fullScreen)
-            _buildDisplaySelector()
-          else
-            _buildWindowSelector(),
+          _buildDisplaySelector(),
         ],
-      ),
-    );
-  }
-
-  Widget _buildSourceTab(String label, _SourceType type) {
-    final isSelected = _sourceType == type;
-    return GestureDetector(
-      onTap: () => setState(() => _sourceType = type),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? AppColors.primary.withOpacity(0.2)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(
-            color: isSelected ? AppColors.primary : AppColors.border,
-          ),
-        ),
-        child: Text(label,
-            style: TextStyle(
-              fontSize: 13,
-              color: isSelected ? AppColors.primary : AppColors.textSecondary,
-              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-            )),
       ),
     );
   }
@@ -376,65 +305,6 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
                   child: CircularProgressIndicator(strokeWidth: 2)))),
       error: (e, _) => Text('加载失败: $e',
           style: TextStyle(color: AppColors.error, fontSize: 12)),
-    );
-  }
-
-  Widget _buildWindowSelector() {
-    final windowsAsync = ref.watch(windowSourcesProvider);
-
-    return Column(
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: windowsAsync.when(
-                data: (windows) {
-                  if (windows.isEmpty) {
-                    return Text('未找到可捕获的窗口',
-                        style: TextStyle(
-                            color: AppColors.textMuted, fontSize: 12));
-                  }
-                  return DropdownButton<WindowSource>(
-                    value: _selectedWindow,
-                    hint: Text('选择窗口',
-                        style: TextStyle(
-                            color: AppColors.textMuted, fontSize: 13)),
-                    isExpanded: true,
-                    dropdownColor: AppColors.sidebar,
-                    style: TextStyle(
-                        fontSize: 13, color: AppColors.textPrimary),
-                    underline: Container(height: 1, color: AppColors.border),
-                    items: windows.map((w) {
-                      return DropdownMenuItem(
-                        value: w,
-                        child: Text(w.title,
-                            overflow: TextOverflow.ellipsis),
-                      );
-                    }).toList(),
-                    onChanged: (v) => setState(() => _selectedWindow = v),
-                  );
-                },
-                loading: () => const SizedBox(
-                    height: 32,
-                    child: Center(
-                        child: SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2)))),
-                error: (e, _) => Text('加载失败: $e',
-                    style: TextStyle(color: AppColors.error, fontSize: 12)),
-              ),
-            ),
-            IconButton(
-              icon: Icon(Icons.refresh, size: 16, color: AppColors.textMuted),
-              tooltip: '刷新窗口列表',
-              onPressed: () => ref.invalidate(windowSourcesProvider),
-              visualDensity: VisualDensity.compact,
-            ),
-          ],
-        ),
-      ],
     );
   }
 
@@ -534,135 +404,7 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
               ),
             ],
           ),
-          const Divider(height: 20),
-
-          // ── Audio settings ────────────────────────────────────
-          Text('音频设置', style: AppTypography.h3),
-          const SizedBox(height: 10),
-
-          // Audio input 1 (for desktop audio via virtual audio cable)
-          Row(
-            children: [
-              SizedBox(
-                  width: 70,
-                  child: Text('音频输入',
-                      style: TextStyle(
-                          fontSize: 13, color: AppColors.textSecondary))),
-              Switch(
-                value: _captureSystemAudio,
-                onChanged: (v) => setState(() => _captureSystemAudio = v),
-                activeColor: AppColors.primary,
-              ),
-              Expanded(
-                child: Text(
-                  _captureSystemAudio ? '捕获音频输入设备' : '关闭',
-                  style: TextStyle(
-                      fontSize: 12, color: AppColors.textMuted),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-          if (_captureSystemAudio) ...[
-            Padding(
-              padding: const EdgeInsets.only(left: 70, bottom: 4),
-              child: Text(
-                '捕获桌面声音需选择回环设备\n'
-                '• Voicemeeter 用户: 选 B1/B2 输出\n'
-                '• 其他用户: 启用\u201c立体声混音\u201d(Stereo Mix)',
-                style: TextStyle(
-                    fontSize: 11, color: AppColors.textMuted, height: 1.4),
-              ),
-            ),
-            _buildAudioDeviceSelector(
-              isSystemAudio: true,
-            ),
-          ],
-          const SizedBox(height: 4),
-
-          // Microphone
-          Row(
-            children: [
-              SizedBox(
-                  width: 70,
-                  child: Text('麦克风',
-                      style: TextStyle(
-                          fontSize: 13, color: AppColors.textSecondary))),
-              Switch(
-                value: _captureMicrophone,
-                onChanged: (v) => setState(() => _captureMicrophone = v),
-                activeColor: AppColors.primary,
-              ),
-              Expanded(
-                child: Text(
-                  _captureMicrophone ? '捕获麦克风输入' : '关闭',
-                  style: TextStyle(
-                      fontSize: 12, color: AppColors.textMuted),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-          if (_captureMicrophone) _buildAudioDeviceSelector(
-            isSystemAudio: false,
-          ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildAudioDeviceSelector({required bool isSystemAudio}) {
-    final devicesAsync = ref.watch(audioDevicesProvider);
-
-    return Padding(
-      padding: const EdgeInsets.only(left: 70, top: 4),
-      child: devicesAsync.when(
-        data: (devices) {
-          if (devices.isEmpty) {
-            return Text('未检测到音频设备',
-                style: TextStyle(color: AppColors.textMuted, fontSize: 12));
-          }
-
-          final selected = isSystemAudio
-              ? _selectedSystemAudioDevice
-              : _selectedMicDevice;
-
-          // Validate that the selected device is still in the list.
-          final validSelected =
-              selected != null && devices.contains(selected) ? selected : null;
-
-          return DropdownButton<AudioDevice>(
-            value: validSelected,
-            hint: Text(isSystemAudio ? '选择音频输出设备' : '选择麦克风',
-                style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
-            isExpanded: true,
-            dropdownColor: AppColors.sidebar,
-            style: TextStyle(fontSize: 12, color: AppColors.textPrimary),
-            underline: Container(height: 1, color: AppColors.border),
-            items: devices.map((d) {
-              return DropdownMenuItem(
-                value: d,
-                child: Text(d.displayName, overflow: TextOverflow.ellipsis),
-              );
-            }).toList(),
-            onChanged: (v) => setState(() {
-              if (isSystemAudio) {
-                _selectedSystemAudioDevice = v;
-              } else {
-                _selectedMicDevice = v;
-              }
-            }),
-          );
-        },
-        loading: () => const SizedBox(
-            height: 24,
-            child: Center(
-                child: SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(strokeWidth: 2)))),
-        error: (e, _) => Text('加载失败: $e',
-            style: TextStyle(color: AppColors.error, fontSize: 11)),
       ),
     );
   }
@@ -707,8 +449,6 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
-
-enum _SourceType { fullScreen, window }
 
 class _StatChip extends StatelessWidget {
   final String label;

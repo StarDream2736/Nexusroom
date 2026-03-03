@@ -1,135 +1,13 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:path/path.dart' as p;
 
-/// Enumerates available screen-capture sources (displays and windows).
+/// Enumerates available screen-capture sources (displays).
 ///
-/// On Windows this uses PowerShell to list visible top-level windows and
-/// the Win32 display adapter information.  The results are lightweight
-/// value objects that can be passed to [ScreenCaptureService.startCapture].
+/// On Windows this uses PowerShell to list connected monitors.
+/// The results are lightweight value objects that can be passed to
+/// [ScreenCaptureService.startCapture].
 class ScreenSourceEnumerator {
-  /// List all visible, non-empty-title windows suitable for capture.
-  ///
-  /// Returns a list sorted by window title.  Background / invisible windows
-  /// (like `Program Manager`) are filtered out.
-  static Future<List<WindowSource>> listWindows() async {
-    if (!Platform.isWindows) return [];
-
-    try {
-      // Use PowerShell to enumerate visible windows with non-empty titles.
-      // We use Process.start + raw byte decoding to preserve special
-      // characters (e.g. ® in "Microsoft® Edge") that would be corrupted
-      // by the default system codepage.
-      // Enumerate windows WITH their screen bounds so we can use
-      // desktop+crop capture instead of gdigrab title= (which fails
-      // on DirectX/hardware-accelerated windows like browsers).
-      final process = await Process.start('powershell', [
-        '-NoProfile',
-        '-Command',
-        r'''
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-Add-Type @"
-using System;
-using System.Runtime.InteropServices;
-public struct RECT { public int Left, Top, Right, Bottom; }
-public class WinAPI {
-  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
-  [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr hwnd, int attr, out RECT rect, int size);
-  public static RECT GetRect(IntPtr h) {
-    RECT r;
-    // DWMWA_EXTENDED_FRAME_BOUNDS = 9, gives the visual bounds without shadow
-    if (DwmGetWindowAttribute(h, 9, out r, Marshal.SizeOf(typeof(RECT))) == 0) return r;
-    GetWindowRect(h, out r);
-    return r;
-  }
-}
-"@
-Get-Process | Where-Object { $_.MainWindowTitle -ne '' -and $_.MainWindowHandle -ne [IntPtr]::Zero } | ForEach-Object {
-  $r = [WinAPI]::GetRect($_.MainWindowHandle)
-  $w = $r.Right - $r.Left; $h = $r.Bottom - $r.Top
-  if ($w -gt 0 -and $h -gt 0) {
-    "$($_.MainWindowTitle)|$($_.Id)|$($r.Left)|$($r.Top)|$w|$h"
-  }
-}
-'''
-      ]);
-
-      final stdoutBytes = <int>[];
-      final stderrDrain = process.stderr.drain<void>();
-      await for (final chunk in process.stdout) {
-        stdoutBytes.addAll(chunk);
-      }
-      await stderrDrain;
-      final exitCode = await process.exitCode;
-
-      if (exitCode != 0) {
-        debugPrint('[ScreenSourceEnum] PowerShell exit code: $exitCode');
-        return [];
-      }
-
-      String output;
-      try {
-        output = utf8.decode(stdoutBytes);
-      } catch (_) {
-        output = systemEncoding.decode(stdoutBytes);
-      }
-
-      final lines = output
-          .split('\n')
-          .map((l) => l.trim())
-          .where((l) => l.isNotEmpty && l.contains('|'));
-
-      final windows = <WindowSource>[];
-      final seen = <String>{};
-
-      for (final line in lines) {
-        final parts = line.split('|');
-        // Format: title|pid|left|top|width|height
-        if (parts.length < 6) continue;
-
-        // PowerShell output: title|pid|left|top|w|h
-        // Parse from the END to handle titles that contain '|'.
-        final hStr = parts[parts.length - 1];    // last  = height
-        final wStr = parts[parts.length - 2];    // 2nd-last = width
-        final topStr = parts[parts.length - 3];  // 3rd-last = top
-        final leftStr = parts[parts.length - 4]; // 4th-last = left
-        final pid = int.tryParse(parts[parts.length - 5]) ?? 0;
-        final title = parts.sublist(0, parts.length - 5).join('|');
-
-        final left = int.tryParse(leftStr);
-        final top = int.tryParse(topStr);
-        final width = int.tryParse(wStr);
-        final height = int.tryParse(hStr);
-        if (left == null || top == null || width == null || height == null) {
-          continue;
-        }
-
-        // Skip the desktop shell and duplicates.
-        if (title == 'Program Manager') continue;
-        if (title.isEmpty) continue;
-        if (seen.contains(title)) continue;
-        seen.add(title);
-
-        windows.add(WindowSource(
-          title: title,
-          processId: pid,
-          left: left,
-          top: top,
-          width: width,
-          height: height,
-        ));
-      }
-
-      windows.sort((a, b) => a.title.compareTo(b.title));
-      return windows;
-    } catch (e) {
-      debugPrint('[ScreenSourceEnum] Failed to enumerate windows: $e');
-      return [];
-    }
-  }
-
   /// List connected displays / monitors.
   ///
   /// On Windows this uses PowerShell with WMI to get display info.
@@ -229,121 +107,9 @@ Add-Type -AssemblyName System.Windows.Forms
       ),
     ];
   }
-
-  /// List available DirectShow audio devices using FFmpeg.
-  ///
-  /// Runs `ffmpeg -f dshow -list_devices true -i dummy` and parses the
-  /// stderr output for `(audio)` device entries.  Returns both the
-  /// human-readable name and alternative name (stable device ID).
-  static Future<List<AudioDevice>> listAudioDevices() async {
-    if (!Platform.isWindows) return [];
-
-    final ffmpegPath = p.join(
-      p.dirname(Platform.resolvedExecutable),
-      'ffmpeg.exe',
-    );
-    if (!File(ffmpegPath).existsSync()) return [];
-
-    try {
-      // Use Process.start to capture raw bytes — FFmpeg may output device
-      // names in UTF-8 or in the console code page (GBK on Chinese Windows).
-      // By decoding raw bytes ourselves we avoid garbled CJK text.
-      final process = await Process.start(ffmpegPath, [
-        '-f', 'dshow',
-        '-list_devices', 'true',
-        '-i', 'dummy',
-      ]);
-
-      final stderrBytes = <int>[];
-      final stdoutDrain = process.stdout.drain<void>();
-      await for (final chunk in process.stderr) {
-        stderrBytes.addAll(chunk);
-      }
-      await stdoutDrain;
-      await process.exitCode;
-
-      // Try UTF-8 first (modern FFmpeg builds), fall back to system encoding.
-      String output;
-      try {
-        output = utf8.decode(stderrBytes);
-      } catch (_) {
-        output = systemEncoding.decode(stderrBytes);
-      }
-
-      final lines = output.split('\n');
-
-      final devices = <AudioDevice>[];
-      String? pendingName;
-
-      for (final rawLine in lines) {
-        final line = rawLine.trim();
-
-        // Match: [dshow ...] "Device Name" (audio)
-        final nameMatch = RegExp(
-          r'"(.+?)"\s+\(audio\)',
-        ).firstMatch(line);
-
-        if (nameMatch != null) {
-          pendingName = nameMatch.group(1);
-          continue;
-        }
-
-        // Match: Alternative name "@device_cm_..."
-        if (pendingName != null) {
-          final altMatch = RegExp(
-            r'Alternative name\s+"(.+?)"',
-          ).firstMatch(line);
-          final altName = altMatch?.group(1);
-
-          devices.add(AudioDevice(
-            name: pendingName,
-            alternativeName: altName,
-          ));
-          pendingName = null;
-        }
-      }
-
-      return devices;
-    } catch (e) {
-      debugPrint('[ScreenSourceEnum] Failed to enumerate audio devices: $e');
-      return [];
-    }
-  }
 }
 
 // ─── Data classes ──────────────────────────────────────────────────────────
-
-class WindowSource {
-  final String title;
-  final int processId;
-  final int left;
-  final int top;
-  final int width;
-  final int height;
-
-  const WindowSource({
-    required this.title,
-    required this.processId,
-    this.left = 0,
-    this.top = 0,
-    this.width = 0,
-    this.height = 0,
-  });
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is WindowSource &&
-          title == other.title &&
-          processId == other.processId;
-
-  @override
-  int get hashCode => Object.hash(title, processId);
-
-  @override
-  String toString() =>
-      'WindowSource("$title", pid=$processId, ${width}x$height @ $left,$top)';
-}
 
 class DisplaySource {
   final int index;
@@ -383,25 +149,4 @@ class DisplaySource {
   @override
   String toString() =>
       'DisplaySource($name, ${width}x$height @ $offsetX,$offsetY)';
-}
-
-class AudioDevice {
-  final String name;
-  final String? alternativeName;
-
-  const AudioDevice({required this.name, this.alternativeName});
-
-  /// Short display name (strip long parenthetical suffixes if too long).
-  String get displayName => name;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is AudioDevice && name == other.name;
-
-  @override
-  int get hashCode => name.hashCode;
-
-  @override
-  String toString() => 'AudioDevice("$name")';
 }

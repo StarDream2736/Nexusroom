@@ -31,17 +31,7 @@ final captureStreamKeyProvider = Provider<String?>((ref) {
   return service.activeStreamKey;
 });
 
-/// Available window sources for capture (async, refreshable).
-final windowSourcesProvider = FutureProvider<List<WindowSource>>((ref) async {
-  return ScreenSourceEnumerator.listWindows();
-});
-
 /// Available display sources for capture (async, refreshable).
 final displaySourcesProvider = FutureProvider<List<DisplaySource>>((ref) async {
   return ScreenSourceEnumerator.listDisplays();
-});
-
-/// Available audio devices for capture (async, refreshable).
-final audioDevicesProvider = FutureProvider<List<AudioDevice>>((ref) async {
-  return ScreenSourceEnumerator.listAudioDevices();
 });

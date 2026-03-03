@@ -5,13 +5,11 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
-import 'screen_source_enumerator.dart';
-
 /// FFmpeg-based screen capture and RTMP streaming service.
 ///
-/// Launches an ffmpeg subprocess to capture the desktop (or a specific window)
-/// and push an RTMP stream to SRS.  The resulting stream is consumed by other
-/// clients through the existing HTTP-FLV pipeline (Go reverse-proxy → media_kit).
+/// Launches an ffmpeg subprocess to capture the desktop and push an RTMP
+/// stream to SRS.  The resulting stream is consumed by other clients through
+/// the existing HTTP-FLV pipeline (Go reverse-proxy → media_kit).
 ///
 /// This follows the same "embedded helper binary" pattern used by
 /// [WireGuardService] – ffmpeg.exe is shipped alongside the Flutter executable.
@@ -46,31 +44,21 @@ class ScreenCaptureService {
 
   /// Begin screen capture and push an RTMP stream to [rtmpUrl]/[streamKey].
   ///
-  /// [source] selects what to capture:
-  ///   • `CaptureSource.fullScreen(index)` – entire display
-  ///   • `CaptureSource.window(title)`     – a specific window
+  /// [source] selects which display to capture.
   ///
   /// Optional parameters control encoding quality:
   ///   • [fps]       – frame rate (default 60)
-  ///   • [bitrate]   – video bitrate in kbps (default 3000)
+  ///   • [bitrate]   – video bitrate in kbps (default 8000)
   ///   • [preset]    – x264 preset (default "veryfast")
-  ///   • [useHwAccel] – attempt NVENC hardware encoding (default false)
-  ///   • [captureSystemAudio] – capture desktop audio via dshow (default true)
-  ///   • [captureMicrophone]  – capture microphone via dshow (default false)
-  ///   • [systemAudioDevice]  – dshow device name for system audio
-  ///   • [micDevice]          – dshow device name for microphone
+  ///   • [useHwAccel] – attempt NVENC hardware encoding (default true)
   Future<void> startCapture({
     required String rtmpUrl,
     required String streamKey,
     CaptureSource source = const CaptureSource.fullScreen(),
     int fps = 60,
-    int bitrate = 3000,
+    int bitrate = 8000,
     String preset = 'veryfast',
-    bool useHwAccel = false,
-    bool captureSystemAudio = true,
-    bool captureMicrophone = false,
-    String? systemAudioDevice,
-    String? micDevice,
+    bool useHwAccel = true,
   }) async {
     if (_ffmpegProcess != null) {
       await stopCapture();
@@ -102,29 +90,14 @@ class ScreenCaptureService {
       // Thread queue: number of frames buffered in the input thread before
       // the encoder consumes them.  Default is too small for real-time.
       args.addAll(['-thread_queue_size', '1024']);
-      // use_wallclock_as_timestamps: MUST be set on gdigrab too so that
-      // video and audio inputs share the same wall-clock time base.
-      // Without this, gdigrab uses its own capture-time PTS while dshow
-      // audio uses wall clock PTS, and the muxer must reconcile two
-      // different clock domains — causing massive backpressure & stutter.
-      args.addAll(['-use_wallclock_as_timestamps', '1']);
 
       // gdigrab for Windows – reliable software-mode capture.
       args.addAll(['-f', 'gdigrab']);
       args.addAll(['-framerate', '$fps']);
-      // Capture the mouse cursor for utility (can be toggled off later).
+      // Capture the mouse cursor.
       args.addAll(['-draw_mouse', '1']);
 
-      if (source.isWindow && source.videoSize != null) {
-        // Window capture: use desktop capture with offset+size to grab
-        // the window region.  This works for ALL windows including
-        // DirectX/hardware-accelerated ones (browsers, games, etc.)
-        // because we capture via DWM compositing, not BitBlt.
-        args.addAll(['-offset_x', '${source.offsetX}']);
-        args.addAll(['-offset_y', '${source.offsetY}']);
-        args.addAll(['-video_size', source.videoSize!]);
-        args.addAll(['-i', 'desktop']);
-      } else if (!source.isWindow && source.displayIndex > 0) {
+      if (source.displayIndex > 0) {
         // Multi-monitor: capture specific display region.
         args.addAll(['-offset_x', '${source.offsetX}']);
         args.addAll(['-offset_y', '${source.offsetY}']);
@@ -138,56 +111,13 @@ class ScreenCaptureService {
       // macOS / Linux – avfoundation / x11grab (future-proof).
       args.addAll(['-f', 'avfoundation']);
       args.addAll(['-framerate', '$fps']);
-      args.addAll(['-i', source.isWindow ? source.windowTitle! : '1']);
+      args.addAll(['-i', '1']);
     }
 
-    // Video filter string – applied AFTER all inputs (see below).
+    // Video filter string:
     // 1. fps=$fps  — resample gdigrab's irregular VFR output to exact CFR.
     // 2. pad=ceil(iw/2)*2:ceil(ih/2)*2  — libx264 requires even dimensions.
     final videoFilter = 'fps=$fps,pad=ceil(iw/2)*2:ceil(ih/2)*2';
-
-    // ── Audio inputs (dshow) ────────────────────────────────────────
-    // Audio inputs are added AFTER the video input so that the video is
-    // always stream 0:v and audio streams are 1:a, 2:a, etc.
-    int audioInputCount = 0;
-    if (captureSystemAudio && Platform.isWindows) {
-      String? device = systemAudioDevice;
-      if (device == null) {
-        final devices = await ScreenSourceEnumerator.listAudioDevices();
-        if (devices.isNotEmpty) device = devices.first.name;
-      }
-      if (device != null) {
-        // use_wallclock_as_timestamps: use wall clock instead of device
-        // clock for PTS.  This prevents clock drift between the gdigrab
-        // video source and the dshow audio source, which otherwise
-        // causes backpressure and frame drops.
-        args.addAll(['-use_wallclock_as_timestamps', '1']);
-        // probesize & analyzeduration: minimize initial format probing
-        // so that FFmpeg doesn't block on the audio device for 5+ seconds
-        // while the video pipeline starves of reads.
-        args.addAll(['-probesize', '32']);
-        args.addAll(['-analyzeduration', '0']);
-        args.addAll(['-thread_queue_size', '1024']);
-        args.addAll(['-f', 'dshow']);
-        // audio_buffer_size: how much audio is buffered per read (ms).
-        // Smaller value = more frequent, shorter blocking reads, which
-        // is critical to avoid stalling the video pipeline.
-        args.addAll(['-audio_buffer_size', '20']);
-        args.addAll(['-i', 'audio=$device']);
-        audioInputCount++;
-      }
-    }
-    if (captureMicrophone && Platform.isWindows) {
-      final device = micDevice ?? 'Microphone';
-      args.addAll(['-use_wallclock_as_timestamps', '1']);
-      args.addAll(['-probesize', '32']);
-      args.addAll(['-analyzeduration', '0']);
-      args.addAll(['-thread_queue_size', '1024']);
-      args.addAll(['-f', 'dshow']);
-      args.addAll(['-audio_buffer_size', '20']);
-      args.addAll(['-i', 'audio=$device']);
-      audioInputCount++;
-    }
 
     // ── Encoding (CBR) ───────────────────────────────────────────────────
     // Use CBR (Constant Bit Rate) so the actual bitrate matches the
@@ -214,57 +144,11 @@ class ScreenCaptureService {
     args.addAll(['-pix_fmt', 'yuv420p']);
     args.addAll(['-g', '${fps * 2}']); // keyframe interval
 
-    // ── Filters & stream mapping ────────────────────────────────────────
-    // -vf / -filter_complex MUST come after ALL inputs.  Placing -vf
-    // between the video input and an audio input causes FFmpeg to
-    // interpret it as an input option for the audio source (fatal error).
-    if (audioInputCount == 0) {
-      args.addAll(['-vf', videoFilter]);
-      args.addAll(['-an']);
-    } else if (audioInputCount == 1) {
-      // Single audio: use filter_complex to apply both video filter and
-      // aresample on audio.  aresample=async=1000:first_pts=0 re-stamps
-      // the dshow audio to match the wall clock, fixing Non-monotonic DTS
-      // warnings that cause audio glitches.
-      args.addAll([
-        '-filter_complex',
-        '[0:v]$videoFilter[vout];[1:a]aresample=async=1000:first_pts=0[aout]',
-        '-map', '[vout]',
-        '-map', '[aout]',
-      ]);
-      args.addAll(['-c:a', 'aac']);
-      args.addAll(['-b:a', '128k']);
-      args.addAll(['-ar', '44100']);
-    } else {
-      // 2 audio inputs – use filter_complex for video + audio.
-      // aresample=async=1000 compensates clock drift between the two
-      // independent dshow audio sources, preventing backpressure that
-      // would stall the video pipeline and cause visible stuttering.
-      args.addAll([
-        '-filter_complex',
-        '[0:v]$videoFilter[vout];'
-            '[1:a]aresample=async=1000[a1];'
-            '[2:a]aresample=async=1000[a2];'
-            '[a1][a2]amix=inputs=2:duration=longest[aout]',
-        '-map', '[vout]',
-        '-map', '[aout]',
-      ]);
-      args.addAll(['-c:a', 'aac']);
-      args.addAll(['-b:a', '128k']);
-      args.addAll(['-ar', '44100']);
-    }
+    // ── Filters ─────────────────────────────────────────────────────────
+    args.addAll(['-vf', videoFilter]);
+    args.addAll(['-an']); // no audio
 
     // ── Output ───────────────────────────────────────────────────────────
-    // max_interleave_delta 0: prevent the FLV muxer from blocking output
-    // while waiting for packets from all streams to interleave properly.
-    // Without this, when mic audio arrives in bursts (USB mic latency),
-    // the muxer holds video packets waiting for audio, stalling the
-    // entire pipeline and causing visible stuttering.
-    if (audioInputCount > 0) {
-      args.addAll(['-max_interleave_delta', '0']);
-    }
-    // -flvflags no_duration_filesize: required for live FLV streaming to
-    // prevent the muxer from trying to write duration at file end.
     args.addAll(['-flvflags', 'no_duration_filesize']);
     args.addAll(['-f', 'flv', destination]);
 
@@ -415,7 +299,6 @@ enum CaptureStatus {
 
 /// Describes what to capture.
 class CaptureSource {
-  final String? windowTitle;
   final int displayIndex;
   final int offsetX;
   final int offsetY;
@@ -427,31 +310,10 @@ class CaptureSource {
     this.offsetX = 0,
     this.offsetY = 0,
     this.videoSize,
-  }) : windowTitle = null;
-
-  /// Capture a specific window by its screen bounds.
-  ///
-  /// Instead of using gdigrab's `title=` mode (which fails on
-  /// DirectX/hardware-accelerated windows), we capture the full
-  /// desktop and crop to the window's bounding rectangle.
-  const CaptureSource.window(
-    String title, {
-    int left = 0,
-    int top = 0,
-    int width = 0,
-    int height = 0,
-  })  : windowTitle = title,
-        displayIndex = 0,
-        offsetX = left,
-        offsetY = top,
-        videoSize = width > 0 && height > 0 ? '${width}x$height' : null;
-
-  bool get isWindow => windowTitle != null;
+  });
 
   @override
-  String toString() => isWindow
-      ? 'CaptureSource.window("$windowTitle")'
-      : 'CaptureSource.fullScreen($displayIndex)';
+  String toString() => 'CaptureSource.fullScreen($displayIndex)';
 }
 
 /// Encoding statistics parsed from FFmpeg stderr.
