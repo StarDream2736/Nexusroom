@@ -9,8 +9,10 @@
 
 - **即时通讯 (IM)** — 房间内文字消息、图片发送、历史记录离线同步
 - **多人语音** — LiveKit WebRTC 语音频道、自由开关麦、说话状态指示
-- **RTMP 推流直播** — SRS 6 接收 OBS 推流，HTTP-FLV 分发，media_kit 播放
-- **虚拟局域网 (VLAN)** — 内嵌 WireGuard，一键组建局域网联机
+- **RTMP 推流直播** — SRS 6 接收推流，HTTP-FLV 分发，media_kit 播放
+  - 应用内屏幕捕获推流（FFmpeg 驱动，支持全屏/指定屏幕、可配分辨率/帧率/码率）
+  - OBS 直推支持
+- **虚拟局域网 (VLAN)** — 内嵌 WireGuard，一键组建及管理局域网联机
 - **Web 管理后台** — 超管面板、用户管理、房间管理
 - **好友系统** — 通过数字 ID 添加好友，邀请进房间
 
@@ -20,8 +22,8 @@
 ┌─────────────────────────────────────────────────────────────┐
 │                    【 客户端层 Client Layer 】               │
 │              Flutter Desktop App (Windows / macOS)          │
-│    UI · WebSocket Client · LiveKit SDK · media_kit · WG-go  │
-│                      SQLite 本地缓存                         │
+│   UI · WebSocket Client · LiveKit SDK · media_kit · FFmpeg  │
+│               SQLite 本地缓存 · WireGuard-go                 │
 └──────────────────────┬──────────────────────────────────────┘
                        │  HTTPS / WSS / WebRTC  (OBS→SRS: RTMP)
 ┌──────────────────────▼──────────────────────────────────────┐
@@ -109,8 +111,9 @@ nexusroom/
 
 - [x] 第一阶段：基础设施 + IM
 - [x] 第二阶段：音视频集成（LiveKit 语音 + SRS 推流）
-- [ ] 第三阶段：管理功能与扩展接口
-- [ ] 第四阶段：VLAN 与屏幕共享
+- [x] 第三阶段：应用内屏幕捕获推流 + 虚拟局域网（VLAN）
+- [ ] 第四阶段：管理功能增强与扩展接口
+- [ ] 第五阶段：屏幕共享与远程协作
 
 ## 许可证
 
