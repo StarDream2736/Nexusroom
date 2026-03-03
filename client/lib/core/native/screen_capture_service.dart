@@ -127,14 +127,10 @@ class ScreenCaptureService {
       args.addAll(['-i', source.isWindow ? source.windowTitle! : '1']);
     }
 
-    // ── Video filter ─────────────────────────────────────────────────────
-    // 1. fps=$fps  — resample gdigrab's irregular VFR output to exact
-    //    constant frame rate.  This is more reliable than `-fps_mode cfr`
-    //    because it actually re-timestamps and duplicates/drops frames
-    //    instead of merely adjusting DTS values.
+    // Video filter string – applied AFTER all inputs (see below).
+    // 1. fps=$fps  — resample gdigrab's irregular VFR output to exact CFR.
     // 2. pad=ceil(iw/2)*2:ceil(ih/2)*2  — libx264 requires even dimensions.
-    //    Window capture can produce any size (e.g. 1471x982).
-    args.addAll(['-vf', 'fps=$fps,pad=ceil(iw/2)*2:ceil(ih/2)*2']);
+    final videoFilter = 'fps=$fps,pad=ceil(iw/2)*2:ceil(ih/2)*2';
 
     // ── Audio inputs (dshow) ────────────────────────────────────────
     // Audio inputs are added AFTER the video input so that the video is
@@ -194,19 +190,27 @@ class ScreenCaptureService {
     args.addAll(['-pix_fmt', 'yuv420p']);
     args.addAll(['-g', '${fps * 2}']); // keyframe interval
 
-    // ── Audio encoding ─────────────────────────────────────────────────
+    // ── Filters & stream mapping ────────────────────────────────────────
+    // -vf / -filter_complex MUST come after ALL inputs.  Placing -vf
+    // between the video input and an audio input causes FFmpeg to
+    // interpret it as an input option for the audio source (fatal error).
     if (audioInputCount == 0) {
+      args.addAll(['-vf', videoFilter]);
       args.addAll(['-an']);
+    } else if (audioInputCount == 1) {
+      args.addAll(['-vf', videoFilter]);
+      args.addAll(['-c:a', 'aac']);
+      args.addAll(['-b:a', '128k']);
+      args.addAll(['-ar', '44100']);
     } else {
-      if (audioInputCount == 2) {
-        // Mix both audio inputs into a single stereo stream.
-        // Input 0 is video, input 1 is first audio, input 2 is second.
-        args.addAll([
-          '-filter_complex', '[1:a][2:a]amix=inputs=2:duration=longest[aout]',
-          '-map', '0:v',
-          '-map', '[aout]',
-        ]);
-      }
+      // 2 audio inputs – use filter_complex for both video and audio.
+      // Input 0 = video (gdigrab), 1 = first audio, 2 = second audio.
+      args.addAll([
+        '-filter_complex',
+        '[0:v]$videoFilter[vout];[1:a][2:a]amix=inputs=2:duration=longest[aout]',
+        '-map', '[vout]',
+        '-map', '[aout]',
+      ]);
       args.addAll(['-c:a', 'aac']);
       args.addAll(['-b:a', '128k']);
       args.addAll(['-ar', '44100']);

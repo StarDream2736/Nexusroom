@@ -19,23 +19,41 @@ class ScreenSourceEnumerator {
 
     try {
       // Use PowerShell to enumerate visible windows with non-empty titles.
-      // We filter out windows without a visible area (width/height 0).
-      final result = await Process.run('powershell', [
+      // We use Process.start + raw byte decoding to preserve special
+      // characters (e.g. ® in "Microsoft® Edge") that would be corrupted
+      // by the default system codepage.
+      final process = await Process.start('powershell', [
         '-NoProfile',
         '-Command',
         r'''
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 Get-Process | Where-Object { $_.MainWindowTitle -ne '' } |
   Select-Object MainWindowTitle, Id |
   ForEach-Object { "$($_.MainWindowTitle)|$($_.Id)" }
 '''
       ]);
 
-      if (result.exitCode != 0) {
-        debugPrint('[ScreenSourceEnum] PowerShell error: ${result.stderr}');
+      final stdoutBytes = <int>[];
+      final stderrDrain = process.stderr.drain<void>();
+      await for (final chunk in process.stdout) {
+        stdoutBytes.addAll(chunk);
+      }
+      await stderrDrain;
+      final exitCode = await process.exitCode;
+
+      if (exitCode != 0) {
+        debugPrint('[ScreenSourceEnum] PowerShell exit code: $exitCode');
         return [];
       }
 
-      final lines = (result.stdout as String)
+      String output;
+      try {
+        output = utf8.decode(stdoutBytes);
+      } catch (_) {
+        output = systemEncoding.decode(stdoutBytes);
+      }
+
+      final lines = output
           .split('\n')
           .map((l) => l.trim())
           .where((l) => l.isNotEmpty && l.contains('|'));
