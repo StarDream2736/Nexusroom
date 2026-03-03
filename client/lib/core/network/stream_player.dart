@@ -45,14 +45,18 @@ class StreamPlayer {
         ),
       );
 
-      // MPV 直播优化参数：低延迟、无缓存、实时模式
+      // MPV 直播优化参数：低延迟、小缓冲、时间戳定速播放
       final mpv = _player!.platform;
       if (mpv is NativePlayer) {
-        await mpv.setProperty('cache', 'no');
-        await mpv.setProperty('demuxer-max-bytes', '500KiB');
-        await mpv.setProperty('demuxer-readahead-secs', '0.2');
-        await mpv.setProperty('untimed', 'yes');
+        // 先设置 low-latency profile，再覆盖需要自定义的参数
         await mpv.setProperty('profile', 'low-latency');
+        await mpv.setProperty('cache', 'no');
+        // 增大 demuxer 缓冲以吸收 Go 代理 32KB 分块传输的抖动
+        await mpv.setProperty('demuxer-max-bytes', '2MiB');
+        await mpv.setProperty('demuxer-readahead-secs', '1.0');
+        // 注意：不设 untimed=yes。untimed 会按数据到达速度播放，
+        // 导致 Go 代理分块传输时画面一顿一顿。移除后 mpv 按时间戳
+        // 均匀播放，配合 demuxer 缓冲可平滑网络抖动。
         // URL 无 .flv 后缀（通过 Go 代理），必须显式指定 FLV 解复用器
         await mpv.setProperty('demuxer-lavf-format', 'flv');
       }

@@ -175,6 +175,16 @@ class WindowSource {
   const WindowSource({required this.title, required this.processId});
 
   @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is WindowSource &&
+          title == other.title &&
+          processId == other.processId;
+
+  @override
+  int get hashCode => Object.hash(title, processId);
+
+  @override
   String toString() => 'WindowSource("$title", pid=$processId)';
 }
 
@@ -199,6 +209,19 @@ class DisplaySource {
 
   /// FFmpeg video_size parameter.
   String get videoSize => '${width}x$height';
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is DisplaySource &&
+          index == other.index &&
+          width == other.width &&
+          height == other.height &&
+          offsetX == other.offsetX &&
+          offsetY == other.offsetY;
+
+  @override
+  int get hashCode => Object.hash(index, width, height, offsetX, offsetY);
 
   @override
   String toString() =>

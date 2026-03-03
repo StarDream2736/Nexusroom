@@ -323,7 +323,12 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
 
     return displaysAsync.when(
       data: (displays) {
-        _selectedDisplay ??= displays.isNotEmpty ? displays.first : null;
+        // Ensure _selectedDisplay is a valid item from the current list.
+        // Provider refreshes create new DisplaySource objects; with == on
+        // DisplaySource, contains() performs a value comparison.
+        if (_selectedDisplay == null || !displays.contains(_selectedDisplay)) {
+          _selectedDisplay = displays.isNotEmpty ? displays.first : null;
+        }
         return DropdownButton<DisplaySource>(
           value: _selectedDisplay,
           isExpanded: true,

@@ -118,17 +118,13 @@ class ScreenCaptureService {
     }
 
     // ── Video filter ─────────────────────────────────────────────────────
-    // libx264 requires width and height to be divisible by 2.  Window
-    // capture can produce any size (e.g. 1471x982), so we pad to the
-    // nearest even dimensions.  "pad=ceil(iw/2)*2:ceil(ih/2)*2" adds at
-    // most 1 pixel of black border.
-    args.addAll(['-vf', 'pad=ceil(iw/2)*2:ceil(ih/2)*2']);
-
-    // ── Frame rate mode ──────────────────────────────────────────────────
-    // Force constant frame rate output.  gdigrab delivers VFR frames with
-    // wall-clock timestamps; without CFR the FLV muxer produces
-    // non-monotonic DTS errors that cause SRS and media_kit to stutter.
-    args.addAll(['-fps_mode', 'cfr']);
+    // 1. fps=$fps  — resample gdigrab's irregular VFR output to exact
+    //    constant frame rate.  This is more reliable than `-fps_mode cfr`
+    //    because it actually re-timestamps and duplicates/drops frames
+    //    instead of merely adjusting DTS values.
+    // 2. pad=ceil(iw/2)*2:ceil(ih/2)*2  — libx264 requires even dimensions.
+    //    Window capture can produce any size (e.g. 1471x982).
+    args.addAll(['-vf', 'fps=$fps,pad=ceil(iw/2)*2:ceil(ih/2)*2']);
 
     // ── Encoding ─────────────────────────────────────────────────────────
     if (useHwAccel && Platform.isWindows) {
@@ -230,8 +226,18 @@ class ScreenCaptureService {
 
   // ─── Dispose ────────────────────────────────────────────────────────────
 
+  /// Synchronously kill FFmpeg and release resources.
+  ///
+  /// This is called by the Riverpod provider's `onDispose`.  We MUST kill
+  /// the process synchronously here because the app may be shutting down
+  /// and an async `stopCapture()` would never complete, leaving FFmpeg
+  /// running in the background.
   void dispose() {
-    stopCapture();
+    _ffmpegProcess?.kill();
+    _stderrSub?.cancel();
+    _stderrSub = null;
+    _ffmpegProcess = null;
+    _activeStreamKey = null;
     _statusController.close();
     _statsController.close();
   }
