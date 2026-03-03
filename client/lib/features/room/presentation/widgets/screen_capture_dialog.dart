@@ -76,7 +76,13 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
           });
           return;
         }
-        source = CaptureSource.window(_selectedWindow!.title);
+        source = CaptureSource.window(
+          _selectedWindow!.title,
+          left: _selectedWindow!.left,
+          top: _selectedWindow!.top,
+          width: _selectedWindow!.width,
+          height: _selectedWindow!.height,
+        );
       } else {
         final display = _selectedDisplay;
         source = CaptureSource.fullScreen(
@@ -96,7 +102,7 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
         useHwAccel: _useHwAccel,
         captureSystemAudio: _captureSystemAudio,
         captureMicrophone: _captureMicrophone,
-
+        systemAudioDevice: _selectedSystemAudioDevice?.name,
         micDevice: _selectedMicDevice?.name,
       );
     } catch (e) {
@@ -552,6 +558,9 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
                 ),
               ),
             ],
+          ),
+          if (_captureSystemAudio) _buildAudioDeviceSelector(
+            isSystemAudio: true,
           ),
           const SizedBox(height: 4),
 

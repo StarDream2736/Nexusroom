@@ -22,14 +22,37 @@ class ScreenSourceEnumerator {
       // We use Process.start + raw byte decoding to preserve special
       // characters (e.g. ® in "Microsoft® Edge") that would be corrupted
       // by the default system codepage.
+      // Enumerate windows WITH their screen bounds so we can use
+      // desktop+crop capture instead of gdigrab title= (which fails
+      // on DirectX/hardware-accelerated windows like browsers).
       final process = await Process.start('powershell', [
         '-NoProfile',
         '-Command',
         r'''
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-Get-Process | Where-Object { $_.MainWindowTitle -ne '' } |
-  Select-Object MainWindowTitle, Id |
-  ForEach-Object { "$($_.MainWindowTitle)|$($_.Id)" }
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public struct RECT { public int Left, Top, Right, Bottom; }
+public class WinAPI {
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+  [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr hwnd, int attr, out RECT rect, int size);
+  public static RECT GetRect(IntPtr h) {
+    RECT r;
+    // DWMWA_EXTENDED_FRAME_BOUNDS = 9, gives the visual bounds without shadow
+    if (DwmGetWindowAttribute(h, 9, out r, Marshal.SizeOf(typeof(RECT))) == 0) return r;
+    GetWindowRect(h, out r);
+    return r;
+  }
+}
+"@
+Get-Process | Where-Object { $_.MainWindowTitle -ne '' -and $_.MainWindowHandle -ne [IntPtr]::Zero } | ForEach-Object {
+  $r = [WinAPI]::GetRect($_.MainWindowHandle)
+  $w = $r.Right - $r.Left; $h = $r.Bottom - $r.Top
+  if ($w -gt 0 -and $h -gt 0) {
+    "$($_.MainWindowTitle)|$($_.Id)|$($r.Left)|$($r.Top)|$w|$h"
+  }
+}
 '''
       ]);
 
@@ -63,10 +86,26 @@ Get-Process | Where-Object { $_.MainWindowTitle -ne '' } |
 
       for (final line in lines) {
         final parts = line.split('|');
-        if (parts.length < 2) continue;
+        // Format: title|pid|left|top|width|height
+        if (parts.length < 6) continue;
 
-        final title = parts.sublist(0, parts.length - 1).join('|');
-        final pid = int.tryParse(parts.last) ?? 0;
+        final wStr = parts[parts.length - 1];
+        final hStr = parts[parts.length - 2];
+        // Defensive: not all lines have the right number, so width
+        // can end up as a non-integer if the title contains '|'.
+        // We use tryParse and skip lines that don't parse.
+        final topStr = parts[parts.length - 3];
+        final leftStr = parts[parts.length - 4];
+        final pid = int.tryParse(parts[parts.length - 5]) ?? 0;
+        final title = parts.sublist(0, parts.length - 5).join('|');
+
+        final left = int.tryParse(leftStr);
+        final top = int.tryParse(topStr);
+        final width = int.tryParse(wStr);
+        final height = int.tryParse(hStr);
+        if (left == null || top == null || width == null || height == null) {
+          continue;
+        }
 
         // Skip the desktop shell and duplicates.
         if (title == 'Program Manager') continue;
@@ -74,7 +113,14 @@ Get-Process | Where-Object { $_.MainWindowTitle -ne '' } |
         if (seen.contains(title)) continue;
         seen.add(title);
 
-        windows.add(WindowSource(title: title, processId: pid));
+        windows.add(WindowSource(
+          title: title,
+          processId: pid,
+          left: left,
+          top: top,
+          width: width,
+          height: height,
+        ));
       }
 
       windows.sort((a, b) => a.title.compareTo(b.title));
@@ -271,8 +317,19 @@ Add-Type -AssemblyName System.Windows.Forms
 class WindowSource {
   final String title;
   final int processId;
+  final int left;
+  final int top;
+  final int width;
+  final int height;
 
-  const WindowSource({required this.title, required this.processId});
+  const WindowSource({
+    required this.title,
+    required this.processId,
+    this.left = 0,
+    this.top = 0,
+    this.width = 0,
+    this.height = 0,
+  });
 
   @override
   bool operator ==(Object other) =>
@@ -285,7 +342,8 @@ class WindowSource {
   int get hashCode => Object.hash(title, processId);
 
   @override
-  String toString() => 'WindowSource("$title", pid=$processId)';
+  String toString() =>
+      'WindowSource("$title", pid=$processId, ${width}x$height @ $left,$top)';
 }
 
 class DisplaySource {

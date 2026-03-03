@@ -109,15 +109,23 @@ class ScreenCaptureService {
       // Capture the mouse cursor for utility (can be toggled off later).
       args.addAll(['-draw_mouse', '1']);
 
-      if (source.isWindow) {
-        args.addAll(['-i', 'title=${source.windowTitle}']);
+      if (source.isWindow && source.videoSize != null) {
+        // Window capture: use desktop capture with offset+size to grab
+        // the window region.  This works for ALL windows including
+        // DirectX/hardware-accelerated ones (browsers, games, etc.)
+        // because we capture via DWM compositing, not BitBlt.
+        args.addAll(['-offset_x', '${source.offsetX}']);
+        args.addAll(['-offset_y', '${source.offsetY}']);
+        args.addAll(['-video_size', source.videoSize!]);
+        args.addAll(['-i', 'desktop']);
+      } else if (!source.isWindow && source.displayIndex > 0) {
+        // Multi-monitor: capture specific display region.
+        args.addAll(['-offset_x', '${source.offsetX}']);
+        args.addAll(['-offset_y', '${source.offsetY}']);
+        args.addAll(['-video_size', source.videoSize ?? '1920x1080']);
+        args.addAll(['-i', 'desktop']);
       } else {
-        // Full-screen capture (optionally a specific monitor offset).
-        if (source.displayIndex > 0) {
-          args.addAll(['-offset_x', '${source.offsetX}']);
-          args.addAll(['-offset_y', '${source.offsetY}']);
-          args.addAll(['-video_size', source.videoSize ?? '1920x1080']);
-        }
+        // Primary display full-screen capture.
         args.addAll(['-i', 'desktop']);
       }
     } else {
@@ -139,25 +147,28 @@ class ScreenCaptureService {
     if (captureSystemAudio && Platform.isWindows) {
       String? device = systemAudioDevice;
       if (device == null) {
-        // Auto-detect: use the first available dshow audio device.
         final devices = await ScreenSourceEnumerator.listAudioDevices();
-        if (devices.isNotEmpty) {
-          device = devices.first.name;
-        }
+        if (devices.isNotEmpty) device = devices.first.name;
       }
       if (device != null) {
+        // use_wallclock_as_timestamps: use wall clock instead of device
+        // clock for PTS.  This prevents clock drift between the gdigrab
+        // video source and the dshow audio source, which otherwise
+        // causes backpressure and frame drops.
+        args.addAll(['-use_wallclock_as_timestamps', '1']);
         args.addAll(['-thread_queue_size', '1024']);
         args.addAll(['-f', 'dshow']);
-        args.addAll(['-audio_buffer_size', '50']);
+        args.addAll(['-audio_buffer_size', '80']);
         args.addAll(['-i', 'audio=$device']);
         audioInputCount++;
       }
     }
     if (captureMicrophone && Platform.isWindows) {
       final device = micDevice ?? 'Microphone';
+      args.addAll(['-use_wallclock_as_timestamps', '1']);
       args.addAll(['-thread_queue_size', '1024']);
       args.addAll(['-f', 'dshow']);
-      args.addAll(['-audio_buffer_size', '50']);
+      args.addAll(['-audio_buffer_size', '80']);
       args.addAll(['-i', 'audio=$device']);
       audioInputCount++;
     }
@@ -203,11 +214,16 @@ class ScreenCaptureService {
       args.addAll(['-b:a', '128k']);
       args.addAll(['-ar', '44100']);
     } else {
-      // 2 audio inputs – use filter_complex for both video and audio.
-      // Input 0 = video (gdigrab), 1 = first audio, 2 = second audio.
+      // 2 audio inputs – use filter_complex for video + audio.
+      // aresample=async=1000 compensates clock drift between the two
+      // independent dshow audio sources, preventing backpressure that
+      // would stall the video pipeline and cause visible stuttering.
       args.addAll([
         '-filter_complex',
-        '[0:v]$videoFilter[vout];[1:a][2:a]amix=inputs=2:duration=longest[aout]',
+        '[0:v]$videoFilter[vout];'
+            '[1:a]aresample=async=1000[a1];'
+            '[2:a]aresample=async=1000[a2];'
+            '[a1][a2]amix=inputs=2:duration=longest[aout]',
         '-map', '[vout]',
         '-map', '[aout]',
       ]);
@@ -383,13 +399,22 @@ class CaptureSource {
     this.videoSize,
   }) : windowTitle = null;
 
-  /// Capture a specific window by its title.
-  const CaptureSource.window(String title)
-      : windowTitle = title,
+  /// Capture a specific window by its screen bounds.
+  ///
+  /// Instead of using gdigrab's `title=` mode (which fails on
+  /// DirectX/hardware-accelerated windows), we capture the full
+  /// desktop and crop to the window's bounding rectangle.
+  const CaptureSource.window(
+    String title, {
+    int left = 0,
+    int top = 0,
+    int width = 0,
+    int height = 0,
+  })  : windowTitle = title,
         displayIndex = 0,
-        offsetX = 0,
-        offsetY = 0,
-        videoSize = null;
+        offsetX = left,
+        offsetY = top,
+        videoSize = width > 0 && height > 0 ? '${width}x$height' : null;
 
   bool get isWindow => windowTitle != null;
 
