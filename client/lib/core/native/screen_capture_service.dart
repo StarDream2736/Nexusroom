@@ -102,6 +102,12 @@ class ScreenCaptureService {
       // Thread queue: number of frames buffered in the input thread before
       // the encoder consumes them.  Default is too small for real-time.
       args.addAll(['-thread_queue_size', '1024']);
+      // use_wallclock_as_timestamps: MUST be set on gdigrab too so that
+      // video and audio inputs share the same wall-clock time base.
+      // Without this, gdigrab uses its own capture-time PTS while dshow
+      // audio uses wall clock PTS, and the muxer must reconcile two
+      // different clock domains — causing massive backpressure & stutter.
+      args.addAll(['-use_wallclock_as_timestamps', '1']);
 
       // gdigrab for Windows – reliable software-mode capture.
       args.addAll(['-f', 'gdigrab']);
@@ -156,9 +162,17 @@ class ScreenCaptureService {
         // video source and the dshow audio source, which otherwise
         // causes backpressure and frame drops.
         args.addAll(['-use_wallclock_as_timestamps', '1']);
+        // probesize & analyzeduration: minimize initial format probing
+        // so that FFmpeg doesn't block on the audio device for 5+ seconds
+        // while the video pipeline starves of reads.
+        args.addAll(['-probesize', '32']);
+        args.addAll(['-analyzeduration', '0']);
         args.addAll(['-thread_queue_size', '1024']);
         args.addAll(['-f', 'dshow']);
-        args.addAll(['-audio_buffer_size', '80']);
+        // audio_buffer_size: how much audio is buffered per read (ms).
+        // Smaller value = more frequent, shorter blocking reads, which
+        // is critical to avoid stalling the video pipeline.
+        args.addAll(['-audio_buffer_size', '20']);
         args.addAll(['-i', 'audio=$device']);
         audioInputCount++;
       }
@@ -166,9 +180,11 @@ class ScreenCaptureService {
     if (captureMicrophone && Platform.isWindows) {
       final device = micDevice ?? 'Microphone';
       args.addAll(['-use_wallclock_as_timestamps', '1']);
+      args.addAll(['-probesize', '32']);
+      args.addAll(['-analyzeduration', '0']);
       args.addAll(['-thread_queue_size', '1024']);
       args.addAll(['-f', 'dshow']);
-      args.addAll(['-audio_buffer_size', '80']);
+      args.addAll(['-audio_buffer_size', '20']);
       args.addAll(['-i', 'audio=$device']);
       audioInputCount++;
     }
@@ -239,6 +255,14 @@ class ScreenCaptureService {
     }
 
     // ── Output ───────────────────────────────────────────────────────────
+    // max_interleave_delta 0: prevent the FLV muxer from blocking output
+    // while waiting for packets from all streams to interleave properly.
+    // Without this, when mic audio arrives in bursts (USB mic latency),
+    // the muxer holds video packets waiting for audio, stalling the
+    // entire pipeline and causing visible stuttering.
+    if (audioInputCount > 0) {
+      args.addAll(['-max_interleave_delta', '0']);
+    }
     // -flvflags no_duration_filesize: required for live FLV streaming to
     // prevent the muxer from trying to write duration at file end.
     args.addAll(['-flvflags', 'no_duration_filesize']);

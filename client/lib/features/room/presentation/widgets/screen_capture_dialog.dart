@@ -35,9 +35,9 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
   WindowSource? _selectedWindow;
 
   int _fps = 60;
-  int _bitrate = 3000;
-  bool _useHwAccel = false;
-  bool _captureSystemAudio = true;
+  int _bitrate = 8000;
+  bool _useHwAccel = true;
+  bool _captureSystemAudio = false;
   bool _captureMicrophone = false;
   AudioDevice? _selectedSystemAudioDevice;
   AudioDevice? _selectedMicDevice;
@@ -497,13 +497,17 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
                     DropdownMenuItem(
                         value: 1500, child: Text('1500 kbps (流畅)')),
                     DropdownMenuItem(
-                        value: 3000, child: Text('3000 kbps (推荐)')),
+                        value: 3000, child: Text('3000 kbps (标清)')),
                     DropdownMenuItem(
                         value: 5000, child: Text('5000 kbps (高清)')),
                     DropdownMenuItem(
-                        value: 8000, child: Text('8000 kbps (超清)')),
+                        value: 8000, child: Text('8000 kbps (推荐)')),
+                    DropdownMenuItem(
+                        value: 10000, child: Text('10000 kbps (超清)')),
+                    DropdownMenuItem(
+                        value: 12000, child: Text('12000 kbps (极清)')),
                   ],
-                  onChanged: (v) => setState(() => _bitrate = v ?? 3000),
+                  onChanged: (v) => setState(() => _bitrate = v ?? 8000),
                 ),
               ),
             ],
