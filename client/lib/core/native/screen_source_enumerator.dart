@@ -89,13 +89,12 @@ Get-Process | Where-Object { $_.MainWindowTitle -ne '' -and $_.MainWindowHandle 
         // Format: title|pid|left|top|width|height
         if (parts.length < 6) continue;
 
-        final wStr = parts[parts.length - 1];
-        final hStr = parts[parts.length - 2];
-        // Defensive: not all lines have the right number, so width
-        // can end up as a non-integer if the title contains '|'.
-        // We use tryParse and skip lines that don't parse.
-        final topStr = parts[parts.length - 3];
-        final leftStr = parts[parts.length - 4];
+        // PowerShell output: title|pid|left|top|w|h
+        // Parse from the END to handle titles that contain '|'.
+        final hStr = parts[parts.length - 1];    // last  = height
+        final wStr = parts[parts.length - 2];    // 2nd-last = width
+        final topStr = parts[parts.length - 3];  // 3rd-last = top
+        final leftStr = parts[parts.length - 4]; // 4th-last = left
         final pid = int.tryParse(parts[parts.length - 5]) ?? 0;
         final title = parts.sublist(0, parts.length - 5).join('|');
 

@@ -173,14 +173,14 @@ class ScreenCaptureService {
       audioInputCount++;
     }
 
-    // ── Encoding ─────────────────────────────────────────────────────────
+    // ── Encoding (CBR) ───────────────────────────────────────────────────
+    // Use CBR (Constant Bit Rate) so the actual bitrate matches the
+    // user-selected value.  CRF/CQ modes target visual quality and
+    // produce far less bitrate on static desktop content.
     if (useHwAccel && Platform.isWindows) {
-      // Try NVIDIA NVENC; if the GPU doesn't support it ffmpeg will exit and
-      // we can fall back to software.
       args.addAll(['-c:v', 'h264_nvenc']);
-      args.addAll(['-preset', 'p4']); // NVENC preset
-      args.addAll(['-rc', 'vbr']);
-      args.addAll(['-cq', '20']); // quality-based with VBV cap
+      args.addAll(['-preset', 'p4']);
+      args.addAll(['-rc', 'cbr']);
       args.addAll(['-b:v', '${bitrate}k']);
       args.addAll(['-maxrate', '${bitrate}k']);
       args.addAll(['-bufsize', '${bitrate * 2}k']);
@@ -188,13 +188,10 @@ class ScreenCaptureService {
       args.addAll(['-c:v', 'libx264']);
       args.addAll(['-preset', preset]);
       args.addAll(['-tune', 'zerolatency']);
-      // CRF + VBV mode: CRF sets quality target, maxrate caps the peak.
-      // This avoids the ABR problem where static scenes get far less than
-      // the requested bitrate.  CRF 18 is near-visually-lossless; the
-      // encoder will use whatever bitrate is needed (up to maxrate) to
-      // maintain that quality.
-      args.addAll(['-crf', '18']);
+      // x264 CBR: set b:v = maxrate = minrate for constant output.
+      args.addAll(['-b:v', '${bitrate}k']);
       args.addAll(['-maxrate', '${bitrate}k']);
+      args.addAll(['-minrate', '${bitrate}k']);
       args.addAll(['-bufsize', '${bitrate * 2}k']);
     }
 
@@ -209,7 +206,16 @@ class ScreenCaptureService {
       args.addAll(['-vf', videoFilter]);
       args.addAll(['-an']);
     } else if (audioInputCount == 1) {
-      args.addAll(['-vf', videoFilter]);
+      // Single audio: use filter_complex to apply both video filter and
+      // aresample on audio.  aresample=async=1000:first_pts=0 re-stamps
+      // the dshow audio to match the wall clock, fixing Non-monotonic DTS
+      // warnings that cause audio glitches.
+      args.addAll([
+        '-filter_complex',
+        '[0:v]$videoFilter[vout];[1:a]aresample=async=1000:first_pts=0[aout]',
+        '-map', '[vout]',
+        '-map', '[aout]',
+      ]);
       args.addAll(['-c:a', 'aac']);
       args.addAll(['-b:a', '128k']);
       args.addAll(['-ar', '44100']);

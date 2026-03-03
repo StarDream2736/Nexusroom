@@ -536,12 +536,12 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
           Text('音频设置', style: AppTypography.h3),
           const SizedBox(height: 10),
 
-          // System audio
+          // Audio input 1 (for desktop audio via virtual audio cable)
           Row(
             children: [
               SizedBox(
                   width: 70,
-                  child: Text('系统音频',
+                  child: Text('音频输入',
                       style: TextStyle(
                           fontSize: 13, color: AppColors.textSecondary))),
               Switch(
@@ -551,7 +551,7 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
               ),
               Expanded(
                 child: Text(
-                  _captureSystemAudio ? '捕获桌面声音' : '关闭',
+                  _captureSystemAudio ? '捕获音频输入设备' : '关闭',
                   style: TextStyle(
                       fontSize: 12, color: AppColors.textMuted),
                   overflow: TextOverflow.ellipsis,
@@ -559,9 +559,21 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
               ),
             ],
           ),
-          if (_captureSystemAudio) _buildAudioDeviceSelector(
-            isSystemAudio: true,
-          ),
+          if (_captureSystemAudio) ...[
+            Padding(
+              padding: const EdgeInsets.only(left: 70, bottom: 4),
+              child: Text(
+                '捕获桌面声音需选择回环设备\n'
+                '• Voicemeeter 用户: 选 B1/B2 输出\n'
+                '• 其他用户: 启用\u201c立体声混音\u201d(Stereo Mix)',
+                style: TextStyle(
+                    fontSize: 11, color: AppColors.textMuted, height: 1.4),
+              ),
+            ),
+            _buildAudioDeviceSelector(
+              isSystemAudio: true,
+            ),
+          ],
           const SizedBox(height: 4),
 
           // Microphone
