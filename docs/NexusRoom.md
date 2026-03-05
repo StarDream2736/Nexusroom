@@ -1,11 +1,12 @@
 # NexusRoom 技术实现规划 & 开发文档
 
-> **版本** v1.7.9 ｜ **定位** 私有化部署 · 自建服务端 ｜ **核心功能** IM · 语音 · 直播 · VLAN
+> **版本** v1.8.0 ｜ **定位** 私有化部署 · 自建服务端 ｜ **核心功能** IM · 语音 · 直播 · VLAN
 
 ## 变更日志
 
 | 版本     | 变更内容                                                                                                                                                                                                                                         |
 | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| v1.8.0 | **\[VLAN 稳定性修复]** WS 断连后延迟 20 秒清理 WG Peer，期间若用户重连则跳过清理，消除频繁上下线导致的 Peer 反复添加/删除抖动；`RegisterPeer()` 新增公钥漂移检测——客户端重连生成新密钥对时自动替换设备端旧 Peer 并更新数据库；`server_endpoint` 支持从 HTTP Host 头自动推导，配置文件留空或填 `YOUR_IP` 时自动回退；`/proc/sys` sysctl 写入前先读取，值已正确时跳过写入，消除容器只读文件系统警告；wg-helper 启动时自动添加 Windows 防火墙规则（UDP 入站/出站放行 nexusroom-wg.exe + ICMPv4 入站放行），无需手动配置即可实现 Peer 间互 ping；`WGPeerRepository` 新增 `Update()` 方法支持 Peer 密钥更新；`docker-compose.yml` 移除已废弃的 `version` 字段；客户端 VLAN 加入和 WireGuard 配置流程增加诊断日志 |
 | v1.7.9 | **\[屏幕捕获精简]** 移除窗口捕获源（gdigrab desktop+crop 方案）、移除全部音频捕获（dshow 系统音频/麦克风、设备枚举、音频编码、filter_complex/amix/aresample）；移除 `WindowSource`、`AudioDevice` 数据类和 `CaptureSource.window` 构造函数；移除 `windowSourcesProvider`、`audioDevicesProvider`；UI 移除全屏/窗口源切换 tab、音频设置面板和设备选择器；`startCapture()` 简化为纯视频推流（`-vf` + `-an`）；4 个文件共删除约 720 行代码 |
 | v1.7.8 | **\[码率与默认值]** 码率新增 10000/12000 kbps 档位，默认码率从 3000 改为 8000（推荐）；默认开启硬件加速（NVENC）；默认关闭桌面音频和麦克风。**\[麦克风卡顿修复]** gdigrab 输入前添加 `-use_wallclock_as_timestamps 1` 使视频/音频共享同一时钟基准；dshow 音频输入前添加 `-probesize 32 -analyzeduration 0` 避免初始格式探测阻塞视频管线；`-audio_buffer_size` 从 80ms 降至 20ms 减小每次音频读取的阻塞时长；有音频时添加 `-max_interleave_delta 0` 防止 FLV muxer 因等待音频交织而卡住视频包 |
 | v1.7.7 | **\[窗口尺寸修复]** 修复窗口捕获 PowerShell 输出解析 width/height 变量赋值颠倒（`1020x1920 extends outside 1920x1080`）；**\[CBR 编码]** 实际应用 CBR 码率控制（NVENC: `-rc cbr`，x264: `-b:v = -maxrate = -minrate`），此前三次尝试均因字符串匹配失败未生效；**\[音频 DTS]** 单音频输入的 `aresample` 改为 `async=1000:first_pts=0`；**\[UI]** "系统音频" 标签改为 "音频输入" 并增加回环设备使用说明 |
@@ -900,6 +901,11 @@ SRS on_publish 回调 → room_ingresses.is_active = true → WS 广播 stream.n
 | `-vf` 导致 FFmpeg 报错 | 放在视频和音频输入之间被误解析为音频选项 | 移至所有输入之后 | v1.7.5 |
 | CBR 三次未生效 | `multi_replace` 因 Unicode 特殊字符匹配失败 | 第四次用精确字符串匹配成功应用 | v1.7.7 |
 | 麦克风导致视频极度卡顿 | gdigrab/dshow 双实时源时钟域不同 + muxer 交织阻塞 | 多项优化后仍未彻底解决，最终在 v1.7.9 移除音频功能 | v1.7.8→v1.7.9 |
+| VLAN Peer 反复添加/删除 | WS 断连立即删除 Peer，重连后又添加 | 延迟 20s 清理 + 重连检测跳过 | v1.8.0 |
+| VLAN 公钥漂移 | 客户端每次加入生成新密钥对，服务端使用旧 DB 记录 | `RegisterPeer()` 检测 key 变化，更新 DB 并替换设备 Peer | v1.8.0 |
+| VLAN Peer 间无法 ping | Windows 防火墙阻止 nexusroom-wg.exe UDP 和 ICMPv4 | wg-helper 启动时自动添加防火墙放行规则 | v1.8.0 |
+| `/proc/sys` 只读警告 | 容器中 sysctl 值已正确仍尝试写入 | 先读后写，值匹配则跳过 | v1.8.0 |
+| `server_endpoint` 为空 | 配置文件未填写实际 IP | HTTP Host 头自动推导回退 | v1.8.0 |
 
 ### 7.5.7 打包说明
 
