@@ -298,10 +298,14 @@ function SrsRtcPlayerAsync() {
     // or any other information, will pass-by in the query:
     //      webrtc://r.ossrs.net/live/livestream?vhost=xxx
     //      webrtc://r.ossrs.net/live/livestream?token=xxx
-    self.play = async function(url) {
+    self.play = async function(url, options) {
         var conf = self.__internal.prepareUrl(url);
-        self.pc.addTransceiver("audio", {direction: "recvonly"});
-        self.pc.addTransceiver("video", {direction: "recvonly"});
+        if (!options?.videoOnly) {
+            self.pc.addTransceiver("audio", {direction: "recvonly"});
+        }
+        if (!options?.audioOnly) {
+            self.pc.addTransceiver("video", {direction: "recvonly"});
+        }
         //self.pc.addTransceiver("video", {direction: "recvonly"});
         //self.pc.addTransceiver("audio", {direction: "recvonly"});
 
