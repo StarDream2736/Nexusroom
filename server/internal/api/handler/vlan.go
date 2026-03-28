@@ -1,8 +1,11 @@
 package handler
 
 import (
+	"fmt"
+	"net"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -68,6 +71,16 @@ func (h *VLANHandler) Join(c *gin.Context) {
 
 	// 获取服务器配置
 	serverCfg := h.coordinator.GetServerConfig()
+	if strings.TrimSpace(serverCfg.ServerEndpoint) == "" || strings.Contains(serverCfg.ServerEndpoint, "YOUR_IP") {
+		host := c.Request.Host
+		if parsedHost, _, err := net.SplitHostPort(c.Request.Host); err == nil {
+			host = parsedHost
+		}
+		host = strings.TrimSpace(host)
+		if host != "" {
+			serverCfg.ServerEndpoint = fmt.Sprintf("%s:%d", host, h.coordinator.GetServerConfig().ListenPort)
+		}
+	}
 
 	// 获取房间内所有 Peers
 	peers, _ := h.coordinator.GetPeers(roomID)

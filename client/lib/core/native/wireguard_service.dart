@@ -124,7 +124,11 @@ class WireGuardService {
     debugPrint('[WG] Helper connected via TCP');
 
     // 4. Send the tunnel config
-    socket.writeln(jsonEncode(config.toMap()));
+    final configMap = config.toMap();
+    debugPrint('[WG] -> config: address=${config.address} '
+        'endpoint=${config.serverEndpoint} '
+        'peers=${(configMap['peers'] as List).length}');
+    socket.writeln(jsonEncode(configMap));
     await socket.flush();
 
     // 5. Wait for "up" confirmation

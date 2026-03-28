@@ -95,6 +95,11 @@ class _VlanPanelState extends ConsumerState<VlanPanel> {
     final serverEndpoint = result['server_endpoint'] as String? ?? '';
     final dns = result['dns'] as String? ?? '';
 
+    debugPrint('[VLAN] API response: assigned_ip=$assignedIP '
+        'server_endpoint=$serverEndpoint '
+        'server_public_key=${serverPublicKey.length > 8 ? serverPublicKey.substring(0, 8) : serverPublicKey}... '
+        'dns=$dns');
+
     // Start the tunnel — let errors propagate to _toggleVlan for user display
     await wgService.startTunnel(
       _buildWgConfig(

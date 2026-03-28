@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"/>
+  <title>STREAM PLAYER</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+  <style>
+    :root { --accent: #00ffcc; --ui-bg: rgba(0,0,0,0.6); }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body, html { height:100%; background:#000; overflow:hidden; font-family: sans-serif; }
+    
+    /* 播放器区域 */
+    .player-wrapper { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; }
+    video { max-width:100%; max-height:100%; outline:none; }
+
+    /* 顶部信息 */
+    .overlay-top {
+      position: fixed; top:0; left:0; right:0; padding: 30px;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.7), transparent);
+      display: flex; justify-content: space-between; align-items: flex-start;
+      z-index: 10; transition: opacity 0.4s;
+    }
+
+    /* 右下角控制栏 */
+    .overlay-bottom {
+      position: fixed;
+      right: 24px;
+      bottom: 24px;
+      padding: 12px 14px;
+      border: 1px solid rgba(255,255,255,0.25);
+      border-radius: 14px;
+      background: rgba(0,0,0,0.55);
+      backdrop-filter: blur(6px);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 18px;
+      z-index: 10;
+      transition: opacity 0.4s;
+    }
+
+    .info-box h2 { color:#fff; font-size:1.2rem; letter-spacing:2px; font-weight:300; }
+    .info-box span { color: var(--accent); font-size:0.7rem; text-transform: uppercase; }
+
+    /* 纯净图标按钮 */
+    .icon-btn {
+      background: none; border:none; cursor:pointer; color:#fff; 
+      opacity:0.7; transition:all 0.3s; display:flex; align-items:center;
+    }
+    .icon-btn:hover { opacity:1; transform: scale(1.1); color: var(--accent); }
+    .icon-btn svg { width: 24px; height: 24px; fill: currentColor; }
+
+    /* 状态点 */
+    .live-indicator { display:flex; align-items:center; gap:8px; font-size:0.7rem; color:var(--accent); letter-spacing:1px;}
+    .dot { width:6px; height:6px; background:#666; border-radius:50%; box-shadow: 0 0 6px rgba(255,255,255,0.2); }
+    .dot.connected { background:#00ffcc; box-shadow: 0 0 8px #00ffcc; }
+    .dot.error { background:#ff4d4f; box-shadow: 0 0 8px #ff4d4f; }
+
+    .hidden { opacity: 0; pointer-events: none; }
+
+    /* 加载中 */
+    #loader { position:fixed; inset:0; background:#000; z-index:100; display:flex; align-items:center; justify-content:center; }
+    .scan-line { width: 100px; height: 2px; background: var(--accent); animation: scan 1.5s infinite; }
+    @keyframes scan { 0% { transform:scaleX(0); opacity:0; } 50% { transform:scaleX(1); opacity:1; } 100% { transform:scaleX(0); opacity:0; } }
+
+    #errorToast {
+      position: fixed;
+      left: 50%;
+      bottom: 24px;
+      transform: translateX(-50%);
+      background: rgba(255, 77, 79, 0.9);
+      border: 1px solid rgba(255,255,255,0.2);
+      color: #fff;
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 12px;
+      z-index: 110;
+      display: none;
+      max-width: 92vw;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    @media (max-width: 768px) {
+      .overlay-bottom {
+        right: 12px;
+        bottom: 12px;
+        padding: 10px 12px;
+        gap: 12px;
+      }
+      .icon-btn svg { width: 20px; height: 20px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div id="loader"><div class="scan-line"></div></div>
+
+  <div class="overlay-top" id="uiTop">
+    <div class="info-box">
+      <span id="appLabel">...</span>
+      <h2 id="streamLabel">SIGNAL</h2>
+    </div>
+    <div class="live-indicator">
+      <div class="dot"></div> LIVE
+    </div>
+  </div>
+
+  <div class="player-wrapper">
+    <video id="player" autoplay playsinline></video>
+  </div>
+
+  <div class="overlay-bottom" id="uiBottom">
+    <button class="icon-btn" onclick="location.href='index.html'" title="BACK">
+      <svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+    </button>
+    <button class="icon-btn" id="reloadBtn" title="RELOAD">
+      <svg viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+    </button>
+    <button class="icon-btn" id="muteBtn" title="MUTE">
+        <svg id="muteIcon" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+    </button>
+    <button class="icon-btn" id="fsBtn" title="FULLSCREEN">
+      <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+    </button>
+  </div>
+
+  <div id="errorToast"></div>
+
+  <script src="srs.sdk.js"></script>
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const app = urlParams.get('app') || 'live';
+    const stream = urlParams.get('stream') || 'test';
+    const roomName = urlParams.get('room') || 'LIVE ROOM';
+    const liveIndicatorDot = document.querySelector('.live-indicator .dot');
+    const errorToast = document.getElementById('errorToast');
+
+    const PLAYER_BUILD = '2026-03-28.2';
+
+    const v = document.getElementById('player');
+    const uiTop = document.getElementById('uiTop');
+    const uiBottom = document.getElementById('uiBottom');
+    let uiTimer;
+
+    // 更新文本
+    document.getElementById('appLabel').textContent = app.toUpperCase() + ' / WEBRTC PRIORITY';
+    document.getElementById('streamLabel').textContent = roomName.toUpperCase();
+
+    // 交互式UI显隐
+    function showUI() {
+      uiTop.classList.remove('hidden');
+      uiBottom.classList.remove('hidden');
+      clearTimeout(uiTimer);
+      uiTimer = setTimeout(() => {
+        uiTop.classList.add('hidden');
+        uiBottom.classList.add('hidden');
+      }, 3000);
+    }
+    document.addEventListener('mousemove', showUI);
+    document.addEventListener('touchstart', showUI);
+
+    // 播放逻辑：WebRTC 优先，失败回退 FLV
+    let rtcPlayer = null;
+    let flvPlayer = null;
+    let retryTimer = null;
+    let retryCount = 0;
+    const maxWebRTCRetry = 2;
+    let currentMode = 'none';
+    let rtcMonitorTimer = null;
+    let rtcFallbackTriggered = false;
+
+    // ===== 诊断系统 =====
+    const diagLog = [];
+    function logDiag(msg) {
+      const ts = new Date().toISOString().split('T')[1].slice(0, 8);
+      const entry = '[' + ts + '] ' + msg;
+      diagLog.push(entry);
+      console.log(entry);
+    }
+    window._diagnostic = function() {
+      console.clear();
+      console.log('=== NexusRoom 直播诊断 ===');
+      console.log('当前模式:', currentMode);
+      console.log('WebRTC 回退已触发:', rtcFallbackTriggered);
+      if (rtcPlayer && rtcPlayer.pc) {
+        console.log('WebRTC State:', {
+          connectionState: rtcPlayer.pc.connectionState,
+          iceConnectionState: rtcPlayer.pc.iceConnectionState,
+          iceGatheringState: rtcPlayer.pc.iceGatheringState,
+          signalingState: rtcPlayer.pc.signalingState,
+        });
+        console.log('ICE Candidates: 正在采集或已采集');
+      }
+      console.log('Video 元素:', {
+        videoWidth: v.videoWidth,
+        videoHeight: v.videoHeight,
+        readyState: v.readyState,
+        networkState: v.networkState,
+        paused: v.paused,
+        muted: v.muted,
+      });
+      console.log('诊断日志:');
+      diagLog.forEach(log => console.log(log));
+    };
+    logDiag('Page loaded. Press F12, type _diagnostic() to check status.');
+    logDiag('Page loaded. Build=' + PLAYER_BUILD + '. Press F12, type _diagnostic() to check status.');
+
+    // 取消默认静音，保留用户自主控制。
+    v.muted = false;
+
+    function setDotState(state) {
+      liveIndicatorDot.classList.remove('error');
+      if (state === 'ok') {
+        liveIndicatorDot.classList.add('connected');
+      } else if (state === 'error') {
+        liveIndicatorDot.classList.remove('connected');
+        liveIndicatorDot.classList.add('error');
+      } else {
+        liveIndicatorDot.classList.remove('connected');
+      }
+    }
+
+    function showError(msg) {
+      errorToast.textContent = msg;
+      errorToast.style.display = 'block';
+      setTimeout(() => {
+        errorToast.style.display = 'none';
+      }, 2800);
+    }
+
+    function buildFLVUrl() {
+      // mpegts 在 Worker 中使用 fetch 时，必须给绝对 URL，避免相对路径解析失败。
+      return new URL(`/api/v1/stream/${encodeURIComponent(stream)}`, window.location.origin).toString();
+    }
+
+    function buildRTCUrl() {
+      const host = window.location.hostname;
+      const port = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
+      const schema = window.location.protocol === 'https:' ? 'https' : 'http';
+      const encodedApp = encodeURIComponent(app);
+      const encodedStream = encodeURIComponent(stream);
+      return `webrtc://${host}:${port}/${encodedApp}/${encodedStream}?play=/api/v1/web/rtc/play/&schema=${schema}`;
+    }
+
+    function destroyPlayers() {
+      if (rtcMonitorTimer) {
+        clearTimeout(rtcMonitorTimer);
+        rtcMonitorTimer = null;
+      }
+
+      if (rtcPlayer) {
+        try {
+          rtcPlayer.close();
+        } catch (_) {}
+      }
+      rtcPlayer = null;
+      window.srs_player = null;
+
+      if (!flvPlayer) return;
+      try {
+        flvPlayer.pause();
+        flvPlayer.unload();
+        flvPlayer.detachMediaElement();
+        flvPlayer.destroy();
+      } catch (_) {}
+      flvPlayer = null;
+    }
+
+    async function ensureMpegtsReady() {
+      if (window.mpegts) return true;
+
+      const sources = [
+        '/mpegts.min.js',  // 本地优先
+        'https://cdn.jsdelivr.net/npm/mpegts.js@1.8.0/dist/mpegts.min.js',
+        'https://unpkg.com/mpegts.js@1.8.0/dist/mpegts.min.js',
+      ];
+
+      for (const src of sources) {
+        try {
+          logDiag('ensureMpegtsReady: 加载 mpegts.js from ' + src);
+          await new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = src;
+            script.async = true;
+            script.timeout = 5000;
+            script.onload = () => resolve();
+            script.onerror = () => reject(new Error('load failed'));
+            document.head.appendChild(script);
+            setTimeout(() => reject(new Error('timeout')), 5000);
+          });
+          if (window.mpegts) {
+            logDiag('ensureMpegtsReady: 加载成功');
+            return true;
+          }
+        } catch (err) {
+          logDiag('ensureMpegtsReady: 加载失败 (' + src + ') = ' + err.message);
+        }
+      }
+
+      return false;
+    }
+
+    function playWithRTC() {
+      currentMode = 'webrtc';
+      logDiag('playWithRTC: 开始 WebRTC 播放');
+      document.getElementById('appLabel').textContent = app.toUpperCase() + ' / WEBRTC';
+      rtcPlayer = new SrsRtcPlayerAsync();
+      window.srs_player = rtcPlayer;
+      const rtcUrl = buildRTCUrl();
+      logDiag('playWithRTC: URL = ' + rtcUrl);
+      return rtcPlayer.play(rtcUrl).then(() => {
+        logDiag('playWithRTC: 信令协商成功，正在建立媒体连接');
+        v.srcObject = rtcPlayer.stream;
+
+        // 关键：信令成功不代表媒体可达。若 ICE 失败/无首帧，自动回退 FLV。
+        if (rtcPlayer.pc) {
+          rtcPlayer.pc.onconnectionstatechange = () => {
+            const state = rtcPlayer.pc.connectionState;
+            logDiag('playWithRTC: RTCPeerConnection state = ' + state);
+            if ((state === 'failed' || state === 'disconnected' || state === 'closed') && !rtcFallbackTriggered) {
+              logDiag('playWithRTC: 连接失败，触发回退');
+              fallbackToFLV('WebRTC 媒体连接失败，已回退 FLV');
+            }
+          };
+        }
+
+        rtcMonitorTimer = setTimeout(() => {
+          const noFrame = !v.videoWidth || v.readyState < 2;
+          logDiag('playWithRTC: 首帧检测 (' + v.videoWidth + 'x' + v.videoHeight + ', readyState=' + v.readyState + ')');
+          if (noFrame && !rtcFallbackTriggered) {
+            logDiag('playWithRTC: 无首帧，触发回退');
+            fallbackToFLV('WebRTC 无首帧，已回退 FLV');
+          }
+        }, 3500);
+
+        return v.play().catch((err) => {
+          logDiag('playWithRTC: play() 被阻止 (' + err.name + ')，等待用户手动播放');
+          showError('浏览器限制自动播放，请点击任意控制按钮后重试');
+          throw err;
+        });
+      });
+    }
+
+    async function playWithFLV() {
+      currentMode = 'flv';
+      logDiag('playWithFLV: 开始 FLV 回退');
+      document.getElementById('appLabel').textContent = app.toUpperCase() + ' / FLV FALLBACK';
+      const ready = await ensureMpegtsReady();
+      logDiag('playWithFLV: mpegts 加载 = ' + ready);
+      if (!ready || !window.mpegts || !mpegts.getFeatureList().mseLivePlayback) {
+        throw new Error('FLV fallback unavailable: mpegts.js not loaded or MSE unsupported');
+      }
+
+      const flvUrl = buildFLVUrl();
+      logDiag('playWithFLV: 创建播放器，URL = ' + flvUrl);
+      flvPlayer = mpegts.createPlayer({
+        type: 'flv',
+        isLive: true,
+        url: flvUrl,
+      }, {
+        // 某些浏览器/环境下 Worker 对相对 URL 支持不稳定，先关闭以提高兼容性。
+        enableWorker: false,
+        lazyLoad: false,
+        stashInitialSize: 128,
+        autoCleanupSourceBuffer: true,
+      });
+
+      flvPlayer.attachMediaElement(v);
+      flvPlayer.load();
+      logDiag('playWithFLV: 已加载，开始播放');
+      await flvPlayer.play();
+      await v.play();
+      logDiag('playWithFLV: 播放开始');
+
+      flvPlayer.on(mpegts.Events.ERROR, (e) => {
+        logDiag('playWithFLV: 播放错误 = ' + String(e));
+        setDotState('error');
+        showError('FLV 播放错误，正在重连...');
+        scheduleRetry();
+      });
+    }
+
+    async function play() {
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+
+      rtcFallbackTriggered = false;
+      destroyPlayers();
+      setDotState('idle');
+      logDiag('play(): 清理状态，开始新的播放会话');
+
+      document.getElementById('loader').style.display = 'flex';
+
+      try {
+        await playWithRTC();
+        retryCount = 0;
+        setDotState('ok');
+        document.getElementById('loader').style.display = 'none';
+        logDiag('play(): 成功');
+        return;
+      } catch (rtcErr) {
+        logDiag('play(): WebRTC 初始化失败 = ' + rtcErr.message);
+        console.error('webrtc failed:', rtcErr);
+      }
+
+      try {
+        await playWithFLV();
+        setDotState('ok');
+        showError('WebRTC 不可用，已切换 FLV 回退');
+        retryCount = 0;
+        document.getElementById('loader').style.display = 'none';
+        logDiag('play(): FLV 回退成功');
+      } catch (flvErr) {
+        logDiag('play(): FLV 回退失败 = ' + flvErr.message);
+        console.error('flv fallback failed:', flvErr);
+        setDotState('error');
+        showError('播放失败：WebRTC 与 FLV 都不可用');
+        document.getElementById('loader').style.display = 'none';
+        scheduleRetry();
+      }
+    }
+
+    async function fallbackToFLV(message) {
+      if (rtcFallbackTriggered) {
+        logDiag('fallbackToFLV: 已触发过，拒绝重复调用');
+        return;
+      }
+      logDiag('fallbackToFLV: 触发回退，消息 = ' + message);
+      rtcFallbackTriggered = true;
+
+      try {
+        if (rtcMonitorTimer) {
+          clearTimeout(rtcMonitorTimer);
+          rtcMonitorTimer = null;
+        }
+        if (rtcPlayer) {
+          try { rtcPlayer.close(); } catch (_) {}
+          rtcPlayer = null;
+        }
+
+        await playWithFLV();
+        setDotState('ok');
+        showError(message);
+        retryCount = 0;
+        document.getElementById('loader').style.display = 'none';
+      } catch (err) {
+        logDiag('fallbackToFLV: FLV 回退失败 = ' + err.message);
+        console.error('fallback flv failed:', err);
+        setDotState('error');
+        showError('回退 FLV 失败，正在重试...');
+        scheduleRetry();
+      }
+    }
+
+    function scheduleRetry() {
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+
+      if (retryCount < maxWebRTCRetry) {
+        retryCount += 1;
+      }
+      retryTimer = setTimeout(play, 3000);
+    }
+
+    // 控制功能
+    document.getElementById('reloadBtn').onclick = play;
+    document.getElementById('muteBtn').onclick = () => {
+        v.muted = !v.muted;
+        document.getElementById('muteIcon').style.fill = v.muted ? '#ff4444' : 'currentColor';
+    };
+    document.getElementById('fsBtn').onclick = () => {
+        if (!document.fullscreenElement) v.requestFullscreen();
+        else document.exitFullscreen();
+    };
+
+    window.addEventListener('beforeunload', destroyPlayers);
+
+    play();
+  </script>
+</body>
+</html>

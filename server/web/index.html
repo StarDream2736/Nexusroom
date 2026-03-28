@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"/>
+  <title>STARDREAM // TERMINAL</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+  <style>
+    :root {
+      --primary: #fff;
+      --accent: #00ffcc; /* 明日方舟风格的青色 */
+      --bg: #0a0a0a;
+      --panel-bg: rgba(20, 20, 20, 0.8);
+      --border: rgba(255, 255, 255, 0.15);
+      --font-main: "Inter", "HarmonyOS Sans", -apple-system, sans-serif;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: var(--bg);
+      color: var(--primary);
+      font-family: var(--font-main);
+      overflow-x: hidden;
+      /* 背景网格装饰 */
+      background-image: linear-gradient(var(--border) 1px, transparent 1px), 
+                        linear-gradient(90deg, var(--border) 1px, transparent 1px);
+      background-size: 40px 40px;
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 60px 20px;
+    }
+
+    /* Header 优化 */
+    .header {
+      margin-bottom: 60px;
+      position: relative;
+      border-left: 4px solid var(--accent);
+      padding-left: 20px;
+      animation: slideInLeft 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .header h1 {
+      font-size: 1.8rem;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      font-weight: 800;
+    }
+    .header p {
+      font-size: 0.8rem;
+      opacity: 0.5;
+      letter-spacing: 2px;
+      margin-top: 5px;
+    }
+
+    /* 状态栏 */
+    .status-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 15px 0;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 40px;
+      animation: fadeIn 1s ease 0.2s both;
+    }
+    .server-status { display: flex; align-items: center; gap: 12px; font-size: 0.85rem; letter-spacing: 1px; }
+    .status-dot { width: 6px; height: 6px; background: #555; position: relative; }
+    .status-dot.connected { background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+
+    /* 按钮优化 */
+    .btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--primary);
+      padding: 8px 20px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.8rem;
+      transition: all 0.3s;
+      text-transform: uppercase;
+    }
+    .btn:hover { background: var(--primary); color: #000; border-color: var(--primary); }
+    .btn svg { width: 14px; height: 14px; fill: currentColor; }
+
+    /* 列表卡片 */
+    .streams-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 25px;
+    }
+    .stream-card {
+      background: var(--panel-bg);
+      border: 1px solid var(--border);
+      padding: 24px;
+      position: relative;
+      cursor: pointer;
+      transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+      overflow: hidden;
+    }
+    /* 方舟风格的角落装饰 */
+    .stream-card::before {
+      content: ""; position: absolute; top: 0; right: 0;
+      width: 0; height: 0;
+      border-style: solid; border-width: 0 15px 15px 0;
+      border-color: transparent var(--border) transparent transparent;
+    }
+    .stream-card:hover {
+      border-color: var(--accent);
+      transform: translateY(-5px) scale(1.02);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+    .stream-name { font-size: 1.1rem; font-weight: 700; margin-bottom: 4px; }
+    .stream-app { 
+        display: inline-block;
+        font-size: 0.7rem; color: var(--accent); 
+        border: 1px solid var(--accent); 
+        padding: 1px 6px; margin-bottom: 15px; 
+    }
+    .info-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+      border-top: 1px solid var(--border); padding-top: 15px;
+    }
+    .info-label { font-size: 0.65rem; opacity: 0.4; text-transform: uppercase; }
+    .info-value { font-size: 0.9rem; font-weight: 500; }
+
+    /* 动画定义 */
+    @keyframes slideInLeft { from { transform: translateX(-30px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+    .loading { text-align: center; padding: 100px; color: var(--accent); letter-spacing: 4px; font-size: 0.8rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Stream Terminal</h1>
+      <p>STAR-DREAM SYSTEM V2.7.36</p>
+    </div>
+    
+    <div class="status-bar">
+      <div class="server-status">
+        <div class="status-dot" id="serverStatus"></div>
+        <span id="statusText">INITIALIZING...</span>
+      </div>
+      <button class="btn" id="refreshBtn">
+        <svg viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+        Sync List
+      </button>
+    </div>
+    
+    <div id="streamsContainer">
+        <!-- 动态加载 -->
+    </div>
+  </div>
+
+  <script>
+    const SERVER_URL = '/api/v1';
+    const container = document.getElementById('streamsContainer');
+
+    async function fetchStreams() {
+      try {
+        const res = await fetch(`${SERVER_URL}/web/rooms/live`);
+        const data = await res.json();
+        if (data.code === 20000) {
+          const rooms = (data.data && data.data.rooms) ? data.data.rooms : [];
+          render(rooms);
+          return;
+        }
+        setServerStatus(false, "SYNC FAILED");
+      } catch (e) {
+        setServerStatus(false, "CONNECTION ERROR");
+      }
+    }
+
+    function setServerStatus(on, msg) {
+      const dot = document.getElementById('serverStatus');
+      dot.className = 'status-dot' + (on ? ' connected' : '');
+      document.getElementById('statusText').textContent = msg;
+    }
+
+    function render(rooms) {
+      setServerStatus(true, `ACTIVE ROOMS: ${rooms.length}`);
+      if (rooms.length === 0) {
+        container.innerHTML = '<div class="loading">NO ACTIVE SIGNALS FOUND.</div>';
+        return;
+      }
+
+      const cards = [];
+      let cardIndex = 0;
+
+      rooms.forEach((room) => {
+        (room.streams || []).forEach((s) => {
+          cards.push(`
+        <div class="stream-card" style="animation: fadeIn 0.5s ease ${cardIndex*0.08}s both" onclick="window.open('./player.html?v=${Date.now()}&app=${encodeURIComponent(s.app || 'live')}&stream=${encodeURIComponent(s.stream_key)}&room=${encodeURIComponent(room.name)}', '_blank')">
+          <div class="stream-name">${escapeHTML(room.name || '未命名房间')}</div>
+          <div class="stream-app">${escapeHTML((s.app || 'live') + ' / ' + (room.type || 'known'))}</div>
+          <div class="info-grid">
+            <div><div class="info-label">Signal</div><div class="info-value">${escapeHTML(s.label || s.stream_key)}</div></div>
+            <div><div class="info-label">Clients</div><div class="info-value">${Number(s.clients || 0)}</div></div>
+            <div><div class="info-label">Bitrate</div><div class="info-value">${Math.round(Number(s.bitrate_kbps || 0))} kbps</div></div>
+            <div><div class="info-label">Stream Key</div><div class="info-value">${escapeHTML((s.stream_key || '').slice(0, 12))}</div></div>
+          </div>
+        </div>
+          `);
+          cardIndex += 1;
+        });
+      });
+
+      container.innerHTML = `<div class="streams-grid">${cards.join('')}</div>`;
+    }
+
+    function escapeHTML(value) {
+      return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    document.getElementById('refreshBtn').onclick = fetchStreams;
+    fetchStreams();
+    setInterval(fetchStreams, 10000);
+  </script>
+</body>
+</html>

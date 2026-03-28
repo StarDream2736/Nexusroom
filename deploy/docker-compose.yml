@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   server:
     build:
@@ -9,6 +7,7 @@ services:
     container_name: nexusroom-server
     ports:
       - "8080:8080"
+      - "8881:8080"        # 网页直播独立入口（不影响旧客户端）
       - "51820:51820/udp"   # WireGuard
     volumes:
       - ./config.yaml:/app/config.yaml
@@ -73,7 +72,9 @@ services:
     container_name: nexusroom-srs
     ports:
       - "1935:1935"         # RTMP 推流接收端口
+      - "8883:1935"         # RTMP 推流别名端口（网页直播场景）
       - "8085:8085"         # HTTP-FLV 拉流端口
+      - "8000:8000/udp"     # SRS WebRTC 媒体 UDP 端口
     volumes:
       - ./srs.conf:/usr/local/srs/conf/srs.conf
     command: ./objs/srs -c conf/srs.conf

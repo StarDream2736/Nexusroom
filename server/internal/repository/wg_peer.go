@@ -27,6 +27,10 @@ func (r *WGPeerRepository) FindByRoomAndUser(roomID, userID uint64) (*model.WGPe
 	return &peer, nil
 }
 
+func (r *WGPeerRepository) Update(peer *model.WGPeer) error {
+	return r.db.Save(peer).Error
+}
+
 func (r *WGPeerRepository) ListByRoom(roomID uint64) ([]model.WGPeer, error) {
 	var peers []model.WGPeer
 	err := r.db.Where("room_id = ?", roomID).Preload("User").Find(&peers).Error

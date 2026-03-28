@@ -24,6 +24,9 @@ type Hub struct {
 	roomRepo      *repository.RoomRepository
 	userRepo      *repository.UserRepository
 	wgCoordinator *wg.Coordinator // VLAN peer 清理
+
+	// 短暂断线重连期间，延迟执行 VLAN peer 清理，避免误删
+	wgCleanupDelay time.Duration
 }
 
 type BroadcastMessage struct {
@@ -35,13 +38,14 @@ type BroadcastMessage struct {
 
 func NewHub(msgRepo *repository.MessageRepository, roomRepo *repository.RoomRepository, userRepo *repository.UserRepository) *Hub {
 	return &Hub{
-		Clients:    make(map[uint64]*Client),
-		Broadcast:  make(chan *BroadcastMessage),
-		Register:   make(chan *Client),
-		Unregister: make(chan *Client),
-		msgRepo:    msgRepo,
-		roomRepo:   roomRepo,
-		userRepo:   userRepo,
+		Clients:        make(map[uint64]*Client),
+		Broadcast:      make(chan *BroadcastMessage),
+		Register:       make(chan *Client),
+		Unregister:     make(chan *Client),
+		msgRepo:        msgRepo,
+		roomRepo:       roomRepo,
+		userRepo:       userRepo,
+		wgCleanupDelay: 20 * time.Second,
 	}
 }
 
@@ -92,20 +96,7 @@ func (h *Hub) Run() {
 					RoomID: roomID,
 				}, client.UserID)
 
-				// 兜底：清理该用户在此房间的 VLAN peer
-				if h.wgCoordinator != nil {
-					if err := h.wgCoordinator.UnregisterPeer(roomID, client.UserID); err != nil {
-						log.Printf("[WG] Auto-cleanup peer for user %d room %d: %v", client.UserID, roomID, err)
-					} else {
-						log.Printf("[WG] Auto-cleaned peer for user %d room %d", client.UserID, roomID)
-						// 广播 VLAN peer 离开事件
-						h.broadcastToRoom(roomID, EventVlanPeerUpdate, VlanPeerUpdatePayload{
-							RoomID:   roomID,
-							Action:   "leave",
-							PeerInfo: PeerInfo{UserID: client.UserID},
-						}, client.UserID)
-					}
-				}
+				h.scheduleWGPeerCleanup(roomID, client.UserID)
 			}
 
 			log.Printf("User %d disconnected", client.UserID)
@@ -114,6 +105,41 @@ func (h *Hub) Run() {
 			h.broadcastToRoom(msg.RoomID, msg.Event, msg.Payload, msg.ExcludeUserID)
 		}
 	}
+}
+
+func (h *Hub) scheduleWGPeerCleanup(roomID, userID uint64) {
+	if h.wgCoordinator == nil {
+		return
+	}
+
+	delay := h.wgCleanupDelay
+	go func() {
+		time.Sleep(delay)
+
+		h.mu.RLock()
+		reconnected := false
+		if current, ok := h.Clients[userID]; ok {
+			reconnected = current != nil && current.IsInRoom(roomID)
+		}
+		h.mu.RUnlock()
+
+		if reconnected {
+			log.Printf("[WG] Skip auto-cleanup for user %d room %d: user reconnected", userID, roomID)
+			return
+		}
+
+		if err := h.wgCoordinator.UnregisterPeer(roomID, userID); err != nil {
+			log.Printf("[WG] Auto-cleanup peer for user %d room %d: %v", userID, roomID, err)
+			return
+		}
+
+		log.Printf("[WG] Auto-cleaned peer for user %d room %d (delay=%s)", userID, roomID, delay)
+		h.broadcastToRoom(roomID, EventVlanPeerUpdate, VlanPeerUpdatePayload{
+			RoomID:   roomID,
+			Action:   "leave",
+			PeerInfo: PeerInfo{UserID: userID},
+		}, userID)
+	}()
 }
 
 // BroadcastToRoom 向房间广播消息

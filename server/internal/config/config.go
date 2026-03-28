@@ -58,6 +58,7 @@ type LiveKitConfig struct {
 type SRSConfig struct {
 	RTMPPort int    `mapstructure:"rtmp_port"`
 	HTTPPort int    `mapstructure:"http_port"`
+	APIPort  int    `mapstructure:"api_port"`
 	Host     string `mapstructure:"host"` // SRS Docker 服务名（内网），默认 srs
 }
 

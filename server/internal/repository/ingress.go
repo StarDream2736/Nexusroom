@@ -6,6 +6,13 @@ import (
 	"gorm.io/gorm"
 )
 
+type StreamRoomRef struct {
+	StreamKey string
+	RoomID    uint64
+	RoomName  string
+	Label     string
+}
+
 type IngressRepository struct {
 	db *gorm.DB
 }
@@ -57,4 +64,19 @@ func (r *IngressRepository) Delete(id uint64) error {
 
 func (r *IngressRepository) SetActive(id uint64, active bool) error {
 	return r.db.Model(&model.RoomIngress{}).Where("id = ?", id).Update("is_active", active).Error
+}
+
+func (r *IngressRepository) ListRoomRefsByStreamKeys(streamKeys []string) ([]StreamRoomRef, error) {
+	if len(streamKeys) == 0 {
+		return []StreamRoomRef{}, nil
+	}
+
+	refs := make([]StreamRoomRef, 0, len(streamKeys))
+	err := r.db.Table("room_ingresses AS ri").
+		Select("ri.stream_key AS stream_key, ri.room_id AS room_id, rooms.name AS room_name, ri.label AS label").
+		Joins("JOIN rooms ON rooms.id = ri.room_id").
+		Where("ri.stream_key IN ?", streamKeys).
+		Scan(&refs).Error
+
+	return refs, err
 }

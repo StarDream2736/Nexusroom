@@ -95,8 +95,10 @@ echo ''
 echo '📋 配置摘要:'
 echo '========================================'
 echo "  API 服务:      http://$SERVER_IP:8080"
+echo "  网页直播入口:  http://$SERVER_IP:8881"
 echo "  LiveKit 语音:  ws://$SERVER_IP:7880"
 echo "  RTMP 推流:     rtmp://$SERVER_IP:1935/live/"
+echo "  RTMP 推流(别名): rtmp://$SERVER_IP:8883/live/"
 echo "  Web 管理后台:  http://$SERVER_IP:3000"
 echo '========================================'
 echo ''
@@ -123,7 +125,10 @@ echo '   更新镜像:   docker-compose pull && docker-compose up -d'
 echo ''
 echo '⚠️  防火墙需开放端口:'
 echo '   8080          API 服务'
+echo '   8881          网页直播入口'
 echo '   1935          SRS RTMP 推流'
+echo '   8883          SRS RTMP 推流别名'
+echo '   8000/udp      SRS WebRTC 媒体'
 echo '   7880          LiveKit 信令'
 echo '   7881          LiveKit TCP 穿透'
 echo '   3478/udp      TURN 服务器'

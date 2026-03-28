@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -46,6 +47,9 @@ func Up(cfg *Config) (*Tunnel, error) {
 	if ifname == "" {
 		ifname = "NexusRoom0"
 	}
+
+	// Ensure Windows Firewall allows this process to send/receive UDP
+	ensureFirewallRule()
 
 	// Create TUN device via wintun
 	tunDev, err := tun.CreateTUN(ifname, device.DefaultMTU)
@@ -89,6 +93,9 @@ func Up(cfg *Config) (*Tunnel, error) {
 		dev.Close()
 		return nil, fmt.Errorf("failed to configure IP: %w", err)
 	}
+
+	// Allow inbound ICMP (ping) on this interface so peers can reach each other
+	ensureICMPRule(realName)
 
 	// Add routes for peer allowed IPs
 	for _, peer := range cfg.Peers {
@@ -243,5 +250,89 @@ func addRoute(cidr string, ifname string) {
 		if err2 != nil {
 			log.Printf("Warning: failed to add route for %s: %s / %s", cidr, string(output), string(output2))
 		}
+	}
+}
+
+// ensureFirewallRule adds a Windows Firewall rule to allow nexusroom-wg.exe
+// UDP traffic (both inbound and outbound). Idempotent — silently skips if
+// the rule already exists. Requires administrator privileges (which we always
+// have because the helper is launched elevated via UAC).
+func ensureFirewallRule() {
+	exePath, err := os.Executable()
+	if err != nil {
+		log.Printf("Warning: cannot get executable path for firewall rule: %v", err)
+		return
+	}
+
+	ruleName := "NexusRoom WireGuard Helper"
+
+	// Check if rule already exists
+	check := exec.Command("netsh", "advfirewall", "firewall", "show", "rule", fmt.Sprintf("name=%s", ruleName))
+	if out, err := check.CombinedOutput(); err == nil && strings.Contains(string(out), ruleName) {
+		log.Printf("Firewall rule '%s' already exists", ruleName)
+		return
+	}
+
+	// Add inbound rule
+	inCmd := exec.Command("netsh", "advfirewall", "firewall", "add", "rule",
+		fmt.Sprintf("name=%s", ruleName),
+		"dir=in",
+		"action=allow",
+		fmt.Sprintf("program=%s", exePath),
+		"protocol=UDP",
+		"enable=yes",
+		"profile=any",
+	)
+	if out, err := inCmd.CombinedOutput(); err != nil {
+		log.Printf("Warning: failed to add inbound firewall rule: %s (%v)", string(out), err)
+	} else {
+		log.Printf("Added inbound firewall rule for %s", exePath)
+	}
+
+	// Add outbound rule
+	outCmd := exec.Command("netsh", "advfirewall", "firewall", "add", "rule",
+		fmt.Sprintf("name=%s", ruleName),
+		"dir=out",
+		"action=allow",
+		fmt.Sprintf("program=%s", exePath),
+		"protocol=UDP",
+		"enable=yes",
+		"profile=any",
+	)
+	if out, err := outCmd.CombinedOutput(); err != nil {
+		log.Printf("Warning: failed to add outbound firewall rule: %s (%v)", string(out), err)
+	} else {
+		log.Printf("Added outbound firewall rule for %s", exePath)
+	}
+}
+
+// ensureICMPRule adds a Windows Firewall rule to allow inbound ICMPv4 (ping)
+// on the NexusRoom WireGuard interface. Without this, Windows silently drops
+// ICMP echo requests arriving on the TUN adapter, making peers unable to ping
+// each other even though the WireGuard tunnel is working.
+func ensureICMPRule(ifAlias string) {
+	ruleName := "NexusRoom ICMP Allow"
+
+	// Check if rule already exists
+	check := exec.Command("netsh", "advfirewall", "firewall", "show", "rule", fmt.Sprintf("name=%s", ruleName))
+	if out, err := check.CombinedOutput(); err == nil && strings.Contains(string(out), ruleName) {
+		log.Printf("Firewall ICMP rule '%s' already exists", ruleName)
+		return
+	}
+
+	cmd := exec.Command("netsh", "advfirewall", "firewall", "add", "rule",
+		fmt.Sprintf("name=%s", ruleName),
+		"dir=in",
+		"action=allow",
+		"protocol=ICMPv4",
+		"localip=any",
+		"remoteip=any",
+		"enable=yes",
+		"profile=any",
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		log.Printf("Warning: failed to add ICMP firewall rule: %s (%v)", string(out), err)
+	} else {
+		log.Printf("Added ICMP firewall rule for interface %s", ifAlias)
 	}
 }

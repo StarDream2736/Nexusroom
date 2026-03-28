@@ -55,7 +55,10 @@ chmod +x deploy.sh
 
 # 3. 配置防火墙（按需开放端口）
 sudo ufw allow 8080/tcp          # API 服务
+sudo ufw allow 8881/tcp          # 网页直播入口（独立）
 sudo ufw allow 1935/tcp          # SRS RTMP 推流
+sudo ufw allow 8883/tcp          # SRS RTMP 推流别名
+sudo ufw allow 8000/udp          # SRS WebRTC 媒体
 sudo ufw allow 7880/tcp          # LiveKit 信令
 sudo ufw allow 7881/tcp          # LiveKit TCP 穿透
 sudo ufw allow 3478/udp          # TURN 服务器
@@ -77,7 +80,10 @@ flutter build windows --release  # 发布
 | 端口 | 协议 | 服务 | 说明 |
 |------|------|------|------|
 | 8080 | TCP | Golang 主服务 | REST API + WebSocket + FLV 反向代理 |
+| 8881 | TCP | Golang 主服务 | 网页直播入口（独立于桌面客户端） |
 | 1935 | TCP | SRS 6 | RTMP 推流接收（OBS） |
+| 8883 | TCP | SRS 6 | RTMP 推流别名端口（网页直播场景） |
+| 8000 | UDP | SRS 6 | WebRTC 媒体传输 |
 | 7880 | TCP | LiveKit | WebRTC 信令（语音） |
 | 7881 | TCP | LiveKit | TCP 穿透备用 |
 | 3478 | UDP | LiveKit TURN | ICE 穿透 |

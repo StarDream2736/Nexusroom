@@ -55,6 +55,7 @@ func SetupRouter(
 	friendHandler := handler.NewFriendHandler(friendRepo, userRepo, roomRepo, hub)
 	webhookHandler := handler.NewWebhookHandler(msgRepo, roomRepo, ingressRepo, hub, cfg)
 	vlanHandler := handler.NewVLANHandler(roomRepo, userRepo, wgCoordinator, hub)
+	webPublicHandler := handler.NewWebPublicHandler(ingressRepo, cfg)
 
 	// 健康检查
 	router.GET("/ping", func(c *gin.Context) {
@@ -62,7 +63,24 @@ func SetupRouter(
 	})
 
 	// 静态文件（头像等公开资源）
+	router.Use(func(c *gin.Context) {
+		path := c.Request.URL.Path
+		if path == "/" || path == "/index.html" || path == "/player.html" || path == "/srs.sdk.js" || path == "/mpegts.min.js" {
+			c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+			c.Header("Pragma", "no-cache")
+			c.Header("Expires", "0")
+		}
+		c.Next()
+	})
+
 	router.Static("/uploads", cfg.Storage.Path)
+	router.GET("/", func(c *gin.Context) {
+		c.File("./web/index.html")
+	})
+	router.StaticFile("/index.html", "./web/index.html")
+	router.StaticFile("/player.html", "./web/player.html")
+	router.StaticFile("/srs.sdk.js", "./web/srs.sdk.js")
+	router.StaticFile("/mpegts.min.js", "./web/mpegts.min.js")
 
 	// API v1 路由组
 	apiV1 := router.Group("/api/v1")
@@ -159,6 +177,10 @@ func SetupRouter(
 
 		// HTTP-FLV 直播流代理（公开，无需认证）
 		apiV1.GET("/stream/:streamKey", ingressHandler.ProxyStream)
+
+		// 网页直播（独立于客户端业务流程）
+		apiV1.GET("/web/rooms/live", webPublicHandler.ListLiveRooms)
+		apiV1.POST("/web/rtc/play", webPublicHandler.RTCPlayProxy)
 	}
 
 	// WebSocket 路由

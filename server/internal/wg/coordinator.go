@@ -123,15 +123,24 @@ func (c *Coordinator) InitInterface() error {
 		"/proc/sys/net/ipv4/conf/" + wgInterfaceName + "/rp_filter": "0",
 	}
 	for path, val := range sysctlSet {
-		if err := os.WriteFile(path, []byte(val), 0644); err != nil {
-			log.Printf("[WG] Warning: failed to write %s=%s: %v", path, val, err)
-		} else {
-			log.Printf("[WG] sysctl %s = %s", path, val)
+		if err := ensureProcSysctl(path, val); err != nil {
+			log.Printf("[WG] Warning: failed to ensure %s=%s: %v", path, val, err)
 		}
 	}
 
 	// ── iptables FORWARD rules for peer-to-peer traffic ──────────────
+	// Set default FORWARD policy to ACCEPT (in container environments the
+	// default is often DROP, which blocks wg0 → wg0 forwarding even with
+	// explicit rules).
+	if out, err := exec.Command("iptables", "-P", "FORWARD", "ACCEPT").CombinedOutput(); err != nil {
+		log.Printf("[WG] Warning: iptables -P FORWARD ACCEPT: %s (%v)", string(out), err)
+	} else {
+		log.Printf("[WG] iptables FORWARD policy set to ACCEPT")
+	}
+
 	iptablesRules := [][]string{
+		// Flush existing FORWARD rules first to avoid duplicates on restart
+		{"-F", "FORWARD"},
 		{"-A", "FORWARD", "-i", wgInterfaceName, "-o", wgInterfaceName, "-j", "ACCEPT"},
 		{"-A", "FORWARD", "-i", wgInterfaceName, "-j", "ACCEPT"},
 		{"-A", "FORWARD", "-o", wgInterfaceName, "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT"},
@@ -145,6 +154,8 @@ func (c *Coordinator) InitInterface() error {
 	// Log final FORWARD chain for diagnostics
 	if out, err := exec.Command("iptables", "-L", "FORWARD", "-n", "-v").CombinedOutput(); err == nil {
 		log.Printf("[WG] iptables FORWARD chain:\n%s", string(out))
+	} else {
+		log.Printf("[WG] Warning: iptables -L FORWARD failed: %v", err)
 	}
 
 	log.Printf("[WG] Interface %s UP, listening on :%d, gateway %s", wgInterfaceName, listenPort, addr)
@@ -187,6 +198,23 @@ func (c *Coordinator) createInterface() error {
 	}
 
 	return fmt.Errorf("wireguard-go started but UAPI socket not found at %s", socketPath)
+}
+
+func ensureProcSysctl(path, expected string) error {
+	current, err := os.ReadFile(path)
+	if err == nil {
+		if strings.TrimSpace(string(current)) == expected {
+			log.Printf("[WG] sysctl already set: %s=%s", path, expected)
+			return nil
+		}
+	}
+
+	if err := os.WriteFile(path, []byte(expected), 0644); err != nil {
+		return err
+	}
+
+	log.Printf("[WG] sysctl set: %s=%s", path, expected)
+	return nil
 }
 
 // reloadPeers loads all WGPeer records from the DB and adds them to the device.
@@ -252,6 +280,17 @@ func (c *Coordinator) RegisterPeer(roomID, userID uint64, publicKey string) (*mo
 	// Check if already registered
 	existing, err := c.peerRepo.FindByRoomAndUser(roomID, userID)
 	if err == nil && existing != nil {
+		// 用户重连时客户端可能生成新的密钥对；若公钥变更，需要同步更新 DB 和设备配置。
+		if existing.PublicKey != publicKey {
+			oldKey := existing.PublicKey
+			existing.PublicKey = publicKey
+			if err := c.peerRepo.Update(existing); err != nil {
+				return nil, fmt.Errorf("failed to update peer public key: %w", err)
+			}
+			c.removePeerFromDevice(oldKey)
+			log.Printf("[WG] Updated peer key for user %d room %d", userID, roomID)
+		}
+
 		// Ensure the peer is also on the WG device
 		c.addPeerToDevice(existing.PublicKey, existing.AssignedIP)
 		return existing, nil
@@ -382,6 +421,7 @@ func (c *Coordinator) GetServerConfig() ServerConfig {
 	return ServerConfig{
 		ServerPublicKey: serverPublicKey,
 		ServerEndpoint:  fmt.Sprintf("%s:%d", c.cfg.ServerIP, c.cfg.ListenPort),
+		ListenPort:      c.cfg.ListenPort,
 		DNS:             c.cfg.GatewayIP,
 	}
 }
@@ -389,5 +429,6 @@ func (c *Coordinator) GetServerConfig() ServerConfig {
 type ServerConfig struct {
 	ServerPublicKey string `json:"server_public_key"`
 	ServerEndpoint  string `json:"server_endpoint"`
+	ListenPort      int    `json:"listen_port"`
 	DNS             string `json:"dns"`
 }
