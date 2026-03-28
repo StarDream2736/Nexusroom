@@ -170,6 +170,8 @@
     let currentMode = 'none';
     let rtcMonitorTimer = null;
     let rtcFallbackTriggered = false;
+    let rtcTriedVideoOnly = false;
+    let waitingUserGesture = false;
 
     // ===== 诊断系统 =====
     const diagLog = [];
@@ -239,9 +241,36 @@
       const host = window.location.hostname;
       const port = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
       const schema = window.location.protocol === 'https:' ? 'https' : 'http';
+      // SRS 对 streamurl 的路径段不会总是解码，特殊字符（例如 ':'）被 encode 后可能匹配不到真实流名。
+      // 这里对 app 仍编码，但 stream 保持原样，优先保证与推流流名一致。
       const encodedApp = encodeURIComponent(app);
-      const encodedStream = encodeURIComponent(stream);
-      return `webrtc://${host}:${port}/${encodedApp}/${encodedStream}?play=/api/v1/web/rtc/play/&schema=${schema}`;
+      return `webrtc://${host}:${port}/${encodedApp}/${stream}?play=/api/v1/web/rtc/play/&schema=${schema}`;
+    }
+
+    function isAutoplayBlocked(err) {
+      if (!err) return false;
+      const msg = String(err.message || '').toLowerCase();
+      return err.name === 'NotAllowedError' || msg.includes('user didn\'t interact') || msg.includes('notallowederror');
+    }
+
+    function armUserGestureResume() {
+      if (waitingUserGesture) return;
+      waitingUserGesture = true;
+
+      const resumeOnce = async () => {
+        document.removeEventListener('click', resumeOnce, true);
+        document.removeEventListener('keydown', resumeOnce, true);
+        document.removeEventListener('touchstart', resumeOnce, true);
+        waitingUserGesture = false;
+        logDiag('检测到用户交互，尝试恢复播放');
+        try {
+          await v.play();
+        } catch (_) {}
+      };
+
+      document.addEventListener('click', resumeOnce, true);
+      document.addEventListener('keydown', resumeOnce, true);
+      document.addEventListener('touchstart', resumeOnce, true);
     }
 
     function destroyPlayers() {
@@ -302,7 +331,7 @@
       return false;
     }
 
-    function playWithRTC() {
+    function playWithRTC(mode = 'av') {
       currentMode = 'webrtc';
       logDiag('playWithRTC: 开始 WebRTC 播放');
       document.getElementById('appLabel').textContent = app.toUpperCase() + ' / WEBRTC';
@@ -310,8 +339,10 @@
       window.srs_player = rtcPlayer;
       const rtcUrl = buildRTCUrl();
       logDiag('playWithRTC: URL = ' + rtcUrl);
-      return rtcPlayer.play(rtcUrl).then(() => {
+      const rtcOptions = (mode === 'videoOnly') ? { videoOnly: true } : undefined;
+      return rtcPlayer.play(rtcUrl, rtcOptions).then(() => {
         logDiag('playWithRTC: 信令协商成功，正在建立媒体连接');
+        logDiag('playWithRTC: 模式 = ' + mode);
         v.srcObject = rtcPlayer.stream;
 
         // 关键：信令成功不代表媒体可达。若 ICE 失败/无首帧，自动回退 FLV。
@@ -326,14 +357,60 @@
           };
         }
 
-        rtcMonitorTimer = setTimeout(() => {
+        rtcMonitorTimer = setTimeout(async () => {
           const noFrame = !v.videoWidth || v.readyState < 2;
-          logDiag('playWithRTC: 首帧检测 (' + v.videoWidth + 'x' + v.videoHeight + ', readyState=' + v.readyState + ')');
+          let inboundBytes = 0;
+          let inboundVideoBytes = 0;
+          let inboundAudioBytes = 0;
+          try {
+            if (rtcPlayer.pc && rtcPlayer.pc.getStats) {
+              const stats = await rtcPlayer.pc.getStats();
+              stats.forEach((it) => {
+                if (it.type === 'inbound-rtp' && !it.isRemote) {
+                  const b = Number(it.bytesReceived || 0);
+                  inboundBytes += b;
+                  if (it.kind === 'video') inboundVideoBytes += b;
+                  if (it.kind === 'audio') inboundAudioBytes += b;
+                }
+              });
+            }
+          } catch (_) {}
+
+          logDiag('playWithRTC: 首帧检测 (' + v.videoWidth + 'x' + v.videoHeight + ', readyState=' + v.readyState + ', bytes=' + inboundBytes + ', video=' + inboundVideoBytes + ', audio=' + inboundAudioBytes + ')');
+
+          // 优先保留音频能力：先尝试音视频协商，若完全无媒体再降级 videoOnly。
+          if (mode === 'av' && inboundBytes === 0 && !rtcTriedVideoOnly && !rtcFallbackTriggered) {
+            rtcTriedVideoOnly = true;
+            logDiag('playWithRTC: AV 模式无入站 RTP，切换 videoOnly 重试');
+            try {
+              if (rtcPlayer) {
+                try { rtcPlayer.close(); } catch (_) {}
+                rtcPlayer = null;
+                window.srs_player = null;
+              }
+              await playWithRTC('videoOnly');
+              return;
+            } catch (e) {
+              logDiag('playWithRTC: videoOnly 重试失败 = ' + (e && e.message ? e.message : String(e)));
+            }
+          }
+
+          // 若视频已播放但没有音频 RTP，说明该流音频不兼容 WebRTC，回退 FLV 保证有声。
+          if (!noFrame && inboundVideoBytes > 0 && inboundAudioBytes === 0 && mode === 'av' && !rtcFallbackTriggered) {
+            logDiag('playWithRTC: 视频正常但无音频 RTP，回退 FLV 以保证声音');
+            fallbackToFLV('WebRTC 无音频，已回退 FLV（保证有声）');
+            return;
+          }
+
           if (noFrame && !rtcFallbackTriggered) {
-            logDiag('playWithRTC: 无首帧，触发回退');
+            if (inboundBytes === 0) {
+              logDiag('playWithRTC: RTC 已连接但无入站 RTP，疑似源流编解码或流名兼容问题');
+            } else {
+              logDiag('playWithRTC: 有入站 RTP 但无首帧，疑似关键帧间隔或浏览器解码时机问题');
+            }
             fallbackToFLV('WebRTC 无首帧，已回退 FLV');
           }
-        }, 3500);
+        }, 6000);
 
         return v.play().catch((err) => {
           logDiag('playWithRTC: play() 被阻止 (' + err.name + ')，等待用户手动播放');
@@ -389,6 +466,7 @@
       }
 
       rtcFallbackTriggered = false;
+      rtcTriedVideoOnly = false;
       destroyPlayers();
       setDotState('idle');
       logDiag('play(): 清理状态，开始新的播放会话');
@@ -405,6 +483,14 @@
       } catch (rtcErr) {
         logDiag('play(): WebRTC 初始化失败 = ' + rtcErr.message);
         console.error('webrtc failed:', rtcErr);
+
+        if (isAutoplayBlocked(rtcErr)) {
+          setDotState('idle');
+          document.getElementById('loader').style.display = 'none';
+          showError('浏览器限制自动播放：请点击页面任意位置后再点刷新播放');
+          armUserGestureResume();
+          return;
+        }
       }
 
       try {
@@ -418,9 +504,16 @@
         logDiag('play(): FLV 回退失败 = ' + flvErr.message);
         console.error('flv fallback failed:', flvErr);
         setDotState('error');
-        showError('播放失败：WebRTC 与 FLV 都不可用');
+        if (isAutoplayBlocked(flvErr)) {
+          showError('浏览器限制自动播放：请点击页面任意位置后再点刷新播放');
+          armUserGestureResume();
+        } else {
+          showError('播放失败：WebRTC 与 FLV 都不可用');
+        }
         document.getElementById('loader').style.display = 'none';
-        scheduleRetry();
+        if (!isAutoplayBlocked(flvErr)) {
+          scheduleRetry();
+        }
       }
     }
 
@@ -451,8 +544,13 @@
         logDiag('fallbackToFLV: FLV 回退失败 = ' + err.message);
         console.error('fallback flv failed:', err);
         setDotState('error');
-        showError('回退 FLV 失败，正在重试...');
-        scheduleRetry();
+        if (isAutoplayBlocked(err)) {
+          showError('浏览器限制自动播放：请点击页面任意位置后再点刷新播放');
+          armUserGestureResume();
+        } else {
+          showError('回退 FLV 失败，正在重试...');
+          scheduleRetry();
+        }
       }
     }
 

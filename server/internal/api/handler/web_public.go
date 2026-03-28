@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -180,7 +181,9 @@ func (h *WebPublicHandler) RTCPlayProxy(c *gin.Context) {
 	}
 
 	target := fmt.Sprintf("http://%s:%d/rtc/v1/play/", h.srsHost(), h.srsAPIPort())
-	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, target, bytes.NewReader(body))
+	proxyBody := h.normalizeRTCPlayPayload(body, target, c.ClientIP())
+
+	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, target, bytes.NewReader(proxyBody))
 	if err != nil {
 		util.Error(c, 50001, "创建代理请求失败")
 		return
@@ -201,6 +204,53 @@ func (h *WebPublicHandler) RTCPlayProxy(c *gin.Context) {
 	}
 
 	c.Data(resp.StatusCode, "application/json", respBody)
+}
+
+func (h *WebPublicHandler) normalizeRTCPlayPayload(body []byte, targetAPI, clientIP string) []byte {
+	var payload map[string]interface{}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return body
+	}
+
+	// 确保 api 字段是 SRS 实际接收地址，避免被上游透传为应用层代理地址。
+	payload["api"] = targetAPI
+	if strings.TrimSpace(clientIP) != "" {
+		payload["clientip"] = clientIP
+	}
+
+	streamURL, _ := payload["streamurl"].(string)
+	streamURL = strings.TrimSpace(streamURL)
+	if streamURL != "" {
+		if normalized, ok := normalizeRTCStreamURL(streamURL); ok {
+			payload["streamurl"] = normalized
+		}
+	}
+
+	if out, err := json.Marshal(payload); err == nil {
+		return out
+	}
+	return body
+}
+
+func normalizeRTCStreamURL(raw string) (string, bool) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", false
+	}
+
+	// 仅处理 webrtc/rtc 播放地址。
+	scheme := strings.ToLower(strings.TrimSpace(u.Scheme))
+	if scheme != "webrtc" && scheme != "rtc" {
+		return "", false
+	}
+
+	q := u.Query()
+	if strings.TrimSpace(q.Get("vhost")) == "" {
+		q.Set("vhost", "__defaultVhost__")
+	}
+	u.RawQuery = q.Encode()
+
+	return u.String(), true
 }
 
 func (h *WebPublicHandler) fetchSRSLiveStreams(reqCtx context.Context) ([]srsStreamItem, error) {
