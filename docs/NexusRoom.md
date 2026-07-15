@@ -1,11 +1,12 @@
 # NexusRoom 技术实现规划 & 开发文档
 
-> **版本** v1.8.2 ｜ **定位** 私有化部署 · 自建服务端 ｜ **核心功能** IM · 语音 · 直播 · VLAN
+> **版本** v1.8.3 ｜ **定位** 私有化部署 · 自建服务端 ｜ **核心功能** IM · 语音 · 直播 · VLAN
 
 ## 变更日志
 
 | 版本     | 变更内容                                                                                                                                                                                                                                         |
 | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| v1.8.3 | **[工程结构整理，2026-07-15]** 将仓库划分为独立的 `client/`、`server/`、`deployment/` 与 `docs/`；将 WireGuard helper 和 FFmpeg 归入客户端目录；将部署脚本、配置模板、生成配置和运行数据分层管理；安装脚本兼容两种 Docker Compose 命令并支持从任意目录调用；SRS candidate 改为安装时按公网 IP 生成；补充各目录 README 与当日开发记录；移除非 UI 文本中的 Emoji，保留承担界面状态表达的图标。验证结果：Go 服务端和 helper 编译检查通过，Docker Compose 配置校验通过，Flutter Windows Release 构建成功且原生依赖均进入发布目录。 |
 | v1.8.2 | **[网页直播稳定性修复]** 修复“WebRTC `connected` 但无媒体字节（`bytes=0`）”问题：`/api/v1/web/rtc/play` 代理新增请求归一化（强制修正 `api`、注入 `clientip`、补全 `streamurl` 的 `vhost=__defaultVhost__`）；播放页改为 **AV 优先协商**，仅在无入站媒体时自动降级 `videoOnly` 或 FLV 回退；新增音视频分项诊断（`video/audio inbound-rtp bytes`）以区分“无媒体 / 无首帧 / 无音频”三类故障。 |
 | v1.8.1 | **[网页直播体系修订]** 新增独立 Web 直播页（房间列表 `index.html` + 播放页 `player.html`），支持 WebRTC 优先 + FLV 回退、页面内诊断日志 `_diagnostic()`、本地 `mpegts.min.js` 优先加载；播放页取消“进入即默认静音”；新增公开 Web API（`/api/v1/web/rooms/live`、`/api/v1/web/rtc/play`）与静态资源路由（`/player.html`、`/srs.sdk.js`、`/mpegts.min.js`）；部署层补充端口与配置（`8881` 网页入口、`8883` RTMP 别名、`8000/udp` WebRTC 媒体、`srs.api_port`）。 |
 | v1.8.0 | **\[VLAN 稳定性修复]** WS 断连后延迟 20 秒清理 WG Peer，期间若用户重连则跳过清理，消除频繁上下线导致的 Peer 反复添加/删除抖动；`RegisterPeer()` 新增公钥漂移检测——客户端重连生成新密钥对时自动替换设备端旧 Peer 并更新数据库；`server_endpoint` 支持从 HTTP Host 头自动推导，配置文件留空或填 `YOUR_IP` 时自动回退；`/proc/sys` sysctl 写入前先读取，值已正确时跳过写入，消除容器只读文件系统警告；wg-helper 启动时自动添加 Windows 防火墙规则（UDP 入站/出站放行 nexusroom-wg.exe + ICMPv4 入站放行），无需手动配置即可实现 Peer 间互 ping；`WGPeerRepository` 新增 `Update()` 方法支持 Peer 密钥更新；`docker-compose.yml` 移除已废弃的 `version` 字段；客户端 VLAN 加入和 WireGuard 配置流程增加诊断日志 |
@@ -18,10 +19,10 @@
 | v1.7.3 | **\[画质增强]** 图标颜色统一为主题色（accent→primary）；帧率新增 120 FPS 选项，默认 60 FPS；新增音频捕获功能（系统音频 + 麦克风，通过 dshow）；FFmpeg 进程在窗口关闭时自动清理（`WindowLifecycleService`）；编码改用 CRF+VBV 模式优化画质 |
 | v1.7.2 | **\[卡顿修复]** 修复直播画面卡顿（添加 `untimed=yes` → 改为 `-rtbufsize 150M`）；修复 FFmpeg 进程在 `dispose()` 时泄漏（同步 kill）；修复窗口列表刷新后 `DropdownButton` 因 `value` 不在新列表中崩溃 |
 | v1.7.1 | **\[初始修复]** 修复直播画面卡顿（gdigrab 实时源需大缓冲区）；修复窗口捕获失败（标题含特殊字符需转义）；修复 FFmpeg DTS 错误（添加 `-vsync cfr`）；修复奇数分辨率编码崩溃（`pad=ceil(iw/2)*2:ceil(ih/2)*2`）；修复 FFmpeg stderr 缓冲区溢出 |
-| v1.7.0 | **\[屏幕捕获推流]** 新增客户端内置屏幕捕获推流功能：每个推流入口（Ingress）卡片新增"屏幕捕获"按钮，基于内嵌 FFmpeg 子进程实现屏幕采集 → H.264 编码 → RTMP 推流到 SRS；新增 `ScreenCaptureService`（FFmpeg 进程管理）；新增 `ScreenSourceEnumerator`（PowerShell 枚举显示器列表）；新增 `ScreenCaptureDialog` UI（画质设置、实时编码统计）；CMake 新增 `tools/ffmpeg.exe` 打包规则；**服务端零改动**——完全复用现有 SRS RTMP→HTTP-FLV 链路 |
+| v1.7.0 | **\[屏幕捕获推流]** 新增客户端内置屏幕捕获推流功能：每个推流入口（Ingress）卡片新增"屏幕捕获"按钮，基于内嵌 FFmpeg 子进程实现屏幕采集 → H.264 编码 → RTMP 推流到 SRS；新增 `ScreenCaptureService`（FFmpeg 进程管理）；新增 `ScreenSourceEnumerator`（PowerShell 枚举显示器列表）；新增 `ScreenCaptureDialog` UI（画质设置、实时编码统计）；CMake 新增 `client/tools/ffmpeg.exe` 打包规则；**服务端零改动**——完全复用现有 SRS RTMP→HTTP-FLV 链路 |
 | v1.6.1 | **\[忏悔]** 我再也不随便尝试从桌面端移植安卓端了TvT；**\[fix]**修复了移植过程中未破坏环境的问题；修复了移植过程中破坏的环境；更新了一下文档 |
 | v1.6.0 | **\[VLAN 端到端贯通]** IPC 架构从 stdin/stdout 重写为 TCP localhost（解决 UAC 提权后 stdin 不可用导致的堆损坏崩溃）；客户端 `WireGuardService` 先绑定随机 TCP 端口再通过 `PowerShell Start-Process -Verb RunAs -WindowStyle Hidden` 提权启动 helper，helper 通过 `--port N` 参数回连；服务端 `coordinator.go` 新增 wireguard-go 用户态回退（CentOS 8 等无内核模块环境自动切换），`createInterface()` 双路径策略；`InitInterface()` 新增 `rp_filter=0` 内核参数设置（通过 docker-compose sysctls）和 iptables FORWARD 规则（wg0↔wg0 peer 互通）；`addPeerToDevice` 添加 `wg show` 诊断日志；Dockerfile 新增 `wireguard-go iptables iproute2`；修复房间切换时 VLAN 不同步：`_syncRoom()` 增加 `vlanRepo.leave(oldRoomId)` 服务端清理，`VlanPanel._leaveVlan` 支持 `roomIdOverride` 传入旧 roomId；WebSocket Hub 断连时兜底清理 VLAN peer（`SetWGCoordinator` 注入 + Unregister 自动 `UnregisterPeer`）；**已验证：多设备 WireGuard 握手成功，peer 间 ping 互通** |
-| v1.5.0 | **\[VLAN全面实现]** 新增 `wg-helper/` Go 辅助进程：基于 wireguard-go + wintun 实现 Windows 用户空间 WireGuard 隧道，支持 `genkey`（密钥对生成）和 `up`（隧道管理）两个子命令，通过 stdin/stdout JSON IPC 与 Flutter 客户端通信，内嵌 UAC requireAdministrator manifest；客户端 `WireGuardService` 从 MethodChannel 彻底重写为 `dart:io Process` 调用，解决 `MissingPluginException`；服务端 `coordinator.go` 增加 `InitInterface()` 方法使用 wgctrl 库实际创建并配置 wg0 内核接口（自动生成私钥、绑定端口、分配网关IP），`RegisterPeer`/`UnregisterPeer` 现在同步操作 WG 设备添加/移除 peer；Dockerfile 新增 `wireguard-tools` 安装；CMake 新增 nexusroom-wg.exe + wintun.dll 打包规则 |
+| v1.5.0 | **\[VLAN全面实现]** 新增 `client/native/wg-helper/` Go 辅助进程：基于 wireguard-go + wintun 实现 Windows 用户空间 WireGuard 隧道，支持 `genkey`（密钥对生成）和 `up`（隧道管理）两个子命令，通过 stdin/stdout JSON IPC 与 Flutter 客户端通信，内嵌 UAC requireAdministrator manifest；客户端 `WireGuardService` 从 MethodChannel 彻底重写为 `dart:io Process` 调用，解决 `MissingPluginException`；服务端 `coordinator.go` 增加 `InitInterface()` 方法使用 wgctrl 库实际创建并配置 wg0 内核接口（自动生成私钥、绑定端口、分配网关IP），`RegisterPeer`/`UnregisterPeer` 现在同步操作 WG 设备添加/移除 peer；Dockerfile 新增 `wireguard-tools` 安装；CMake 新增 nexusroom-wg.exe + wintun.dll 打包规则 |
 | v1.4.2 | **\[BUG修复]** 修复语音频道在房间间串联问题：LiveKitService.disconnect()改为并发安全（立即清除字段，异步释放旧Room），AppShell._syncRoom在任何房间切换时均立即主动断开LiveKit（而非仅在返回首页时），RoomDetailPage在连接失败和房间切换时主动断开避免残留连接；server端添加voiceStateUpdate.room_id字段和voice.mute房间验证；**\[功能优化]** 房间切换时自动将麦克风重置为静音；**\[应用重命名]** Windows EXE从client改名为Nexusroom |
 | v1.4.1 | **\[fix*]** 修复了手误破坏了环境三个小时没复现的问题 |
 | v1.4.0 | **\[架构迁移]** 直播推流引擎从 LiveKit Ingress 迁移至 SRS 6（HTTP-FLV），单核服务器 CPU 占用从 30-80% 降至 2-5%；客户端使用 media_kit 播放 HTTP-FLV 流，替代 LiveKit SDK 直播渲染；LiveKit 仅保留语音通话功能；服务端彻底清除 LiveKit Ingress 相关代码，新增 SRS HTTP 回调处理推流状态 |
@@ -140,10 +141,15 @@ NexusRoom 是一款专为小型私有圈子（游戏群体、技术团队、私�
 
 ```
 nexusroom/
-├── server/                    # Golang 后端主服务
 ├── client/                    # Flutter 桌面客户端
-├── deploy/                    # Docker Compose & 配置模板
-├── docs/                      # 技术文档
+│   ├── native/wg-helper/      # Windows WireGuard 辅助进程
+│   └── tools/                 # FFmpeg 等客户端工具
+├── server/                    # Golang 后端主服务
+├── deployment/                # 安装、配置模板与 Docker Compose
+│   ├── scripts/               # 安装脚本
+│   ├── templates/             # 可提交配置模板
+│   └── config/                # 本机运行配置
+├── docs/                      # 技术文档与变更记录
 └── README.md                  # 项目概览
 ```
 
@@ -738,7 +744,7 @@ await room.localParticipant.setMicrophoneEnabled(!isMuted);
 客户端连接 LiveKit 语音房间时需获取正确的服务端地址（ws://IP:7880）。服务端采用两级推导策略确保公网和内网均能正确连接：
 
 **级别 1：配置优先**
-- 超管在 `deploy/config.yaml` 中手动填写 `livekit.public_url`（如 `ws://39.107.246.201:7880`）
+- 超管在 `deployment/config/server.yaml` 中手动填写 `livekit.public_url`（如 `ws://39.107.246.201:7880`）
 - GetDetail 接口直接返回配置值，不再向外网查询（适合网络受限的云服务器）
 
 **级别 2：自动推导**
@@ -986,7 +992,7 @@ FFmpeg 通过 CMake `install()` 在构建时自动捆绑到应用目录：
 
 ```cmake
 # windows/CMakeLists.txt
-set(TOOLS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../tools")
+set(TOOLS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../tools")
 if(EXISTS "${TOOLS_DIR}/ffmpeg.exe")
   install(FILES "${TOOLS_DIR}/ffmpeg.exe"
     DESTINATION "${CMAKE_INSTALL_PREFIX}"
@@ -994,7 +1000,7 @@ if(EXISTS "${TOOLS_DIR}/ffmpeg.exe")
 endif()
 ```
 
-下载静态构建版本放入 `tools/ffmpeg.exe`：https://www.gyan.dev/ffmpeg/builds/
+下载静态构建版本放入 `client/tools/ffmpeg.exe`：https://www.gyan.dev/ffmpeg/builds/
 
 ---
 
@@ -1215,7 +1221,7 @@ class WireGuardService {
 
 ### 9.9 网段冲突风险与配置
 
-> **⚠️ 重要**：若服务端默认使用的 `10.0.8.0/24` 网段与用户物理局域网网段重叠（如家用路由器也在 `10.0.x.x` 段），WireGuard 会将原本应走物理网卡的流量全部劫持到虚拟网卡，导致用户网络中断、VLAN 功能失效。
+> **重要**：若服务端默认使用的 `10.0.8.0/24` 网段与用户物理局域网网段重叠（如家用路由器也在 `10.0.x.x` 段），WireGuard 会将原本应走物理网卡的流量全部劫持到虚拟网卡，导致用户网络中断、VLAN 功能失效。
 
 **判断方法**：用户在本机执行 `ipconfig`（Windows）或 `ip route`（macOS/Linux），查看是否存在 `10.0.8.x` 段的路由条目。
 
@@ -1344,7 +1350,7 @@ class WebSocketService extends StateNotifier<WsState> {
       (_) => sendEvent('heartbeat', {}),
     );
     
-    // ⚠️ 关键：重新加入所有已加入的房间
+    // 关键：重新加入所有已加入的房间
     for (final roomId in _joinedRooms) {
       debugPrint('[WsService] Re-joining room $roomId after reconnect');
       sendEvent('room.join', {'room_id': roomId});
@@ -1390,7 +1396,7 @@ class _AppShellState extends ConsumerState<AppShell> {
   @override
   void didUpdateWidget(covariant AppShell oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // ⚠️ 监听 location 属性变化（从 ShellRoute builder 传入）
+    // 监听 location 属性变化（从 ShellRoute builder 传入）
     if (oldWidget.location != widget.location) {
       _syncRoom(widget.location);
     }
@@ -1451,7 +1457,7 @@ class _AppShellState extends ConsumerState<AppShell> {
 // app/router/app_router.dart
 ShellRoute(
   builder: (context, state, child) {
-    // ⚠️ 必须显式传递 location，不要在 AppShell 内部调用 GoRouterState.of(context)
+    // 必须显式传递 location，不要在 AppShell 内部调用 GoRouterState.of(context)
     return AppShell(
       location: state.uri.toString(),  // 关键：显式传递当前路由
       child: child,
@@ -1706,7 +1712,7 @@ services:
       - "8881:8080"          # 网页直播独立入口
       - "51820:51820/udp"   # WireGuard
     volumes:
-      - ./config.yaml:/app/config.yaml
+      - ./config/server.yaml:/app/config.yaml
       - ./data:/app/data
     depends_on: [postgres, redis, livekit, srs]
     cap_add: [NET_ADMIN]
@@ -1737,7 +1743,7 @@ services:
       - "50000-50050:50000-50050/udp"
       - "3478:3478/udp"                  # TURN
     volumes:
-      - ./livekit.yaml:/etc/livekit.yaml
+      - ./config/livekit.yaml:/etc/livekit.yaml
     command: --config /etc/livekit.yaml
     restart: unless-stopped
 
@@ -1749,7 +1755,7 @@ services:
       - "8085:8085"         # HTTP-FLV（客户端通常通过 Go 代理访问）
       - "8000:8000/udp"     # WebRTC 媒体 UDP
     volumes:
-      - ./srs.conf:/usr/local/srs/conf/srs.conf
+      - ./config/srs.conf:/usr/local/srs/conf/srs.conf
     command: ./objs/srs -c conf/srs.conf
     restart: unless-stopped
 
@@ -1759,7 +1765,7 @@ services:
       - "3000:80"
     volumes:
       - ./web-admin:/usr/share/nginx/html:ro
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./config/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     restart: unless-stopped
 
 volumes:
@@ -1769,10 +1775,10 @@ volumes:
 
 **环境变量配置（.env 文件）：**
 
-docker-compose.yml 中使用了环境变量（如 `${DB_PASSWORD:-nexusroom_password}`），需要在 `deploy/` 目录创建 `.env` 文件：
+docker-compose.yml 中使用了环境变量（如 `${DB_PASSWORD:-nexusroom_password}`），需要在 `deployment/` 目录创建 `.env` 文件：
 
 ```bash
-# deploy/.env
+# deployment/.env
 DB_PASSWORD=nexusroom_password
 LIVEKIT_API_KEY=your-livekit-key
 LIVEKIT_API_SECRET=your-livekit-secret
@@ -1780,7 +1786,7 @@ LIVEKIT_API_SECRET=your-livekit-secret
 
 ### 12.3 SRS 关键配置（WebRTC + Web 播放）
 
-`deploy/srs.conf` 需确保启用 `http_api` 与 `rtc_server`，并在 `vhost` 中开启 `rtc`：
+`deployment/templates/srs.conf.template` 定义 SRS 模板；安装后生成的 `deployment/config/srs.conf` 需启用 `http_api` 与 `rtc_server`，并在 `vhost` 中开启 `rtc`：
 
 ```conf
 http_api {
@@ -1826,30 +1832,12 @@ vhost __defaultVhost__ {
 ### 12.2 服务端一键部署脚本
 
 ```bash
-#!/bin/bash
-# deploy.sh — 一键部署
-set -e
-echo '🚀 NexusRoom Server 部署脚本'
-
-if ! command -v docker &> /dev/null; then
-    echo '错误: 请先安装 Docker'
-    exit 1
-fi
-
-# 生成配置文件
-if [ ! -f config.yaml ]; then
-    cp config.yaml.template config.yaml
-    # 自动替换占位符（密码、密钥、公网 IP）
-    SERVER_IP=$(curl -s --max-time 5 https://api.ipify.org || echo "YOUR_IP")
-    sed -i "s/CHANGE_ME/$(openssl rand -hex 16)/g" config.yaml
-    sed -i "s/YOUR_IP/$SERVER_IP/g" config.yaml
-    echo "✅ config.yaml 已生成，请检查并修改 【必改】 项"
-fi
-
-docker compose pull
-docker compose up -d
-echo '✅ 部署完成！'
+cd deployment
+chmod +x scripts/install.sh
+./scripts/install.sh
 ```
+
+脚本从 `templates/` 生成 `config/server.yaml`、`config/livekit.yaml` 和 `config/srs.conf`，不会覆盖已有运行配置，并同时兼容 `docker compose` 与 `docker-compose`。
 
 ---
 
@@ -1882,7 +1870,7 @@ echo '✅ 部署完成！'
 - 增量消息同步
 
 **阶段验收标准**
-> ✅ 两台电脑可以通过局域网 IP 配置客户端连接同一服务端，注册账户，创建/加入房间，互发消息。
+> 验收标准：两台电脑可以通过局域网 IP 配置客户端连接同一服务端，注册账户，创建/加入房间，互发消息。
 
 ---
 
@@ -1908,7 +1896,7 @@ echo '✅ 部署完成！'
 - `WindowLifecycleService` 实现（集成 window_manager，最小化/失焦时暂停视频解码）
 
 **阶段验收标准**
-> ✅ 多人可在房间内语音通话；OBS 可通过 RTMP 向房间推流，客户端可点击观看直播；最小化后游戏帧率不受客户端影响。
+> 验收标准：多人可在房间内语音通话；OBS 可通过 RTMP 向房间推流，客户端可点击观看直播；最小化后游戏帧率不受客户端影响。
 
 ---
 
@@ -1935,7 +1923,7 @@ echo '✅ 部署完成！'
 - 客户端设置页：更换服务器、退出登录
 
 **阶段验收标准**
-> ✅ Web 管理后台可访问并管理所有房间和用户；QQ 机器人可向指定房间发送消息。
+> 验收标准：Web 管理后台可访问并管理所有房间和用户；QQ 机器人可向指定房间发送消息。
 
 ---
 
@@ -1963,7 +1951,7 @@ echo '✅ 部署完成！'
 - 如不支持：作为后续版本，本阶段跳过，不影响其他功能
 
 **阶段验收标准**
-> ✅ 房间内用户点击"开启组网"后，可通过各自分配的虚拟 IP 地址互 ping（默认段 10.0.8.x，可配置），游戏内局域网联机功能正常。
+> 验收标准：房间内用户点击"开启组网"后，可通过各自分配的虚拟 IP 地址互 ping（默认段 10.0.8.x，可配置），游戏内局域网联机功能正常。
 
 ---
 

@@ -2,7 +2,7 @@
 
 > 专为小型私有圈子设计的自托管集成通讯平台
 
-[![Version](https://img.shields.io/badge/version-1.7.9-blue.svg)](https://github.com/StarDream2736/Nexusroom)
+[![Version](https://img.shields.io/badge/version-1.8.3-blue.svg)](https://github.com/StarDream2736/Nexusroom)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 ## 功能特性
@@ -45,13 +45,13 @@
 ### 服务端部署
 
 ```bash
-# 1. 克隆仓库并进入部署目录
+# 1. 克隆仓库并进入独立部署目录
 git clone https://github.com/StarDream2736/Nexusroom.git
-cd Nexusroom/deploy
+cd Nexusroom/deployment
 
 # 2. 运行一键部署脚本（自动生成配置、拉取镜像、启动服务）
-chmod +x deploy.sh
-./deploy.sh
+chmod +x scripts/install.sh
+./scripts/install.sh
 
 # 3. 配置防火墙（按需开放端口）
 sudo ufw allow 8080/tcp          # API 服务
@@ -107,11 +107,38 @@ flutter build windows --release  # 发布
 
 ```
 nexusroom/
-├── server/        # Go 后端（Gin + GORM + WebSocket）
-├── client/        # Flutter Desktop 客户端
-├── deploy/        # Docker Compose & 配置模板
-└── docs/          # 技术文档
+├── client/                    # Flutter 客户端源码与客户端专用依赖
+│   ├── native/wg-helper/      # Windows WireGuard 辅助进程
+│   └── tools/                 # FFmpeg 等本地构建工具（大文件不入库）
+├── server/                    # Go 服务端源码
+├── deployment/                # 安装与部署，不放业务源码
+│   ├── scripts/               # 安装脚本
+│   ├── templates/             # 可提交的配置模板
+│   └── config/                # 生成配置；仅静态 nginx.conf 入库
+└── docs/                      # 技术文档与变更记录
 ```
+
+各目录可独立进入和维护：
+
+- [客户端开发说明](client/README.md)
+- [服务端开发说明](server/README.md)
+- [安装部署说明](deployment/README.md)
+- [文档索引](docs/README.md)
+
+## 最近开发记录
+
+### 2026-07-15：开发环境与目录结构整理
+
+- 将 Flutter 客户端、Go 服务端、安装部署文件和项目文档拆分为四个独立维护区域。
+- 将 WireGuard helper 移入 `client/native/wg-helper/`，将 FFmpeg 移入 `client/tools/`，客户端依赖不再散落于仓库根目录。
+- 将原 `deploy/` 重组为 `deployment/scripts/`、`deployment/templates/` 和 `deployment/config/`，模板、脚本、运行配置与数据分别管理。
+- 安装脚本支持 `docker compose` 与 `docker-compose`，并可从任意工作目录调用。
+- SRS 配置改由模板生成，新部署会自动写入服务器公网 IP，不再依赖仓库中的固定 candidate。
+- 为客户端、服务端、部署和文档目录补充独立 README，并更新全部路径引用。
+- 清除非 UI 文本中的 Emoji；UI 规范和示意图中承担状态表达的图标保持不变。
+- 已通过 Go 模块编译检查、Docker Compose 配置校验和 Flutter Windows Release 构建验证。
+
+完整记录见 [2026-07-15 开发环境整理记录](docs/development/2026-07-15-environment-reorganization.md)。
 
 ## 开发路线图
 

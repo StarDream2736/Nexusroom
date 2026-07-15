@@ -20,7 +20,7 @@ http_api {
 rtc_server {
     enabled         on;
     listen          8000;
-    candidate       39.107.246.201:8000;
+    candidate       YOUR_IP:8000;
 }
 
 vhost __defaultVhost__ {

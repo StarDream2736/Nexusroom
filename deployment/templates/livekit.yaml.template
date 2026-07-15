@@ -1,7 +1,7 @@
 # ============================================================
 # LiveKit Server 配置模板（仅语音通话）
 # ============================================================
-# 使用方式：复制本文件为 livekit.yaml，修改所有带【必改】的选项
+# 安装脚本会从本模板生成 deployment/config/livekit.yaml。
 # 端口映射必须与 docker-compose.yml 一致
 #
 # 标记说明：
@@ -12,7 +12,7 @@
 port: 7880
 
 # ------ API 密钥 ------
-# 【必改】格式为 key: secret，需与 config.yaml 中 livekit.api_key / api_secret 一致
+# 【必改】格式为 key: secret，需与 config/server.yaml 中 livekit.api_key / api_secret 一致
 keys:
   CHANGE_ME_KEY: CHANGE_ME_SECRET
 
