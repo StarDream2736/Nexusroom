@@ -108,8 +108,8 @@ install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   COMPONENT Runtime)
 
 # === WireGuard Helper ===
-# Install nexusroom-wg.exe and wintun.dll if they exist in the wg-helper directory.
-set(WG_HELPER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../wg-helper")
+# Install the client-owned WireGuard helper and Wintun runtime.
+set(WG_HELPER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../native/wg-helper")
 if(EXISTS "${WG_HELPER_DIR}/nexusroom-wg.exe")
   install(FILES "${WG_HELPER_DIR}/nexusroom-wg.exe"
     DESTINATION "${CMAKE_INSTALL_PREFIX}"
@@ -124,8 +124,8 @@ endif()
 # === FFmpeg (Screen Capture) ===
 # Install ffmpeg.exe if it exists in the tools directory (used by ScreenCaptureService).
 # Download a static ffmpeg build from https://www.gyan.dev/ffmpeg/builds/ and place
-# ffmpeg.exe in the tools/ directory at the project root.
-set(TOOLS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../tools")
+# ffmpeg.exe in client/tools/.
+set(TOOLS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../tools")
 if(EXISTS "${TOOLS_DIR}/ffmpeg.exe")
   install(FILES "${TOOLS_DIR}/ffmpeg.exe"
     DESTINATION "${CMAKE_INSTALL_PREFIX}"

@@ -6,7 +6,6 @@ Thumbs.db
 *.swo
 *~
 .metadata
-tools/
 
 # IDE
 .idea/
@@ -27,12 +26,12 @@ uploads/
 # Docker 镜像
 *.tar
 
-# 服务�?
+# 服务端
 server/nexusroom-server
 server/*.exe
 server/tmp/
 
-# 客户�?
+# 客户端
 client/.dart_tool/
 client/.packages
 client/build/
@@ -40,19 +39,20 @@ client/pubspec.lock
 client/.flutter-plugins
 client/.flutter-plugins-dependencies
 client/*.log
+client/tools/*.exe
 
 # Web 管理后台
 web-admin/node_modules/
 web-admin/dist/
 web-admin/.env.local
 
-# 部署
-deploy/.env
-deploy/config.yaml
-!deploy/config.yaml.template
-deploy/livekit.yaml
-!deploy/livekit.yaml.template
-deploy/data/
+# 部署运行时文件（模板与静态配置仍受 Git 跟踪）
+deployment/.env
+deployment/config/server.yaml
+deployment/config/livekit.yaml
+deployment/config/srs.conf
+deployment/data/
+deployment/web-admin/
 
 # 测试
 coverage/
