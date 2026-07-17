@@ -48,10 +48,8 @@ class WireGuardService {
 
     final stdout = (result.stdout as String).trim();
     // May contain multiple lines; take the last valid JSON line.
-    final lines = stdout
-        .split('\n')
-        .map((l) => l.trim())
-        .where((l) => l.isNotEmpty);
+    final lines =
+        stdout.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty);
     for (final line in lines.toList().reversed) {
       try {
         final msg = jsonDecode(line) as Map<String, dynamic>;
@@ -97,7 +95,8 @@ class WireGuardService {
     final escapedPath = helper.replaceAll("'", "''");
     try {
       await Process.start('powershell', [
-        '-WindowStyle', 'Hidden',
+        '-WindowStyle',
+        'Hidden',
         '-Command',
         "Start-Process -FilePath '$escapedPath' -ArgumentList 'up --port $port' -Verb RunAs -WindowStyle Hidden",
       ]);

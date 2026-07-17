@@ -66,9 +66,8 @@ class _SidebarItemState extends State<SidebarItem> {
               Icon(
                 widget.icon,
                 size: 16,
-                color: isActive
-                    ? AppColors.textPrimary
-                    : AppColors.textSecondary,
+                color:
+                    isActive ? AppColors.textPrimary : AppColors.textSecondary,
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -76,8 +75,7 @@ class _SidebarItemState extends State<SidebarItem> {
                   widget.label,
                   style: TextStyle(
                     fontSize: 13,
-                    fontWeight:
-                        isActive ? FontWeight.w500 : FontWeight.w400,
+                    fontWeight: isActive ? FontWeight.w500 : FontWeight.w400,
                     color: isActive
                         ? AppColors.textPrimary
                         : AppColors.textSecondary,

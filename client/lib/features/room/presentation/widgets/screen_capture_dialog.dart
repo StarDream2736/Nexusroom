@@ -92,10 +92,10 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
   @override
   Widget build(BuildContext context) {
     final statusAsync = ref.watch(captureStatusProvider);
-    final status =
-        statusAsync.valueOrNull ?? ref.read(screenCaptureServiceProvider).status;
-    final isStreaming = status == CaptureStatus.streaming ||
-        status == CaptureStatus.starting;
+    final status = statusAsync.valueOrNull ??
+        ref.read(screenCaptureServiceProvider).status;
+    final isStreaming =
+        status == CaptureStatus.streaming || status == CaptureStatus.starting;
 
     return Dialog(
       backgroundColor: AppColors.sidebar,
@@ -115,12 +115,11 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
               // ── Header ──────────────────────────────────────────
               Row(
                 children: [
-                  Icon(Icons.screen_share,
+                  const Icon(Icons.screen_share,
                       size: 20, color: AppColors.primary),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text('屏幕捕获推流',
-                        style: AppTypography.h2),
+                    child: Text('屏幕捕获推流', style: AppTypography.h2),
                   ),
                   IconButton(
                     icon: Icon(Icons.close,
@@ -180,8 +179,7 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
                               width: 14,
                               height: 14,
                               child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: AppColors.textPrimary))
+                                  strokeWidth: 2, color: AppColors.textPrimary))
                           : const Icon(Icons.play_arrow, size: 16),
                       label: Text(_isStarting ? '启动中...' : '开始推流'),
                     )
@@ -242,12 +240,11 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.error_outline, size: 16, color: AppColors.error),
+            const Icon(Icons.error_outline, size: 16, color: AppColors.error),
             const SizedBox(width: 8),
             Expanded(
               child: Text(_error!,
-                  style: TextStyle(
-                      color: AppColors.error, fontSize: 12)),
+                  style: const TextStyle(color: AppColors.error, fontSize: 12)),
             ),
           ],
         ),
@@ -284,8 +281,7 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
           value: _selectedDisplay,
           isExpanded: true,
           dropdownColor: AppColors.sidebar,
-          style: TextStyle(
-              fontSize: 13, color: AppColors.textPrimary),
+          style: TextStyle(fontSize: 13, color: AppColors.textPrimary),
           underline: Container(height: 1, color: AppColors.border),
           items: displays.map((d) {
             return DropdownMenuItem(
@@ -304,7 +300,7 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
                   height: 16,
                   child: CircularProgressIndicator(strokeWidth: 2)))),
       error: (e, _) => Text('加载失败: $e',
-          style: TextStyle(color: AppColors.error, fontSize: 12)),
+          style: const TextStyle(color: AppColors.error, fontSize: 12)),
     );
   }
 
@@ -330,8 +326,7 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
                   value: _fps,
                   isExpanded: true,
                   dropdownColor: AppColors.sidebar,
-                  style: TextStyle(
-                      fontSize: 13, color: AppColors.textPrimary),
+                  style: TextStyle(fontSize: 13, color: AppColors.textPrimary),
                   underline: Container(height: 1, color: AppColors.border),
                   items: const [
                     DropdownMenuItem(value: 15, child: Text('15 FPS (低)')),
@@ -360,8 +355,7 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
                   value: _bitrate,
                   isExpanded: true,
                   dropdownColor: AppColors.sidebar,
-                  style: TextStyle(
-                      fontSize: 13, color: AppColors.textPrimary),
+                  style: TextStyle(fontSize: 13, color: AppColors.textPrimary),
                   underline: Container(height: 1, color: AppColors.border),
                   items: const [
                     DropdownMenuItem(
@@ -399,8 +393,7 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
               ),
               Text(
                 _useHwAccel ? 'NVENC (需要 NVIDIA 显卡)' : '软件编码 (x264)',
-                style: TextStyle(
-                    fontSize: 12, color: AppColors.textMuted),
+                style: TextStyle(fontSize: 12, color: AppColors.textMuted),
               ),
             ],
           ),
@@ -433,14 +426,12 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
                   const SizedBox(width: 12),
                   _StatChip(label: '时长', value: stats.elapsed),
                   const SizedBox(width: 12),
-                  _StatChip(
-                      label: '帧数', value: stats.totalFrames.toString()),
+                  _StatChip(label: '帧数', value: stats.totalFrames.toString()),
                 ],
               )
             else
               Text('等待数据...',
-                  style: TextStyle(
-                      fontSize: 12, color: AppColors.textMuted)),
+                  style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
           ],
         ),
       ),
@@ -466,9 +457,7 @@ class _StatChip extends StatelessWidget {
                 fontWeight: FontWeight.w600,
                 color: AppColors.textPrimary)),
         const SizedBox(height: 2),
-        Text(label,
-            style: TextStyle(
-                fontSize: 11, color: AppColors.textMuted)),
+        Text(label, style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
       ],
     );
   }

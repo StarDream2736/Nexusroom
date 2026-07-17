@@ -86,7 +86,13 @@ final wsServiceProvider = Provider<WsService>((ref) {
 });
 
 final rtcServiceProvider = Provider<RtcService>((ref) {
-  final service = RtcService(ref.watch(wsServiceProvider));
+  final service = RtcService(
+    ref.watch(wsServiceProvider),
+    audioInputDeviceId: () =>
+        ref.read(appSettingsProvider).valueOrNull?.audioInputDeviceId,
+    audioOutputDeviceId: () =>
+        ref.read(appSettingsProvider).valueOrNull?.audioOutputDeviceId,
+  );
   ref.onDispose(service.dispose);
   return service;
 });

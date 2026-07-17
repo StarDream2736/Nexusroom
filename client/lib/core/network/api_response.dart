@@ -1,5 +1,5 @@
 class ApiException implements Exception {
-  ApiException(this.message);
+  const ApiException(this.message);
 
   final String message;
 

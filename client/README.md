@@ -4,7 +4,11 @@
 
 此目录包含 NexusRoom Flutter 桌面客户端和客户端专用依赖，不包含服务端或部署配置。
 
+当前客户端版本为 `2.0.0`。
+
 客户端通过应用 WebSocket 完成房间事件与 WebRTC 信令，使用 `flutter_webrtc` 直接连接 NexusRoom 内建语音 SFU。直播仍由 `media_kit` 播放服务端输出的 HTTP-FLV；屏幕捕获通过打包的 FFmpeg 推送 RTMP。
+
+文字和图片消息只有在 WebSocket 已确认加入房间、且服务端完成持久化并回显后才显示为发送成功。麦克风在 RTC 建连前恢复持久化设备选择，并在开关麦失败时保留原状态和显示错误。
 
 ## 目录
 

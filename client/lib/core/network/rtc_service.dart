@@ -31,7 +31,12 @@ class RtcParticipant {
 /// Signaling is transported by the authenticated application WebSocket; only
 /// ICE, DTLS, SRTP and device access are delegated to flutter_webrtc.
 class RtcService {
-  RtcService(this._ws) {
+  RtcService(
+    this._ws, {
+    String? Function()? audioInputDeviceId,
+    String? Function()? audioOutputDeviceId,
+  })  : _audioInputDeviceId = audioInputDeviceId,
+        _audioOutputDeviceId = audioOutputDeviceId {
     _subscriptions.add(_ws.on('rtc.answer').listen(_handleAnswer));
     _subscriptions.add(_ws.on('rtc.offer').listen(_handleOffer));
     _subscriptions.add(_ws.on('rtc.ice').listen(_handleCandidate));
@@ -53,6 +58,8 @@ class RtcService {
   }
 
   final WsService _ws;
+  final String? Function()? _audioInputDeviceId;
+  final String? Function()? _audioOutputDeviceId;
   final List<StreamSubscription<dynamic>> _subscriptions = [];
   RTCPeerConnection? _pc;
   MediaStream? _localStream;
@@ -63,6 +70,7 @@ class RtcService {
   bool _lastSpeaking = false;
   bool _localDescriptionSignaled = false;
   bool _remoteDescriptionSet = false;
+  Map<String, dynamic>? _queuedRemoteOffer;
   final List<Map<String, dynamic>> _pendingLocalCandidates = [];
   final List<RTCIceCandidate> _pendingRemoteCandidates = [];
 
@@ -112,7 +120,7 @@ class RtcService {
       // The server processes messages from one WebSocket in order. Sending
       // room.join before rtc.offer guarantees that the RTC membership check
       // sees this client as joined, including after reconnects.
-      _ws.joinRoom(roomId);
+      await _ws.ensureRoomJoined(roomId);
 
       final uri = Uri.parse(_ws.serverUrl ?? 'http://127.0.0.1:8080');
       final host = uri.host.isEmpty ? '127.0.0.1' : uri.host;
@@ -180,6 +188,24 @@ class RtcService {
         }
       };
 
+      final inputDeviceId = _audioInputDeviceId?.call();
+      final outputDeviceId = _audioOutputDeviceId?.call();
+      if (inputDeviceId != null && inputDeviceId.isNotEmpty) {
+        try {
+          await Helper.selectAudioInput(inputDeviceId);
+        } catch (_) {
+          // The persisted device may have disappeared; getUserMedia will use
+          // the current system default instead.
+        }
+      }
+      if (outputDeviceId != null && outputDeviceId.isNotEmpty) {
+        try {
+          await Helper.selectAudioOutput(outputDeviceId);
+        } catch (_) {
+          // Fall back to the current system output device.
+        }
+      }
+
       final stream = await navigator.mediaDevices.getUserMedia({
         'audio': {
           'echoCancellation': true,
@@ -199,12 +225,25 @@ class RtcService {
         await pc.addTrack(track, stream);
       }
 
+      // Reserve receive-only audio slots so a group call can add several
+      // remote speakers without depending on fragile back-to-back renegotiation.
+      for (var index = 0; index < 7; index++) {
+        await pc.addTransceiver(
+          kind: RTCRtpMediaType.RTCRtpMediaTypeAudio,
+          init: RTCRtpTransceiverInit(
+            direction: TransceiverDirection.RecvOnly,
+          ),
+        );
+      }
+
       final offer = await pc.createOffer({'offerToReceiveAudio': true});
       await pc.setLocalDescription(offer);
-      _ws.sendEvent('rtc.offer', roomId: roomId, payload: {
+      if (!_ws.sendEvent('rtc.offer', roomId: roomId, payload: {
         'type': offer.type,
         'sdp': offer.sdp,
-      });
+      })) {
+        throw const WsUnavailableException('RTC 协商请求发送失败');
+      }
       _localDescriptionSignaled = true;
       for (final candidate in _pendingLocalCandidates) {
         _ws.sendEvent('rtc.ice', roomId: roomId, payload: candidate);
@@ -228,13 +267,24 @@ class RtcService {
   }
 
   Future<void> setMicrophoneEnabled(bool enabled) async {
-    for (final track
-        in _localStream?.getAudioTracks() ?? const <MediaStreamTrack>[]) {
+    final tracks = _localStream?.getAudioTracks() ?? const <MediaStreamTrack>[];
+    if (tracks.isEmpty) {
+      throw StateError('未检测到可用的麦克风轨道');
+    }
+    for (final track in tracks) {
       track.enabled = enabled;
+    }
+    if (tracks.any((track) => track.enabled != enabled)) {
+      throw StateError(enabled ? '麦克风启用失败' : '麦克风静音失败');
     }
     final roomId = _connectedRoomId;
     if (roomId != null) {
-      _ws.sendVoiceMute(roomId: roomId, muted: !enabled);
+      if (!_ws.sendVoiceMute(roomId: roomId, muted: !enabled)) {
+        for (final track in tracks) {
+          track.enabled = !enabled;
+        }
+        throw const WsUnavailableException('麦克风状态同步失败，请重试');
+      }
       if (!enabled && _lastSpeaking) {
         _lastSpeaking = false;
         _ws.sendEvent('rtc.speaking',
@@ -263,23 +313,37 @@ class RtcService {
   }
 
   Future<void> _handleOffer(Map<String, dynamic> payload) async {
-    final pc = _pc;
-    final roomId = _connectedRoomId;
-    final sdp = payload['sdp'] as String?;
-    if (pc == null || roomId == null || sdp == null || _negotiating) return;
+    if (_negotiating) {
+      _queuedRemoteOffer = payload;
+      return;
+    }
     _negotiating = true;
     try {
-      await pc.setRemoteDescription(RTCSessionDescription(sdp, 'offer'));
-      _remoteDescriptionSet = true;
-      await _flushRemoteCandidates(pc);
-      final answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      _ws.sendEvent('rtc.answer', roomId: roomId, payload: {
-        'type': answer.type,
-        'sdp': answer.sdp,
-      });
+      Map<String, dynamic>? current = payload;
+      while (current != null) {
+        _queuedRemoteOffer = null;
+        final pc = _pc;
+        final roomId = _connectedRoomId;
+        final sdp = current['sdp'] as String?;
+        if (pc == null || roomId == null || sdp == null) return;
+        await pc.setRemoteDescription(RTCSessionDescription(sdp, 'offer'));
+        _remoteDescriptionSet = true;
+        await _flushRemoteCandidates(pc);
+        final answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        if (!_ws.sendEvent('rtc.answer', roomId: roomId, payload: {
+          'type': answer.type,
+          'sdp': answer.sdp,
+        })) {
+          throw const WsUnavailableException('RTC 应答发送失败');
+        }
+        current = _queuedRemoteOffer;
+      }
+    } catch (error) {
+      _emitError('RTC 重协商失败: $error');
     } finally {
       _negotiating = false;
+      _queuedRemoteOffer = null;
     }
   }
 
@@ -369,6 +433,7 @@ class RtcService {
     _remoteDescriptionSet = false;
     _pendingLocalCandidates.clear();
     _pendingRemoteCandidates.clear();
+    _queuedRemoteOffer = null;
     for (final track in stream?.getTracks() ?? const <MediaStreamTrack>[]) {
       await track.stop();
     }

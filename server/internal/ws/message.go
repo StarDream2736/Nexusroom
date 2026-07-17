@@ -26,6 +26,8 @@ const (
 	EventChatError        MessageType = "chat.error"
 	EventConnected        MessageType = "connected"
 	EventPong             MessageType = "pong"
+	EventRoomJoined       MessageType = "room.joined"
+	EventRoomJoinError    MessageType = "room.join_error"
 	EventChatMessage      MessageType = "chat.message"
 	EventRoomMemberJoin   MessageType = "room.member_join"
 	EventRoomMemberLeave  MessageType = "room.member_leave"
@@ -58,10 +60,11 @@ type RoomLeavePayload struct {
 }
 
 type ChatSendPayload struct {
-	RoomID  uint64                  `json:"room_id"`
-	Type    string                  `json:"type"` // text / image / file
-	Content string                  `json:"content"`
-	Meta    *map[string]interface{} `json:"meta,omitempty"`
+	RoomID          uint64                  `json:"room_id"`
+	Type            string                  `json:"type"` // text / image / file
+	Content         string                  `json:"content"`
+	Meta            *map[string]interface{} `json:"meta,omitempty"`
+	ClientMessageID string                  `json:"client_message_id,omitempty"`
 }
 
 type VoiceMutePayload struct {
@@ -100,14 +103,15 @@ type RTCICEServer struct {
 }
 
 type ChatMessagePayload struct {
-	ID        uint64                  `json:"id"`
-	RoomID    uint64                  `json:"room_id"`
-	SenderID  uint64                  `json:"sender_id"`
-	Type      string                  `json:"type"`
-	Content   string                  `json:"content"`
-	Meta      *map[string]interface{} `json:"meta,omitempty"`
-	CreatedAt time.Time               `json:"created_at"`
-	Sender    SenderInfo              `json:"sender"`
+	ID              uint64                  `json:"id"`
+	RoomID          uint64                  `json:"room_id"`
+	SenderID        uint64                  `json:"sender_id"`
+	Type            string                  `json:"type"`
+	Content         string                  `json:"content"`
+	Meta            *map[string]interface{} `json:"meta,omitempty"`
+	ClientMessageID string                  `json:"client_message_id,omitempty"`
+	CreatedAt       time.Time               `json:"created_at"`
+	Sender          SenderInfo              `json:"sender"`
 }
 
 type SenderInfo struct {
@@ -159,6 +163,16 @@ type IngressUpdatePayload struct {
 }
 
 type ChatErrorPayload struct {
+	RoomID          uint64 `json:"room_id"`
+	Reason          string `json:"reason"`
+	ClientMessageID string `json:"client_message_id,omitempty"`
+}
+
+type RoomJoinedPayload struct {
+	RoomID uint64 `json:"room_id"`
+}
+
+type RoomJoinErrorPayload struct {
 	RoomID uint64 `json:"room_id"`
 	Reason string `json:"reason"`
 }

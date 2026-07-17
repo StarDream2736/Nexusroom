@@ -19,6 +19,7 @@ coverage/
 coverage.out
 *.test
 .cache/
+docs/development/
 
 # Local configuration, secrets, and runtime state
 .env

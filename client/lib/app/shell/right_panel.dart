@@ -52,8 +52,10 @@ class RightPanel extends ConsumerWidget {
             child: roomAsync.when(
               data: (room) {
                 final totalCount = room.members.length;
-                final onlineCount = room.members.where((m) =>
-                    onlineUsers.contains(m.userId) || m.userId == myUserId).length;
+                final onlineCount = room.members
+                    .where((m) =>
+                        onlineUsers.contains(m.userId) || m.userId == myUserId)
+                    .length;
                 return Row(
                   children: [
                     Text('成员列表', style: AppTypography.sectionHeader),
@@ -70,7 +72,8 @@ class RightPanel extends ConsumerWidget {
                 );
               },
               loading: () => Text('成员列表', style: AppTypography.sectionHeader),
-              error: (_, __) => Text('成员列表', style: AppTypography.sectionHeader),
+              error: (_, __) =>
+                  Text('成员列表', style: AppTypography.sectionHeader),
             ),
           ),
 
@@ -81,15 +84,16 @@ class RightPanel extends ConsumerWidget {
                 if (room.members.isEmpty) {
                   return Padding(
                     padding: const EdgeInsets.all(16),
-                    child: Text('暂无成员',
-                        style: AppTypography.bodySecondary),
+                    child: Text('暂无成员', style: AppTypography.bodySecondary),
                   );
                 }
                 // 按在线状态排序：在线成员在前，离线在后
                 final sorted = [...room.members];
                 sorted.sort((a, b) {
-                  final aOnline = onlineUsers.contains(a.userId) || a.userId == myUserId;
-                  final bOnline = onlineUsers.contains(b.userId) || b.userId == myUserId;
+                  final aOnline =
+                      onlineUsers.contains(a.userId) || a.userId == myUserId;
+                  final bOnline =
+                      onlineUsers.contains(b.userId) || b.userId == myUserId;
                   if (aOnline && !bOnline) return -1;
                   if (!aOnline && bOnline) return 1;
                   // 同组内按 owner 优先
@@ -104,7 +108,8 @@ class RightPanel extends ConsumerWidget {
                   itemBuilder: (context, index) {
                     final member = sorted[index];
                     final avatarUrl = _resolveUrl(baseUrl, member.avatarUrl);
-                    final isOnline = onlineUsers.contains(member.userId) || member.userId == myUserId;
+                    final isOnline = onlineUsers.contains(member.userId) ||
+                        member.userId == myUserId;
                     final isSpeaking = speakingUsers.contains(member.userId);
                     return _MemberTile(
                       nickname: member.nickname,
@@ -164,8 +169,7 @@ class RightPanel extends ConsumerWidget {
                   itemCount: ingresses.length,
                   itemBuilder: (context, index) {
                     final ingress = ingresses[index];
-                    final isSelected =
-                        selectedIngress?.id == ingress.id;
+                    final isSelected = selectedIngress?.id == ingress.id;
                     return _StreamTile(
                       label: ingress.label,
                       isActive: ingress.isActive,
@@ -173,13 +177,11 @@ class RightPanel extends ConsumerWidget {
                       onTap: () {
                         if (isSelected) {
                           // Deselect — room_detail_page watches this
-                          ref
-                              .read(selectedIngressProvider.notifier)
-                              .state = null;
+                          ref.read(selectedIngressProvider.notifier).state =
+                              null;
                         } else {
-                          ref
-                              .read(selectedIngressProvider.notifier)
-                              .state = ingress;
+                          ref.read(selectedIngressProvider.notifier).state =
+                              ingress;
                         }
                       },
                     );
@@ -303,7 +305,8 @@ class _StreamTileState extends State<_StreamTile> {
                     : Colors.transparent,
             borderRadius: BorderRadius.circular(6),
             border: widget.isSelected
-                ? Border.all(color: AppColors.primary.withOpacity(0.4), width: 1)
+                ? Border.all(
+                    color: AppColors.primary.withOpacity(0.4), width: 1)
                 : null,
           ),
           child: Row(
@@ -311,9 +314,7 @@ class _StreamTileState extends State<_StreamTile> {
               Icon(
                 Icons.videocam,
                 size: 13,
-                color: widget.isActive
-                    ? AppColors.success
-                    : AppColors.error,
+                color: widget.isActive ? AppColors.success : AppColors.error,
               ),
               const SizedBox(width: 6),
               Expanded(
@@ -439,14 +440,13 @@ class _MemberTileState extends State<_MemberTile>
                 child: CircleAvatar(
                   radius: 12,
                   backgroundColor: AppColors.cardActive,
-                  backgroundImage: widget.avatarUrl != null && widget.avatarUrl!.isNotEmpty
-                      ? CachedNetworkImageProvider(widget.avatarUrl!)
-                      : null,
+                  backgroundImage:
+                      widget.avatarUrl != null && widget.avatarUrl!.isNotEmpty
+                          ? CachedNetworkImageProvider(widget.avatarUrl!)
+                          : null,
                   child: widget.avatarUrl == null || widget.avatarUrl!.isEmpty
                       ? Text(
-                          widget.nickname.isNotEmpty
-                              ? widget.nickname[0]
-                              : '?',
+                          widget.nickname.isNotEmpty ? widget.nickname[0] : '?',
                           style: TextStyle(
                             fontSize: 10,
                             color: AppColors.textSecondary,

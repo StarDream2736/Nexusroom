@@ -118,7 +118,7 @@ class AppTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: radiusButton,
-          borderSide: BorderSide(color: AppColors.primary, width: 1.5),
+          borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: radiusButton,
@@ -136,8 +136,7 @@ class AppTheme {
           elevation: 0,
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           shape: RoundedRectangleBorder(borderRadius: radiusButton),
-          textStyle:
-              const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+          textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
         ),
       ),
 
@@ -148,8 +147,7 @@ class AppTheme {
           side: subtleBorder,
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           shape: RoundedRectangleBorder(borderRadius: radiusButton),
-          textStyle:
-              const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+          textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
         ),
       ),
 
@@ -159,8 +157,7 @@ class AppTheme {
           foregroundColor: AppColors.primary,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           shape: RoundedRectangleBorder(borderRadius: radiusButton),
-          textStyle:
-              const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+          textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
         ),
       ),
 
@@ -176,8 +173,7 @@ class AppTheme {
       listTileTheme: ListTileThemeData(
         dense: true,
         shape: RoundedRectangleBorder(borderRadius: radiusButton),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
         minLeadingWidth: 24,
         tileColor: Colors.transparent,
         textColor: AppColors.textPrimary,
@@ -205,8 +201,7 @@ class AppTheme {
       // ─── Snackbar ────────────────────────────────────────
       snackBarTheme: SnackBarThemeData(
         backgroundColor: AppColors.cardHover,
-        contentTextStyle:
-            TextStyle(color: AppColors.textPrimary, fontSize: 13),
+        contentTextStyle: TextStyle(color: AppColors.textPrimary, fontSize: 13),
         shape: RoundedRectangleBorder(borderRadius: radiusButton),
         behavior: SnackBarBehavior.floating,
         elevation: 0,
@@ -231,7 +226,7 @@ class AppTheme {
         indicatorSize: TabBarIndicatorSize.label,
         dividerColor: Colors.transparent,
         indicator: UnderlineTabIndicator(
-          borderSide: BorderSide(color: AppColors.primary, width: 2),
+          borderSide: const BorderSide(color: AppColors.primary, width: 2),
           borderRadius: BorderRadius.circular(1),
         ),
       ),
@@ -246,8 +241,7 @@ class AppTheme {
             states.contains(WidgetState.selected)
                 ? AppColors.primary
                 : AppColors.cardHover),
-        trackOutlineColor:
-            WidgetStateProperty.all(Colors.transparent),
+        trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
       ),
 
       // ─── Progress Indicator ──────────────────────────────

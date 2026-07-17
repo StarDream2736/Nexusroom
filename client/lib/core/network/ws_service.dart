@@ -18,11 +18,55 @@ class WsEvent {
 /// 连接状态
 enum WsConnectionState { disconnected, connecting, connected }
 
+class WsUnavailableException implements Exception {
+  const WsUnavailableException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+class ChatSendException implements Exception {
+  const ChatSendException(this.reason);
+
+  final String reason;
+
+  @override
+  String toString() => reason;
+}
+
+abstract interface class WsChannel {
+  Stream<dynamic> get stream;
+  StreamSink<dynamic> get sink;
+  Future<void> get ready;
+}
+
+typedef WsChannelConnector = WsChannel Function(Uri uri);
+
+class _WebSocketChannelAdapter implements WsChannel {
+  _WebSocketChannelAdapter(Uri uri) : _channel = WebSocketChannel.connect(uri);
+
+  final WebSocketChannel _channel;
+
+  @override
+  Future<void> get ready => _channel.ready;
+
+  @override
+  Stream<dynamic> get stream => _channel.stream;
+
+  @override
+  StreamSink<dynamic> get sink => _channel.sink;
+}
+
 class WsService {
-  WsService({required AppDatabase db}) : _db = db;
+  WsService({required AppDatabase db, WsChannelConnector? connector})
+      : _db = db,
+        _connector = connector ?? _WebSocketChannelAdapter.new;
 
   final AppDatabase _db;
-  WebSocketChannel? _channel;
+  final WsChannelConnector _connector;
+  WsChannel? _channel;
   StreamSubscription? _subscription;
   Timer? _heartbeat;
   Timer? _reconnectTimer;
@@ -31,6 +75,12 @@ class WsService {
   String? _token;
   List<Map<String, dynamic>> _rtcIceServers = const [];
   bool _shouldReconnect = false;
+  int _connectionGeneration = 0;
+
+  final Set<int> _confirmedRooms = {};
+  final Map<int, Completer<void>> _roomJoinCompleters = {};
+  final Map<String, Completer<void>> _pendingChatCompleters = {};
+  int _messageSequence = 0;
 
   int _reconnectAttempts = 0;
   WsConnectionState _state = WsConnectionState.disconnected;
@@ -69,7 +119,7 @@ class WsService {
 
   void connect(String serverUrl, String token) {
     debugPrint(
-        '[WsService] connect() called  serverUrl=${serverUrl.length > 30 ? '${serverUrl.substring(0, 30)}...' : serverUrl}  token=${token.length > 15 ? '${token.substring(0, 15)}...' : token}  _channel=${_channel != null}  _state=$_state');
+        '[WsService] connect() called serverUrl=$serverUrl authenticated=${token.isNotEmpty} state=$_state');
 
     if (_serverUrl == serverUrl &&
         _token == token &&
@@ -102,33 +152,43 @@ class WsService {
     debugPrint('[WsService] _open() connecting to $url');
     _setState(WsConnectionState.connecting);
 
+    final generation = ++_connectionGeneration;
     try {
-      final channel = WebSocketChannel.connect(Uri.parse(url));
+      final channel = _connector(Uri.parse(url));
       _channel = channel;
 
       // 监听 stream（数据/错误/关闭）
       _subscription = channel.stream.listen(
-        _handleMessage,
-        onDone: _handleDone,
-        onError: _handleError,
+        (data) => _handleMessage(data, generation),
+        onDone: () => _handleDone(generation),
+        onError: (Object error) => _handleError(error, generation),
       );
 
       // 关键：显式监控 ready future，检测握手失败
       channel.ready.then((_) {
+        if (generation != _connectionGeneration ||
+            !identical(_channel, channel)) {
+          return;
+        }
         debugPrint('[WsService] WebSocket handshake complete (ready resolved)');
       }).catchError((error) {
+        if (generation != _connectionGeneration ||
+            !identical(_channel, channel)) {
+          return;
+        }
         debugPrint(
             '[WsService] WebSocket handshake FAILED (ready error): $error');
         // stream 的 onDone 应该也会触发，但作为安全网:
-        _cleanupAndReconnect();
+        _cleanupAndReconnect(generation);
       });
 
       // 连接超时看门狗：10 秒内必须收到 connected 事件，否则强制重连
       _connectTimeoutTimer = Timer(const Duration(seconds: 10), () {
-        if (_state == WsConnectionState.connecting) {
+        if (generation == _connectionGeneration &&
+            _state == WsConnectionState.connecting) {
           debugPrint(
               '[WsService] CONNECT TIMEOUT — no "connected" event in 10s, forcing reconnect');
-          _cleanupAndReconnect();
+          _cleanupAndReconnect(generation);
         }
       });
     } catch (e, st) {
@@ -142,7 +202,8 @@ class WsService {
   }
 
   /// 清理当前连接并触发重连
-  void _cleanupAndReconnect() {
+  void _cleanupAndReconnect(int generation) {
+    if (generation != _connectionGeneration) return;
     _connectTimeoutTimer?.cancel();
     _stopHeartbeat();
     _subscription?.cancel();
@@ -151,28 +212,36 @@ class WsService {
       _channel?.sink.close();
     } catch (_) {}
     _channel = null;
+    _confirmedRooms.clear();
+    _failPendingChats(const WsUnavailableException('连接已断开，请重试'));
     _setState(WsConnectionState.disconnected);
     if (_shouldReconnect) {
       _scheduleReconnect();
     }
   }
 
-  void _handleDone() {
+  void _handleDone(int generation) {
+    if (generation != _connectionGeneration) return;
     debugPrint('[WsService] connection closed (onDone)  state=$_state');
     _connectTimeoutTimer?.cancel();
     _stopHeartbeat();
     _channel = null;
+    _confirmedRooms.clear();
+    _failPendingChats(const WsUnavailableException('连接已断开，请重试'));
     _setState(WsConnectionState.disconnected);
     if (_shouldReconnect) {
       _scheduleReconnect();
     }
   }
 
-  void _handleError(Object error) {
+  void _handleError(Object error, int generation) {
+    if (generation != _connectionGeneration) return;
     debugPrint('[WsService] connection error (onError): $error  state=$_state');
     _connectTimeoutTimer?.cancel();
     _stopHeartbeat();
     _channel = null;
+    _confirmedRooms.clear();
+    _failPendingChats(const WsUnavailableException('连接异常，请重试'));
     _setState(WsConnectionState.disconnected);
     // 同样调度重连作为安全网（_scheduleReconnect 内部有去重）
     if (_shouldReconnect) {
@@ -200,6 +269,7 @@ class WsService {
   }
 
   void disconnect() {
+    _connectionGeneration++;
     _shouldReconnect = false;
     _reconnectTimer?.cancel();
     _connectTimeoutTimer?.cancel();
@@ -212,6 +282,9 @@ class WsService {
     } catch (_) {}
     _channel = null;
     _joinedRooms.clear();
+    _confirmedRooms.clear();
+    _failPendingChats(const WsUnavailableException('连接已关闭'));
+    _failRoomJoins(const WsUnavailableException('连接已关闭'));
     _rtcIceServers = const [];
     _setState(WsConnectionState.disconnected);
     debugPrint('[WsService] disconnected');
@@ -223,49 +296,81 @@ class WsService {
     _stateController.close();
   }
 
-  void joinRoom(int roomId) {
-    final added = _joinedRooms.add(roomId);
+  Future<void> joinRoom(int roomId) {
+    _joinedRooms.add(roomId);
     debugPrint('[WsService] joinRoom($roomId)  state=$_state');
-    if (!added) {
-      debugPrint('[WsService] joinRoom($roomId) skipped - already joined');
-      return;
+    return ensureRoomJoined(roomId);
+  }
+
+  Future<void> ensureRoomJoined(
+    int roomId, {
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    _joinedRooms.add(roomId);
+    await _waitUntilConnected(timeout);
+    if (_confirmedRooms.contains(roomId)) return;
+
+    final completer =
+        _roomJoinCompleters.putIfAbsent(roomId, Completer<void>.new);
+    _requestRoomJoin(roomId);
+    try {
+      await completer.future.timeout(timeout);
+    } on TimeoutException {
+      if (identical(_roomJoinCompleters[roomId], completer)) {
+        _roomJoinCompleters.remove(roomId);
+      }
+      throw const WsUnavailableException('加入房间超时，请检查网络后重试');
     }
-    sendEvent('room.join', roomId: roomId, payload: {});
   }
 
   void leaveRoom(int roomId) {
     _joinedRooms.remove(roomId);
+    _confirmedRooms.remove(roomId);
+    final pending = _roomJoinCompleters.remove(roomId);
+    if (pending != null && !pending.isCompleted) {
+      pending.completeError(const WsUnavailableException('已离开房间'));
+    }
     debugPrint('[WsService] leaveRoom($roomId)  state=$_state');
     sendEvent('room.leave', roomId: roomId, payload: {});
   }
 
-  void sendChat({
+  Future<void> sendChat({
     required int roomId,
     required String content,
     String type = 'text',
     Map<String, dynamic>? meta,
-  }) {
+  }) async {
     debugPrint(
-        '[WsService] sendChat roomId=$roomId content="$content" state=$_state');
-    sendEvent('chat.send', roomId: roomId, payload: {
-      'type': type,
-      'content': content,
-      if (meta != null) 'meta': meta,
-    });
+        '[WsService] sendChat roomId=$roomId type=$type length=${content.length} state=$_state');
+    for (var attempt = 0; attempt < 2; attempt++) {
+      await ensureRoomJoined(roomId);
+      try {
+        await _sendChatOnce(
+          roomId: roomId,
+          content: content,
+          type: type,
+          meta: meta,
+        );
+        return;
+      } on ChatSendException catch (error) {
+        if (error.reason != 'not_in_room' || attempt > 0) rethrow;
+        _confirmedRooms.remove(roomId);
+      }
+    }
   }
 
-  void sendVoiceMute({required int roomId, required bool muted}) {
-    sendEvent('voice.mute', roomId: roomId, payload: {
+  bool sendVoiceMute({required int roomId, required bool muted}) {
+    return sendEvent('voice.mute', roomId: roomId, payload: {
       'muted': muted,
     });
   }
 
-  void sendEvent(String event,
+  bool sendEvent(String event,
       {int? roomId, Map<String, dynamic> payload = const {}}) {
     if (_channel == null || _state != WsConnectionState.connected) {
       debugPrint(
           '[WsService] sendEvent($event) DROPPED — state=$_state channel=${_channel != null}');
-      return;
+      return false;
     }
     final envelope = <String, dynamic>{
       'event': event,
@@ -275,8 +380,82 @@ class WsService {
     };
     try {
       _channel!.sink.add(jsonEncode(envelope));
+      return true;
     } catch (e) {
       debugPrint('[WsService] sendEvent($event) sink.add ERROR: $e');
+      return false;
+    }
+  }
+
+  Future<void> _sendChatOnce({
+    required int roomId,
+    required String content,
+    required String type,
+    Map<String, dynamic>? meta,
+  }) async {
+    final clientMessageId = _nextClientMessageId();
+    final completer = Completer<void>();
+    _pendingChatCompleters[clientMessageId] = completer;
+    final sent = sendEvent('chat.send', roomId: roomId, payload: {
+      'type': type,
+      'content': content,
+      'client_message_id': clientMessageId,
+      if (meta != null) 'meta': meta,
+    });
+    if (!sent) {
+      _pendingChatCompleters.remove(clientMessageId);
+      throw const WsUnavailableException('当前未连接，消息未发送');
+    }
+    try {
+      await completer.future.timeout(const Duration(seconds: 10));
+    } on TimeoutException {
+      throw const WsUnavailableException('消息发送超时，请重试');
+    } finally {
+      _pendingChatCompleters.remove(clientMessageId);
+    }
+  }
+
+  String _nextClientMessageId() {
+    final now = DateTime.now().microsecondsSinceEpoch;
+    final random = Random.secure().nextInt(1 << 32);
+    return '$now-${_messageSequence++}-$random';
+  }
+
+  Future<void> _waitUntilConnected(Duration timeout) async {
+    if (_state == WsConnectionState.connected && _channel != null) return;
+    if (!_shouldReconnect || _serverUrl == null || _token == null) {
+      throw const WsUnavailableException('WebSocket 尚未连接');
+    }
+    try {
+      await stateStream
+          .firstWhere((state) => state == WsConnectionState.connected)
+          .timeout(timeout);
+    } on TimeoutException {
+      throw const WsUnavailableException('连接服务器超时');
+    }
+  }
+
+  void _requestRoomJoin(int roomId) {
+    if (_confirmedRooms.contains(roomId) ||
+        _state != WsConnectionState.connected) {
+      return;
+    }
+    sendEvent('room.join', roomId: roomId, payload: {});
+  }
+
+  void _failPendingChats(Object error) {
+    final completers = _pendingChatCompleters.values.toList(growable: false);
+    _pendingChatCompleters.clear();
+    for (final completer in completers) {
+      if (!completer.isCompleted) completer.completeError(error);
+    }
+  }
+
+  void _failRoomJoins(Object error) {
+    final completers = _roomJoinCompleters.values.toList(growable: false);
+    _roomJoinCompleters.clear();
+    for (final completer in completers) {
+      if (!completer.isCompleted) completer.completeError(error);
     }
   }
 
@@ -305,11 +484,22 @@ class WsService {
     _heartbeat = null;
   }
 
-  void _handleMessage(dynamic data) {
+  void _handleMessage(dynamic data, int generation) {
+    if (generation != _connectionGeneration) return;
     if (data is! String) return;
-    final decoded = jsonDecode(data) as Map<String, dynamic>;
+    final Map<String, dynamic> decoded;
+    try {
+      final value = jsonDecode(data);
+      if (value is! Map) return;
+      decoded = Map<String, dynamic>.from(value);
+    } catch (error) {
+      debugPrint('[WsService] invalid message ignored: $error');
+      return;
+    }
     final event = decoded['event'] as String?;
-    final payload = decoded['payload'] as Map<String, dynamic>?;
+    final rawPayload = decoded['payload'];
+    final payload =
+        rawPayload is Map ? Map<String, dynamic>.from(rawPayload) : null;
 
     if (event == null) return;
 
@@ -332,18 +522,50 @@ class WsService {
 
       debugPrint(
           '[WsService] CONNECTED! Rejoining ${_joinedRooms.length} rooms: $_joinedRooms');
+      _confirmedRooms.clear();
       // 断线重连后自动重新加入之前的房间
       for (final roomId in _joinedRooms) {
-        sendEvent('room.join', roomId: roomId, payload: {});
+        _requestRoomJoin(roomId);
+      }
+    }
+
+    if (event == 'room.joined' && payload != null) {
+      final roomId = _readInt(payload['room_id'] ?? decoded['room_id']);
+      if (roomId != null) {
+        _confirmedRooms.add(roomId);
+        final completer = _roomJoinCompleters.remove(roomId);
+        if (completer != null && !completer.isCompleted) completer.complete();
+      }
+    }
+
+    if (event == 'room.join_error' && payload != null) {
+      final roomId = _readInt(payload['room_id'] ?? decoded['room_id']);
+      if (roomId != null) {
+        _confirmedRooms.remove(roomId);
+        final completer = _roomJoinCompleters.remove(roomId);
+        if (completer != null && !completer.isCompleted) {
+          completer.completeError(
+            WsUnavailableException(payload['reason']?.toString() ?? '无法加入房间'),
+          );
+        }
       }
     }
 
     // 服务端返回 chat.error（通常因为 not_in_room），自动重新加入并提示
     if (event == 'chat.error' && payload != null) {
       debugPrint('[WsService] chat.error: $payload');
-      final roomId = payload['room_id'] as int?;
+      final clientMessageId = payload['client_message_id']?.toString();
+      if (clientMessageId != null) {
+        final completer = _pendingChatCompleters[clientMessageId];
+        if (completer != null && !completer.isCompleted) {
+          completer.completeError(
+            ChatSendException(payload['reason']?.toString() ?? 'send_failed'),
+          );
+        }
+      }
+      final roomId = _readInt(payload['room_id']);
       if (roomId != null && _joinedRooms.contains(roomId)) {
-        sendEvent('room.join', roomId: roomId, payload: {});
+        _confirmedRooms.remove(roomId);
       }
     }
 
@@ -363,12 +585,30 @@ class WsService {
         debugPrint('[WsService] chat.message payload=$payload');
         final message =
             MessageModel.fromWs(payload, serverUrl: _serverUrl ?? '');
-        _db.messagesDao.upsertMessages([message.toCompanion()]);
+        unawaited(
+          _db.messagesDao.upsertMessages([message.toCompanion()]).catchError(
+              (Object error) {
+            debugPrint('[WsService] message cache write failed: $error');
+          }),
+        );
+        final clientMessageId = payload['client_message_id']?.toString();
+        if (clientMessageId != null) {
+          final completer = _pendingChatCompleters[clientMessageId];
+          if (completer != null && !completer.isCompleted) {
+            completer.complete();
+          }
+        }
         debugPrint(
             '[WsService] chat.message written to DB, id=${message.id} roomId=${message.roomId}');
       } catch (e, st) {
         debugPrint('[WsService] chat.message PARSE/DB ERROR: $e\n$st');
       }
     }
+  }
+
+  int? _readInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '');
   }
 }

@@ -6,7 +6,8 @@ import '../tables/settings.dart';
 part 'settings_dao.g.dart';
 
 @DriftAccessor(tables: [Settings])
-class SettingsDao extends DatabaseAccessor<AppDatabase> with _$SettingsDaoMixin {
+class SettingsDao extends DatabaseAccessor<AppDatabase>
+    with _$SettingsDaoMixin {
   SettingsDao(super.db);
 
   Future<String?> getValue(String key) async {

@@ -5,8 +5,7 @@ import '../models/auth_models.dart';
 import '../repositories/settings_repository.dart';
 
 class AppSettingsController extends StateNotifier<AsyncValue<AppSettings>> {
-  AppSettingsController(this._repository)
-      : super(const AsyncValue.loading()) {
+  AppSettingsController(this._repository) : super(const AsyncValue.loading()) {
     _load();
   }
 

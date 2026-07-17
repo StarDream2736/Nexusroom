@@ -14,6 +14,10 @@ chmod +x scripts/*.sh
 
 The installer creates `config/server.yaml`, persists application state below `data/`, builds the local server source, and starts one `nexusroom` container.
 
+If host port `8080` is already occupied, set `NEXUSROOM_HTTP_PORT` in `deployment/.env`, for example `NEXUSROOM_HTTP_PORT=18080`. This changes only the host-side HTTP port.
+
+The TURN relay mapping follows `NEXUSROOM_TURN_RELAY_PORT_RANGE` and must match `media.turn.relay_port_min`/`relay_port_max` in `config/server.yaml`. This is useful on Windows hosts where the default range may overlap dynamic system ports.
+
 ## Direct Linux deployment
 
 Install Go 1.25+, GCC, WireGuard tools, iproute2, and iptables first. Then run:

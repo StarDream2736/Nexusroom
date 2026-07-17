@@ -2,12 +2,14 @@
 
 NexusRoom 是面向小型私有社群的自托管通信平台，包含即时消息、多人语音、RTMP 直播、网页播放、文件共享和 WireGuard 虚拟局域网。
 
+当前版本：`2.0.0`。
+
 当前服务端采用单体架构：一个 Go 进程同时提供 REST API、WebSocket 信令、SQLite 持久化、Opus 语音 SFU、RTMP 接入、HTTP-FLV/WebRTC 播放、STUN/TURN、静态网页和 WireGuard 协调。部署不再依赖 PostgreSQL、Redis、LiveKit Server、SRS 或 nginx。
 
 ## 主要功能
 
-- 房间消息、图片和文件传输，支持本地离线缓存。
-- NexusRoom 内建 WebRTC 语音频道、开关麦和说话状态同步。
+- 房间消息、图片和文件传输，支持本地离线缓存、房间加入确认和发送结果确认。
+- NexusRoom 内建 WebRTC 语音频道、开关麦、音频设备选择和说话状态同步。
 - OBS 或客户端 FFmpeg 通过 RTMP 推送 H.264 视频；OBS AAC 音频由 HTTP-FLV 保留。
 - 桌面端使用 HTTP-FLV 播放，浏览器优先使用 WebRTC 并支持 FLV 回退。
 - 房间级 WireGuard 虚拟局域网。
@@ -21,7 +23,7 @@ Nexusroom/
 ├── client/       Flutter 桌面客户端及客户端专用原生依赖
 ├── server/       Go 服务端、媒体核心和内嵌网页
 ├── deployment/   Docker、systemd、安装脚本和配置模板
-├── docs/         技术文档与开发记录
+├── docs/         技术文档和构建文档
 └── docx/         项目日志归档
 ```
 
@@ -72,7 +74,7 @@ go run ./cmd/server
 | 51000-51100 | UDP | TURN 中继 |
 | 51820 | UDP | WireGuard |
 
-详细配置见 [部署说明](deployment/README.md) 和 [技术文档](docs/NexusRoom.md)。编译发布步骤见 [客户端编译文档](docs/build/client-build.md) 与 [服务端编译打包文档](docs/build/server-build.md)。2026-07-15 的整体改造记录见 [开发记录](docs/development/2026-07-15-unified-server.md)。
+详细配置见 [部署说明](deployment/README.md) 和 [技术文档](docs/NexusRoom.md)。编译发布步骤见 [客户端编译文档](docs/build/client-build.md) 与 [服务端编译打包文档](docs/build/server-build.md)。本地开发日志位于 `docs/development/`，不会提交到 Git。
 
 ## 开源组件边界
 

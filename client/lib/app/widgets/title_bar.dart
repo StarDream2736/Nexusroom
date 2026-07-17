@@ -127,8 +127,7 @@ class _TrafficButtonState extends State<_TrafficButton> {
             color: widget.color,
           ),
           child: _hovered
-              ? Icon(widget.icon,
-                  size: 9, color: Colors.black.withOpacity(0.6))
+              ? Icon(widget.icon, size: 9, color: Colors.black.withOpacity(0.6))
               : null,
         ),
       ),

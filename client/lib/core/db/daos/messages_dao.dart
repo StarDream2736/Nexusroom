@@ -6,7 +6,8 @@ import '../tables/messages.dart';
 part 'messages_dao.g.dart';
 
 @DriftAccessor(tables: [Messages])
-class MessagesDao extends DatabaseAccessor<AppDatabase> with _$MessagesDaoMixin {
+class MessagesDao extends DatabaseAccessor<AppDatabase>
+    with _$MessagesDaoMixin {
   MessagesDao(super.db);
 
   Stream<List<Message>> watchByRoom(int roomId, String serverUrl) {
@@ -42,8 +43,7 @@ class MessagesDao extends DatabaseAccessor<AppDatabase> with _$MessagesDaoMixin 
 
   /// 清除某个服务器下的所有消息缓存（登出时调用）
   Future<void> clearByServerUrl(String serverUrl) async {
-    await (delete(messages)
-          ..where((tbl) => tbl.serverUrl.equals(serverUrl)))
+    await (delete(messages)..where((tbl) => tbl.serverUrl.equals(serverUrl)))
         .go();
   }
 

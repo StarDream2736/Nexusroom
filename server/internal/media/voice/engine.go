@@ -61,14 +61,15 @@ type room struct {
 }
 
 type peer struct {
-	mu       sync.Mutex
-	userID   uint64
-	roomID   uint64
-	pc       *webrtc.PeerConnection
-	senders  map[uint64]*webrtc.RTPSender
-	muted    bool
-	speaking bool
-	closed   bool
+	mu                 sync.Mutex
+	userID             uint64
+	roomID             uint64
+	pc                 *webrtc.PeerConnection
+	senders            map[uint64]*webrtc.RTPSender
+	muted              bool
+	speaking           bool
+	closed             bool
+	renegotiatePending bool
 }
 
 func New(options Options) (*Engine, error) {
@@ -123,11 +124,12 @@ func (e *Engine) HandleOffer(roomID, userID uint64, description Description) err
 	}
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	if p.closed {
+		p.mu.Unlock()
 		return errors.New("RTC peer is closed")
 	}
 	if err := p.pc.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: description.SDP}); err != nil {
+		p.mu.Unlock()
 		if created {
 			e.Leave(roomID, userID)
 		}
@@ -138,11 +140,14 @@ func (e *Engine) HandleOffer(roomID, userID uint64, description Description) err
 	}
 	answer, err := p.pc.CreateAnswer(nil)
 	if err != nil {
+		p.mu.Unlock()
 		return fmt.Errorf("create RTC answer: %w", err)
 	}
 	if err := p.pc.SetLocalDescription(answer); err != nil {
+		p.mu.Unlock()
 		return fmt.Errorf("set RTC answer: %w", err)
 	}
+	p.mu.Unlock()
 	e.emit(userID, roomID, EventAnswer, Description{Type: answer.Type.String(), SDP: answer.SDP})
 	e.broadcastParticipants(roomID)
 	return nil
@@ -154,12 +159,19 @@ func (e *Engine) HandleAnswer(roomID, userID uint64, description Description) er
 		return errors.New("RTC peer not found")
 	}
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	if p.closed {
+		p.mu.Unlock()
 		return errors.New("RTC peer is closed")
 	}
 	if err := p.pc.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeAnswer, SDP: description.SDP}); err != nil {
+		p.mu.Unlock()
 		return fmt.Errorf("set RTC answer: %w", err)
+	}
+	pending := p.renegotiatePending
+	p.renegotiatePending = false
+	p.mu.Unlock()
+	if pending {
+		go e.renegotiate(p)
 	}
 	return nil
 }
@@ -366,6 +378,16 @@ func (e *Engine) forwardAudio(publisher *peer, remote *webrtc.TrackRemote) {
 			}
 			return
 		}
+		publisher.mu.Lock()
+		muted := publisher.muted
+		closed := publisher.closed
+		publisher.mu.Unlock()
+		if closed {
+			return
+		}
+		if muted {
+			continue
+		}
 		if writeErr := local.WriteRTP(packet); writeErr != nil && !errors.Is(writeErr, io.ErrClosedPipe) {
 			return
 		}
@@ -417,7 +439,11 @@ func (e *Engine) addTrackLocked(p *peer, publisherID uint64, track *webrtc.Track
 func (e *Engine) renegotiate(p *peer) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.closed || p.pc.SignalingState() != webrtc.SignalingStateStable {
+	if p.closed {
+		return
+	}
+	if p.pc.SignalingState() != webrtc.SignalingStateStable {
+		p.renegotiatePending = true
 		return
 	}
 	offer, err := p.pc.CreateOffer(nil)

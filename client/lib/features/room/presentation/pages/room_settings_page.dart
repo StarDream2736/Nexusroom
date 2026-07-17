@@ -111,9 +111,7 @@ class _RoomSettingsPageState extends ConsumerState<RoomSettingsPage> {
     if (confirmed != true) return;
 
     try {
-      await ref
-          .read(roomRepositoryProvider)
-          .deleteIngress(_roomId, ingress.id);
+      await ref.read(roomRepositoryProvider).deleteIngress(_roomId, ingress.id);
 
       // Clear selected ingress if it was the one deleted
       if (ref.read(selectedIngressProvider)?.id == ingress.id) {
@@ -249,8 +247,7 @@ class _RoomSettingsPageState extends ConsumerState<RoomSettingsPage> {
           // ─── Ingress section ─────────────────────────────
           Row(
             children: [
-              Expanded(
-                  child: Text('推流管理', style: AppTypography.h3)),
+              Expanded(child: Text('推流管理', style: AppTypography.h3)),
               ElevatedButton.icon(
                 onPressed: _createIngress,
                 icon: const Icon(Icons.add, size: 16),
@@ -264,8 +261,8 @@ class _RoomSettingsPageState extends ConsumerState<RoomSettingsPage> {
             GlassContainer(
               padding: const EdgeInsets.all(24),
               child: Center(
-                child: Text('暂无推流入口，点击上方按钮创建',
-                    style: AppTypography.bodySecondary),
+                child:
+                    Text('暂无推流入口，点击上方按钮创建', style: AppTypography.bodySecondary),
               ),
             )
           else
@@ -295,8 +292,9 @@ class _RoomSettingsPageState extends ConsumerState<RoomSettingsPage> {
               width: double.infinity,
               child: OutlinedButton.icon(
                 onPressed: _leaveRoom,
-                icon: Icon(Icons.exit_to_app, size: 16, color: AppColors.error),
-                label: Text('退出房间',
+                icon: const Icon(Icons.exit_to_app,
+                    size: 16, color: AppColors.error),
+                label: const Text('退出房间',
                     style: TextStyle(color: AppColors.error)),
                 style: OutlinedButton.styleFrom(
                   side: BorderSide(color: AppColors.error.withOpacity(0.5)),
@@ -365,28 +363,31 @@ class _IngressCard extends ConsumerWidget {
                 height: 8,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color:
-                      ingress.isActive ? AppColors.success : AppColors.textMuted,
+                  color: ingress.isActive
+                      ? AppColors.success
+                      : AppColors.textMuted,
                 ),
               ),
               const SizedBox(width: 8),
-              Expanded(
-                  child: Text(ingress.label, style: AppTypography.h3)),
+              Expanded(child: Text(ingress.label, style: AppTypography.h3)),
               // Screen capture button
               Tooltip(
                 message: isThisCapturing ? '正在屏幕捕获推流' : '屏幕捕获推流',
                 child: IconButton(
                   icon: Icon(
-                    isThisCapturing ? Icons.stop_screen_share : Icons.screen_share,
+                    isThisCapturing
+                        ? Icons.stop_screen_share
+                        : Icons.screen_share,
                     size: 18,
-                    color: isThisCapturing ? AppColors.error : AppColors.primary,
+                    color:
+                        isThisCapturing ? AppColors.error : AppColors.primary,
                   ),
                   onPressed: () => _openCaptureDialog(context),
                   visualDensity: VisualDensity.compact,
                 ),
               ),
               IconButton(
-                icon: Icon(Icons.delete_outline,
+                icon: const Icon(Icons.delete_outline,
                     size: 18, color: AppColors.error),
                 onPressed: onDelete,
                 visualDensity: VisualDensity.compact,
@@ -407,7 +408,8 @@ class _IngressCard extends ConsumerWidget {
             obscure: true,
           ),
           // Capture status indicator
-          if (isThisCapturing) ...[            const SizedBox(height: 10),
+          if (isThisCapturing) ...[
+            const SizedBox(height: 10),
             Row(
               children: [
                 Container(
@@ -491,16 +493,13 @@ class _CopyableFieldState extends State<_CopyableField> {
             ),
             if (widget.obscure)
               IconButton(
-                icon: Icon(
-                    _revealed ? Icons.visibility_off : Icons.visibility,
-                    size: 16,
-                    color: AppColors.textSecondary),
+                icon: Icon(_revealed ? Icons.visibility_off : Icons.visibility,
+                    size: 16, color: AppColors.textSecondary),
                 onPressed: () => setState(() => _revealed = !_revealed),
                 visualDensity: VisualDensity.compact,
               ),
             IconButton(
-              icon: Icon(Icons.copy,
-                  size: 16, color: AppColors.textSecondary),
+              icon: Icon(Icons.copy, size: 16, color: AppColors.textSecondary),
               onPressed: widget.onCopy,
               visualDensity: VisualDensity.compact,
             ),

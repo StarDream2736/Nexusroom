@@ -92,7 +92,6 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
                             textAlign: TextAlign.center,
                             style: AppTypography.bodySecondary),
                         const SizedBox(height: 28),
-
                         TextFormField(
                           controller: _nicknameController,
                           decoration: const InputDecoration(
@@ -105,7 +104,6 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
                           },
                         ),
                         const SizedBox(height: 14),
-
                         TextFormField(
                           controller: _usernameController,
                           decoration: const InputDecoration(
@@ -119,7 +117,6 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
                           },
                         ),
                         const SizedBox(height: 14),
-
                         TextFormField(
                           controller: _passwordController,
                           obscureText: _obscurePassword,
@@ -141,7 +138,6 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
                           },
                         ),
                         const SizedBox(height: 14),
-
                         TextFormField(
                           controller: _adminTokenController,
                           decoration: const InputDecoration(
@@ -151,7 +147,6 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
                           ),
                         ),
                         const SizedBox(height: 24),
-
                         ElevatedButton(
                           onPressed: _isLoading ? null : _register,
                           child: _isLoading
@@ -164,19 +159,16 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
                               : const Text('注册'),
                         ),
                         const SizedBox(height: 14),
-
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Text('已有账号？',
-                                style: AppTypography.bodySecondary),
+                            Text('已有账号？', style: AppTypography.bodySecondary),
                             TextButton(
                               onPressed: () => context.pop(),
                               child: const Text('立即登录'),
                             ),
                           ],
                         ),
-
                         TextButton(
                           onPressed: () async {
                             await ref
@@ -186,8 +178,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
                           },
                           child: Text('更换服务器',
                               style: TextStyle(
-                                  fontSize: 12,
-                                  color: AppColors.textMuted)),
+                                  fontSize: 12, color: AppColors.textMuted)),
                         ),
                       ],
                     ),

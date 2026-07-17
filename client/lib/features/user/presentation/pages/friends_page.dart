@@ -163,10 +163,7 @@ class _FriendsPageState extends ConsumerState<FriendsPage>
                   tooltip: '添加好友',
                   onTap: _showSearchDialog),
               const SizedBox(width: 6),
-              _MiniIcon(
-                  icon: Icons.refresh,
-                  tooltip: '刷新',
-                  onTap: _loadData),
+              _MiniIcon(icon: Icons.refresh, tooltip: '刷新', onTap: _loadData),
             ],
           ),
           const SizedBox(height: 16),
@@ -185,7 +182,7 @@ class _FriendsPageState extends ConsumerState<FriendsPage>
               dividerColor: Colors.transparent,
               labelColor: AppColors.textPrimary,
               unselectedLabelColor: AppColors.textMuted,
-              labelStyle: TextStyle(
+              labelStyle: const TextStyle(
                   fontSize: AppTypography.sizeBody,
                   fontWeight: FontWeight.w500),
               tabs: [
@@ -216,8 +213,7 @@ class _FriendsPageState extends ConsumerState<FriendsPage>
   Widget _buildFriendsList() {
     final baseUrl = ref.watch(appSettingsProvider).value?.serverUrl;
     if (_friends.isEmpty) {
-      return Center(
-          child: Text('暂无好友', style: AppTypography.bodySecondary));
+      return Center(child: Text('暂无好友', style: AppTypography.bodySecondary));
     }
     return ListView.builder(
       itemCount: _friends.length,
@@ -237,8 +233,7 @@ class _FriendsPageState extends ConsumerState<FriendsPage>
   Widget _buildPendingList() {
     final baseUrl = ref.watch(appSettingsProvider).value?.serverUrl;
     if (_pendingRequests.isEmpty) {
-      return Center(
-          child: Text('暂无待处理申请', style: AppTypography.bodySecondary));
+      return Center(child: Text('暂无待处理申请', style: AppTypography.bodySecondary));
     }
     return ListView.builder(
       itemCount: _pendingRequests.length,
@@ -248,10 +243,10 @@ class _FriendsPageState extends ConsumerState<FriendsPage>
           avatarUrl: _resolveUrl(baseUrl, r['requester_avatar_url'] as String?),
           nickname: r['requester_nickname'] as String? ?? '',
           displayId: r['requester_display_id']?.toString() ?? '',
-          onAccept: () => _handleRequest(
-              (r['requester_id'] as num).toInt(), 'accept'),
-          onReject: () => _handleRequest(
-              (r['requester_id'] as num).toInt(), 'reject'),
+          onAccept: () =>
+              _handleRequest((r['requester_id'] as num).toInt(), 'accept'),
+          onReject: () =>
+              _handleRequest((r['requester_id'] as num).toInt(), 'reject'),
         );
       },
     );
@@ -289,8 +284,7 @@ class _MiniIconState extends State<_MiniIcon> {
               color: _hovered ? AppColors.hoverOverlay : Colors.transparent,
               borderRadius: BorderRadius.circular(6),
             ),
-            child: Icon(widget.icon,
-                size: 16, color: AppColors.textSecondary),
+            child: Icon(widget.icon, size: 16, color: AppColors.textSecondary),
           ),
         ),
       ),
@@ -363,7 +357,8 @@ class _FriendTileState extends State<_FriendTile> {
               height: 8,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: widget.isOnline ? AppColors.success : AppColors.textMuted,
+                color:
+                    widget.isOnline ? AppColors.success : AppColors.textMuted,
               ),
             ),
           ],
@@ -436,13 +431,13 @@ class _PendingTileState extends State<_PendingTile> {
               ),
             ),
             IconButton(
-              icon: Icon(Icons.check, size: 18, color: AppColors.success),
+              icon: const Icon(Icons.check, size: 18, color: AppColors.success),
               tooltip: '接受',
               onPressed: widget.onAccept,
               visualDensity: VisualDensity.compact,
             ),
             IconButton(
-              icon: Icon(Icons.close, size: 18, color: AppColors.error),
+              icon: const Icon(Icons.close, size: 18, color: AppColors.error),
               tooltip: '拒绝',
               onPressed: widget.onReject,
               visualDensity: VisualDensity.compact,

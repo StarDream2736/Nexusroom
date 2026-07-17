@@ -34,6 +34,9 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
   final _messageController = TextEditingController();
   bool _isMuted = true;
   bool _rtcConnected = false;
+  bool _isTogglingMic = false;
+  bool _isSendingMessage = false;
+  bool _isSendingImage = false;
   String? _rtcError;
 
   // 直播流（独立于语音房间，使用 media_kit HTTP-FLV）
@@ -73,9 +76,14 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
     // 房间 join/leave 由 AppShell 统一管理，此处不再冗余 join
     final serverUrl =
         ref.read(appSettingsProvider).valueOrNull?.serverUrl ?? '';
-    ref
-        .read(messageRepositoryProvider)
-        .syncLatest(_roomId, serverUrl: serverUrl);
+    unawaited(
+      ref
+          .read(messageRepositoryProvider)
+          .syncLatest(_roomId, serverUrl: serverUrl)
+          .catchError((Object error) {
+        debugPrint('[RoomDetail] message sync failed: $error');
+      }),
+    );
 
     // 监听被踢出事件
     _kickedSub = _wsService!.on('room.kicked').listen((payload) {
@@ -130,6 +138,8 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
 
   Future<void> _connectRTC() async {
     // 无论是否复用连接，都必须设置监听器（旧页面 dispose 已 cancel 了旧 subscription）
+    await _connectionStateSub?.cancel();
+    await _errorSub?.cancel();
     _connectionStateSub = _rtcService!.connectionStateStream.listen((state) {
       if (mounted) {
         setState(() {
@@ -215,18 +225,22 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
     super.dispose();
   }
 
-  void _toggleMute() async {
-    if (!_rtcConnected || _rtcService == null) return;
+  Future<void> _toggleMute() async {
+    if (!_rtcConnected || _rtcService == null || _isTogglingMic) return;
     final newMuted = !_isMuted;
+    setState(() => _isTogglingMic = true);
     try {
       await _rtcService!.setMicrophoneEnabled(!newMuted);
-      _wsService?.sendVoiceMute(
-        roomId: _roomId,
-        muted: newMuted,
-      );
-      setState(() => _isMuted = newMuted);
+      if (mounted) setState(() => _isMuted = newMuted);
     } catch (e) {
       debugPrint('[RoomDetail] toggleMute failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('麦克风操作失败: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isTogglingMic = false);
     }
   }
 
@@ -416,10 +430,9 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
                                 final rawImageUrl = message.type == 'image'
                                     ? _resolveUrl(baseUrl, message.content)
                                     : null;
-                                final imageUrlWithToken =
-                                    rawImageUrl != null && authToken != null
-                                        ? '$rawImageUrl?token=$authToken'
-                                        : rawImageUrl;
+                                final imageUrlWithToken = rawImageUrl != null
+                                    ? _withAuthToken(rawImageUrl, authToken)
+                                    : null;
                                 return TweenAnimationBuilder<double>(
                                   tween: Tween(begin: 0.0, end: 1.0),
                                   duration: const Duration(milliseconds: 300),
@@ -467,13 +480,14 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
                             _VoiceControlButton(
                               isMuted: _isMuted,
                               isConnected: _rtcConnected,
+                              isBusy: _isTogglingMic,
                               error: _rtcError,
                               onToggle: _rtcConnected ? _toggleMute : null,
                             ),
                             const SizedBox(width: 6),
                             _MiniControl(
                               icon: Icons.image_outlined,
-                              tooltip: '发送图片',
+                              tooltip: _isSendingImage ? '正在发送图片' : '发送图片',
                               onTap: _sendImage,
                             ),
                             const SizedBox(width: 8),
@@ -499,17 +513,26 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
                                   ),
                                   focusedBorder: OutlineInputBorder(
                                     borderRadius: AppTheme.radiusBubble,
-                                    borderSide: BorderSide(
+                                    borderSide: const BorderSide(
                                         color: AppColors.primary, width: 1),
                                   ),
                                 ),
                                 onSubmitted: (_) => _sendMessage(),
+                                textInputAction: TextInputAction.send,
+                                maxLength: 8000,
+                                buildCounter: (
+                                  context, {
+                                  required currentLength,
+                                  required isFocused,
+                                  maxLength,
+                                }) =>
+                                    null,
                               ),
                             ),
                             const SizedBox(width: 8),
                             _MiniControl(
                               icon: Icons.send,
-                              tooltip: '发送',
+                              tooltip: _isSendingMessage ? '正在发送' : '发送',
                               onTap: _sendMessage,
                               color: AppColors.primary,
                             ),
@@ -554,14 +577,14 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             if (_streamStatus != StreamPlayerStatus.error)
-              SizedBox(
+              const SizedBox(
                 width: 24,
                 height: 24,
                 child: CircularProgressIndicator(
                     strokeWidth: 2, color: AppColors.primary),
               ),
             if (_streamStatus == StreamPlayerStatus.error)
-              Icon(Icons.error_outline, size: 40, color: AppColors.error),
+              const Icon(Icons.error_outline, size: 40, color: AppColors.error),
             const SizedBox(height: 10),
             Text(statusText, style: AppTypography.bodySecondary),
             const SizedBox(height: 8),
@@ -644,33 +667,60 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
     );
   }
 
-  void _sendMessage() {
+  Future<void> _sendMessage() async {
     final content = _messageController.text.trim();
-    if (content.isEmpty) return;
+    if (content.isEmpty || _isSendingMessage) return;
 
-    debugPrint('[RoomDetail] _sendMessage roomId=$_roomId content="$content"');
-    ref.read(wsServiceProvider).sendChat(roomId: _roomId, content: content);
-    _messageController.clear();
+    setState(() => _isSendingMessage = true);
+    try {
+      await ref
+          .read(wsServiceProvider)
+          .sendChat(roomId: _roomId, content: content);
+      if (_messageController.text.trim() == content) {
+        _messageController.clear();
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('消息发送失败: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSendingMessage = false);
+    }
   }
 
   String _resolveUrl(String? baseUrl, String value) {
-    if (value.startsWith('/') && baseUrl != null) {
-      return '$baseUrl$value';
+    final valueUri = Uri.tryParse(value);
+    if (valueUri?.hasScheme ?? false) return value;
+    if (baseUrl != null && baseUrl.isNotEmpty) {
+      return Uri.parse('$baseUrl/').resolve(value).toString();
     }
     return value;
   }
 
+  String _withAuthToken(String url, String? token) {
+    if (token == null || token.isEmpty) return url;
+    final uri = Uri.parse(url);
+    return uri.replace(queryParameters: {
+      ...uri.queryParameters,
+      'token': token,
+    }).toString();
+  }
+
   Future<void> _sendImage() async {
+    if (_isSendingImage) return;
     final picker = ImagePicker();
     final file = await picker.pickImage(source: ImageSource.gallery);
     if (file == null) return;
 
+    setState(() => _isSendingImage = true);
     try {
       final uploaded = await ref.read(fileRepositoryProvider).uploadFile(
             file.path,
             roomId: _roomId,
           );
-      ref.read(wsServiceProvider).sendChat(
+      await ref.read(wsServiceProvider).sendChat(
         roomId: _roomId,
         type: 'image',
         content: uploaded.url,
@@ -687,6 +737,8 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
           SnackBar(content: Text('图片发送失败: $e')),
         );
       }
+    } finally {
+      if (mounted) setState(() => _isSendingImage = false);
     }
   }
 }
@@ -749,23 +801,25 @@ class _VoiceControlButton extends StatelessWidget {
   const _VoiceControlButton({
     required this.isMuted,
     required this.isConnected,
+    required this.isBusy,
     this.error,
     this.onToggle,
   });
 
   final bool isMuted;
   final bool isConnected;
+  final bool isBusy;
   final String? error;
   final VoidCallback? onToggle;
 
   @override
   Widget build(BuildContext context) {
     return Tooltip(
-      message: error ?? (isMuted ? '取消静音' : '静音'),
+      message: error ?? (isBusy ? '正在切换麦克风' : (isMuted ? '取消静音' : '静音')),
       child: GestureDetector(
-        onTap: onToggle,
+        onTap: isBusy ? null : onToggle,
         child: MouseRegion(
-          cursor: onToggle != null
+          cursor: onToggle != null && !isBusy
               ? SystemMouseCursors.click
               : SystemMouseCursors.basic,
           child: Container(
@@ -775,13 +829,22 @@ class _VoiceControlButton extends StatelessWidget {
               borderRadius: AppTheme.radiusSmall,
               border: Border.all(color: AppColors.border, width: 1),
             ),
-            child: Icon(
-              isMuted ? Icons.mic_off : Icons.mic,
-              size: 14,
-              color: error != null
-                  ? AppColors.error
-                  : (isMuted ? AppColors.error : AppColors.success),
-            ),
+            child: isBusy
+                ? SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: AppColors.textSecondary,
+                    ),
+                  )
+                : Icon(
+                    isMuted ? Icons.mic_off : Icons.mic,
+                    size: 14,
+                    color: error != null
+                        ? AppColors.error
+                        : (isMuted ? AppColors.error : AppColors.success),
+                  ),
           ),
         ),
       ),

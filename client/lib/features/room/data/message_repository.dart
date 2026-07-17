@@ -10,7 +10,8 @@ class MessageRepository {
 
   /// 递归拉取所有新消息，直到返回数量 < limit 说明已追平
   /// [serverUrl] 用于本地消息隔离（不同服务器的消息互不干扰）
-  Future<void> syncLatest(int roomId, {required String serverUrl, int limit = 50}) async {
+  Future<void> syncLatest(int roomId,
+      {required String serverUrl, int limit = 50}) async {
     int? afterId = await _dao.getLatestMessageId(roomId, serverUrl);
 
     while (true) {

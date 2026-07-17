@@ -19,8 +19,7 @@ final captureStatsProvider = StreamProvider<CaptureStats>((ref) {
 /// Whether a screen capture session is currently active (streaming or starting).
 final isCapturingProvider = Provider<bool>((ref) {
   final status = ref.watch(captureStatusProvider).valueOrNull;
-  return status == CaptureStatus.streaming ||
-      status == CaptureStatus.starting;
+  return status == CaptureStatus.streaming || status == CaptureStatus.starting;
 });
 
 /// The stream key currently being captured (null if idle).

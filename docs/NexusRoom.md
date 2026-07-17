@@ -1,6 +1,6 @@
 # NexusRoom 技术文档
 
-本文描述 2026-07-15 单体化改造后的当前实现。历史日志位于 `docs/development/` 和 `docx/`。
+本文描述 NexusRoom `2.0.0` 单体架构的当前实现。本地开发日志位于被 Git 忽略的 `docs/development/`，归档日志位于 `docx/`。
 
 ## 1. 架构目标
 
@@ -60,6 +60,7 @@ Flutter 客户端 / 浏览器 / OBS
 4. 任一参与者的 Opus RTP 被转发给房间内其他 PeerConnection。
 5. 开关麦和说话状态通过房间事件广播。
 6. 断线、离房或连接失败会清理 PeerConnection 与转发轨道。
+7. 客户端预留多人音频接收轨道，服务端对连续重协商进行排队，并且只转发未静音参与者的 RTP。
 
 客户端不再请求媒体 Token，也不连接独立 SFU 地址。服务器在 WebSocket `connected` 事件中下发 ICE/TURN 配置。
 
@@ -178,7 +179,7 @@ docker compose config --quiet
 
 媒体上线前还应执行两客户端语音互通、OBS 推流、Flutter FLV 播放、浏览器 WebRTC 播放、TURN 强制中继和进程重启后的 SQLite 持久化检查。
 
-当前自动验证已覆盖 Go 测试与 vet、SQLite、FLV、流注册、真实 PeerConnection 的 H.264 RTP、WireGuard 私钥持久化、Flutter analyze/test、Compose 配置和单体进程 `/ping` 启动探针。跨公网媒体互通仍必须在真实部署网络中验收。
+当前自动验证已覆盖 Go 测试与 vet、SQLite、聊天持久化与发送关联 ID、真实 PeerConnection 的 Opus RTP 转发、FLV、流注册、真实 PeerConnection 的 H.264 RTP、WireGuard 私钥持久化、Flutter analyze/test、WebSocket 房间与消息确认、Compose 配置和单体进程 `/ping` 启动探针。跨公网媒体互通仍必须在真实部署网络中验收。
 
 ## 12. 2026-07-15 变更摘要
 

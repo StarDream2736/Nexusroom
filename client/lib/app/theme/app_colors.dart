@@ -22,10 +22,10 @@ class AppColors {
   static Color textMuted = Colors.white.withOpacity(0.35);
 
   // ─── Accent / Brand ───────────────────────────────────────
-  static const Color primary = Color(0xFF6366F1);        // Indigo
+  static const Color primary = Color(0xFF6366F1); // Indigo
   static const Color primaryHover = Color(0xFF818CF8);
-  static const Color secondary = Color(0xFF8B5CF6);      // Violet
-  static const Color accent = Color(0xFFEC4899);          // Pink
+  static const Color secondary = Color(0xFF8B5CF6); // Violet
+  static const Color accent = Color(0xFFEC4899); // Pink
 
   // ─── Semantic ─────────────────────────────────────────────
   static const Color success = Color(0xFF22C55E);

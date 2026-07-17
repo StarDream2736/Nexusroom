@@ -38,7 +38,8 @@ class _VlanPanelState extends ConsumerState<VlanPanel> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.roomId != widget.roomId && _isEnabled) {
       // 房间切换时自动离开旧房间的 VLAN（使用旧 roomId）
-      debugPrint('[VLAN] Room changed ${oldWidget.roomId} -> ${widget.roomId}, auto-leaving');
+      debugPrint(
+          '[VLAN] Room changed ${oldWidget.roomId} -> ${widget.roomId}, auto-leaving');
       _leaveVlan(roomIdOverride: oldWidget.roomId);
     }
   }
@@ -220,7 +221,7 @@ class _VlanPanelState extends ConsumerState<VlanPanel> {
             },
             child: Text(
               '虚拟 IP: ${_assignedIP!.split('/').first}',
-              style: TextStyle(
+              style: const TextStyle(
                   fontSize: AppTypography.sizeCaption,
                   color: AppColors.success),
             ),
@@ -236,8 +237,7 @@ class _VlanPanelState extends ConsumerState<VlanPanel> {
                     color: AppColors.textMuted)),
             const SizedBox(height: 4),
             ..._peers.map((p) {
-              final ip =
-                  (p['assigned_ip'] as String? ?? '').split('/').first;
+              final ip = (p['assigned_ip'] as String? ?? '').split('/').first;
               final nickname = p['nickname'] as String? ?? '';
               return _PeerRow(nickname: nickname, ip: ip);
             }),

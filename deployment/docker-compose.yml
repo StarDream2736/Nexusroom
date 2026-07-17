@@ -6,11 +6,11 @@ services:
     image: nexusroom-server:latest
     container_name: nexusroom
     ports:
-      - "8080:8080"
+      - "${NEXUSROOM_HTTP_PORT:-8080}:8080"
       - "1935:1935"
       - "3478:3478/udp"
       - "50000-50050:50000-50050/udp"
-      - "51000-51100:51000-51100/udp"
+      - "${NEXUSROOM_TURN_RELAY_PORT_RANGE:-51000-51100}:${NEXUSROOM_TURN_RELAY_PORT_RANGE:-51000-51100}/udp"
       - "51820:51820/udp"
     volumes:
       - ./config/server.yaml:/app/config.yaml:ro

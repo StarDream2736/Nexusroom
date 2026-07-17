@@ -124,7 +124,11 @@ class _AppShellState extends ConsumerState<AppShell> {
         }
         if (roomId != null) {
           debugPrint('[AppShell] joinRoom($roomId)');
-          ws.joinRoom(int.parse(roomId));
+          unawaited(
+            ws.joinRoom(int.parse(roomId)).catchError((Object error) {
+              debugPrint('[AppShell] joinRoom($roomId) failed: $error');
+            }),
+          );
         }
         // 更新 activeRoomIdProvider 以驱动 onlineUsersProvider
         ref.read(activeRoomIdProvider.notifier).state =

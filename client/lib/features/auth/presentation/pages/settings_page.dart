@@ -35,6 +35,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   List<MediaDeviceInfo> _audioOutputs = [];
   String? _selectedAudioInputId;
   String? _selectedAudioOutputId;
+  String? _audioError;
 
   @override
   void initState() {
@@ -60,6 +61,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       setState(() {
         _audioInputs = inputs;
         _audioOutputs = outputs;
+        _audioError = inputs.isEmpty ? '未检测到麦克风，请检查系统权限和设备连接' : null;
         // 优先使用已保存的设备 ID，若该设备不存在则回退到第一个
         if (_audioInputs.isNotEmpty) {
           final hasMatch = savedInputId != null &&
@@ -82,7 +84,53 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       if (_selectedAudioOutputId != null) {
         await Helper.selectAudioOutput(_selectedAudioOutputId!);
       }
-    } catch (_) {}
+    } catch (error) {
+      if (mounted) {
+        setState(() => _audioError = '音频设备读取失败: $error');
+      }
+    }
+  }
+
+  Future<void> _selectAudioInput(String? deviceId) async {
+    if (deviceId == null || deviceId == _selectedAudioInputId) return;
+    final previous = _selectedAudioInputId;
+    setState(() {
+      _selectedAudioInputId = deviceId;
+      _audioError = null;
+    });
+    try {
+      await Helper.selectAudioInput(deviceId);
+      await ref
+          .read(appSettingsProvider.notifier)
+          .setAudioInputDeviceId(deviceId);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _selectedAudioInputId = previous;
+        _audioError = '麦克风切换失败: $error';
+      });
+    }
+  }
+
+  Future<void> _selectAudioOutput(String? deviceId) async {
+    if (deviceId == null || deviceId == _selectedAudioOutputId) return;
+    final previous = _selectedAudioOutputId;
+    setState(() {
+      _selectedAudioOutputId = deviceId;
+      _audioError = null;
+    });
+    try {
+      await Helper.selectAudioOutput(deviceId);
+      await ref
+          .read(appSettingsProvider.notifier)
+          .setAudioOutputDeviceId(deviceId);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _selectedAudioOutputId = previous;
+        _audioError = '扬声器切换失败: $error';
+      });
+    }
   }
 
   Future<void> _loadProfile() async {
@@ -236,7 +284,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         ),
         TextButton(
           onPressed: () => Navigator.pop(context, true),
-          child: Text('确认清除', style: TextStyle(color: AppColors.error)),
+          child: const Text('确认清除', style: TextStyle(color: AppColors.error)),
         ),
       ],
     );
@@ -373,6 +421,16 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 ],
               ),
               const SizedBox(height: 16),
+              if (_audioError != null) ...[
+                Text(
+                  _audioError!,
+                  style: const TextStyle(
+                    fontSize: AppTypography.sizeCaption,
+                    color: AppColors.error,
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
               // 麦克风
               Text('麦克风',
                   style: TextStyle(
@@ -383,17 +441,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               _buildAudioDropdown(
                 devices: _audioInputs,
                 selectedId: _selectedAudioInputId,
-                onChanged: (deviceId) {
-                  setState(() => _selectedAudioInputId = deviceId);
-                  if (deviceId != null) {
-                    Helper.selectAudioInput(deviceId);
-                  }
-                  if (deviceId != null) {
-                    ref
-                        .read(appSettingsProvider.notifier)
-                        .setAudioInputDeviceId(deviceId);
-                  }
-                },
+                onChanged: _selectAudioInput,
               ),
               const SizedBox(height: 12),
               // 扬声器
@@ -406,17 +454,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               _buildAudioDropdown(
                 devices: _audioOutputs,
                 selectedId: _selectedAudioOutputId,
-                onChanged: (deviceId) {
-                  setState(() => _selectedAudioOutputId = deviceId);
-                  if (deviceId != null) {
-                    Helper.selectAudioOutput(deviceId);
-                  }
-                  if (deviceId != null) {
-                    ref
-                        .read(appSettingsProvider.notifier)
-                        .setAudioOutputDeviceId(deviceId);
-                  }
-                },
+                onChanged: _selectAudioOutput,
               ),
             ],
           ),

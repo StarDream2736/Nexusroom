@@ -9,13 +9,13 @@ import 'core/providers/app_providers.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   // 初始化 media_kit（HTTP-FLV 直播播放器）
   MediaKit.ensureInitialized();
-  
+
   // 初始化窗口管理器
   await windowManager.ensureInitialized();
-  
+
   const windowOptions = WindowOptions(
     minimumSize: Size(900, 600),
     size: Size(1200, 800),
@@ -24,12 +24,12 @@ void main() async {
     title: 'NexusRoom',
     backgroundColor: Colors.transparent,
   );
-  
+
   await windowManager.waitUntilReadyToShow(windowOptions, () async {
     await windowManager.show();
     await windowManager.focus();
   });
-  
+
   runApp(
     const ProviderScope(
       child: NexusRoomApp(),

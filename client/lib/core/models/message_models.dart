@@ -30,7 +30,8 @@ class MessageModel {
   final Map<String, dynamic>? meta;
 
   /// [serverUrl] 必须由调用方传入，服务端 JSON 不包含此信息
-  factory MessageModel.fromApi(Map<String, dynamic> json, {required String serverUrl}) {
+  factory MessageModel.fromApi(Map<String, dynamic> json,
+      {required String serverUrl}) {
     final sender = json['sender'] as Map<String, dynamic>?;
     return MessageModel(
       id: (json['id'] as num).toInt(),
@@ -46,7 +47,8 @@ class MessageModel {
     );
   }
 
-  factory MessageModel.fromWs(Map<String, dynamic> json, {required String serverUrl}) {
+  factory MessageModel.fromWs(Map<String, dynamic> json,
+      {required String serverUrl}) {
     return MessageModel.fromApi(json, serverUrl: serverUrl);
   }
 

@@ -196,11 +196,16 @@ func (c *Client) handleRoomJoin(env Envelope) {
 	// 校验用户是否是房间成员
 	if !c.Hub.roomRepo.IsMember(roomID, c.UserID) {
 		log.Printf("[WS] User %d room.join(%d) REJECTED — not a member", c.UserID, roomID)
+		c.SendEventToRoom(EventRoomJoinError, RoomJoinErrorPayload{
+			RoomID: roomID,
+			Reason: "not_a_member",
+		}, roomID)
 		return
 	}
 
 	c.JoinRoom(roomID)
 	log.Printf("[WS] User %d joined room %d, rooms=%v", c.UserID, roomID, c.GetRooms())
+	c.SendEventToRoom(EventRoomJoined, RoomJoinedPayload{RoomID: roomID}, roomID)
 
 	// 获取用户真实昵称和头像
 	nickname := c.Username

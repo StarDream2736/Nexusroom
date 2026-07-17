@@ -26,8 +26,7 @@ class RoomListPage extends ConsumerWidget {
           const SizedBox(height: 8),
           Text('欢迎回来', style: AppTypography.h1),
           const SizedBox(height: 4),
-          Text('选择左侧房间进入，或从下方快速操作',
-              style: AppTypography.bodySecondary),
+          Text('选择左侧房间进入，或从下方快速操作', style: AppTypography.bodySecondary),
           const SizedBox(height: 32),
 
           // Quick action cards
@@ -75,7 +74,7 @@ class RoomListPage extends ConsumerWidget {
 
   void _showJoinRoomDialog(BuildContext context, WidgetRef ref) {
     final controller = TextEditingController();
-    
+
     showMacDialog(
       context: context,
       title: '加入房间',
@@ -111,9 +110,7 @@ class RoomListPage extends ConsumerWidget {
     if (inviteCode.isEmpty) return;
 
     try {
-      final room = await ref
-          .read(roomRepositoryProvider)
-          .joinRoom(inviteCode);
+      final room = await ref.read(roomRepositoryProvider).joinRoom(inviteCode);
       if (context.mounted) {
         Navigator.pop(context);
         ref.invalidate(roomsProvider);

@@ -72,14 +72,12 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Text('欢迎回来',
-                          textAlign: TextAlign.center,
-                          style: AppTypography.h1),
+                          textAlign: TextAlign.center, style: AppTypography.h1),
                       const SizedBox(height: 6),
                       Text('登录您的 NexusRoom 账号',
                           textAlign: TextAlign.center,
                           style: AppTypography.bodySecondary),
                       const SizedBox(height: 32),
-
                       TextFormField(
                         controller: _usernameController,
                         decoration: const InputDecoration(
@@ -92,7 +90,6 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                         },
                       ),
                       const SizedBox(height: 14),
-
                       TextFormField(
                         controller: _passwordController,
                         obscureText: _obscurePassword,
@@ -113,7 +110,6 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                         },
                       ),
                       const SizedBox(height: 24),
-
                       ElevatedButton(
                         onPressed: _isLoading ? null : _login,
                         child: _isLoading
@@ -126,19 +122,16 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                             : const Text('登录'),
                       ),
                       const SizedBox(height: 14),
-
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Text('还没有账号？',
-                              style: AppTypography.bodySecondary),
+                          Text('还没有账号？', style: AppTypography.bodySecondary),
                           TextButton(
                             onPressed: () => context.push('/register'),
                             child: const Text('立即注册'),
                           ),
                         ],
                       ),
-
                       TextButton(
                         onPressed: () async {
                           await ref
@@ -147,8 +140,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                         },
                         child: Text('更换服务器',
                             style: TextStyle(
-                                fontSize: 12,
-                                color: AppColors.textMuted)),
+                                fontSize: 12, color: AppColors.textMuted)),
                       ),
                     ],
                   ),

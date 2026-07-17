@@ -3,7 +3,7 @@ description: NexusRoom - 私有化自托管通讯平台客户端
 
 publish_to: 'none'
 
-version: 1.4.0+1
+version: 2.0.0+1
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

@@ -64,10 +64,8 @@ class _CreateRoomPageState extends ConsumerState<CreateRoomPage> {
             children: [
               Text('创建新房间', style: AppTypography.h1),
               const SizedBox(height: 6),
-              Text('创建一个房间，邀请好友加入',
-                  style: AppTypography.bodySecondary),
+              Text('创建一个房间，邀请好友加入', style: AppTypography.bodySecondary),
               const SizedBox(height: 28),
-
               TextFormField(
                 controller: _nameController,
                 decoration: const InputDecoration(
@@ -82,7 +80,6 @@ class _CreateRoomPageState extends ConsumerState<CreateRoomPage> {
                 },
               ),
               const SizedBox(height: 28),
-
               ElevatedButton(
                 onPressed: _isLoading ? null : _createRoom,
                 child: _isLoading
@@ -95,7 +92,6 @@ class _CreateRoomPageState extends ConsumerState<CreateRoomPage> {
                     : const Text('创建房间'),
               ),
               const SizedBox(height: 10),
-
               OutlinedButton(
                 onPressed: () => context.go('/home'),
                 child: const Text('取消'),

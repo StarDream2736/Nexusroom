@@ -16,7 +16,7 @@ import '../widgets/sidebar_item.dart';
 ///
 /// Contents:
 ///   - User profile mini-card
-///   - Room list (from roomsProvider)  
+///   - Room list (from roomsProvider)
 ///   - Bottom nav icons (friends, settings)
 class Sidebar extends ConsumerWidget {
   const Sidebar({super.key});
@@ -46,8 +46,8 @@ class Sidebar extends ConsumerWidget {
               _UserCard(
                 nickname: settings?.nickname ?? 'User',
                 displayId: settings?.userDisplayId,
-                avatarUrl: _resolveAvatarUrl(
-                  settings?.serverUrl, settings?.avatarUrl),
+                avatarUrl:
+                    _resolveAvatarUrl(settings?.serverUrl, settings?.avatarUrl),
                 onTap: () => context.go('/settings'),
               ),
 
@@ -78,8 +78,8 @@ class Sidebar extends ConsumerWidget {
                       return Center(
                         child: Padding(
                           padding: const EdgeInsets.all(16),
-                          child: Text('暂无房间',
-                              style: AppTypography.bodySecondary),
+                          child:
+                              Text('暂无房间', style: AppTypography.bodySecondary),
                         ),
                       );
                     }
@@ -90,8 +90,7 @@ class Sidebar extends ConsumerWidget {
                       itemBuilder: (context, index) {
                         final room = rooms[index];
                         final path = '/rooms/${room.id}';
-                        final isSelected =
-                            currentLocation.startsWith(path);
+                        final isSelected = currentLocation.startsWith(path);
                         return SidebarItem(
                           icon: Icons.tag,
                           label: room.name,
@@ -114,8 +113,7 @@ class Sidebar extends ConsumerWidget {
                   error: (e, _) => Center(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
-                      child: Text('加载失败',
-                          style: AppTypography.bodySecondary),
+                      child: Text('加载失败', style: AppTypography.bodySecondary),
                     ),
                   ),
                 ),
@@ -126,8 +124,7 @@ class Sidebar extends ConsumerWidget {
 
               // ─── Bottom nav ──────────────────────────────
               Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                 child: Row(
                   children: [
                     _BottomNavIcon(
@@ -206,9 +203,10 @@ class _UserCardState extends State<_UserCard> {
               CircleAvatar(
                 radius: 14,
                 backgroundColor: AppColors.primary.withOpacity(0.2),
-                backgroundImage: widget.avatarUrl != null && widget.avatarUrl!.isNotEmpty
-                    ? CachedNetworkImageProvider(widget.avatarUrl!)
-                    : null,
+                backgroundImage:
+                    widget.avatarUrl != null && widget.avatarUrl!.isNotEmpty
+                        ? CachedNetworkImageProvider(widget.avatarUrl!)
+                        : null,
                 child: widget.avatarUrl == null || widget.avatarUrl!.isEmpty
                     ? Text(
                         widget.nickname.isNotEmpty ? widget.nickname[0] : '?',
@@ -286,8 +284,7 @@ class _MiniIconButtonState extends State<_MiniIconButton> {
             width: 22,
             height: 22,
             decoration: BoxDecoration(
-              color:
-                  _hovered ? AppColors.hoverOverlay : Colors.transparent,
+              color: _hovered ? AppColors.hoverOverlay : Colors.transparent,
               borderRadius: BorderRadius.circular(5),
             ),
             child: Icon(

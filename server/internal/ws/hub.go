@@ -2,6 +2,7 @@ package ws
 
 import (
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -240,14 +241,34 @@ func (h *Hub) HandleChatSend(client *Client, payload ChatSendPayload) {
 	if !client.IsInRoom(payload.RoomID) {
 		log.Printf("User %d tried to send chat to room %d but is not in room", client.UserID, payload.RoomID)
 		client.SendEvent(EventChatError, ChatErrorPayload{
-			RoomID: payload.RoomID,
-			Reason: "not_in_room",
+			RoomID:          payload.RoomID,
+			Reason:          "not_in_room",
+			ClientMessageID: payload.ClientMessageID,
 		})
 		return
 	}
 
 	// 检查用户是否是房间成员
 	if !h.roomRepo.IsMember(payload.RoomID, client.UserID) {
+		h.sendChatError(client, payload, "not_a_member")
+		return
+	}
+
+	payload.Type = strings.ToLower(strings.TrimSpace(payload.Type))
+	if payload.Type != "text" && payload.Type != "image" && payload.Type != "file" {
+		h.sendChatError(client, payload, "unsupported_message_type")
+		return
+	}
+	if strings.TrimSpace(payload.Content) == "" {
+		h.sendChatError(client, payload, "empty_content")
+		return
+	}
+	maxContentLength := 4096
+	if payload.Type == "text" {
+		maxContentLength = 8000
+	}
+	if len(payload.Content) > maxContentLength {
+		h.sendChatError(client, payload, "content_too_large")
 		return
 	}
 
@@ -269,6 +290,7 @@ func (h *Hub) HandleChatSend(client *Client, payload ChatSendPayload) {
 
 	if err := h.msgRepo.Create(msg); err != nil {
 		log.Printf("Failed to save message: %v", err)
+		h.sendChatError(client, payload, "persistence_failed")
 		return
 	}
 
@@ -276,6 +298,7 @@ func (h *Hub) HandleChatSend(client *Client, payload ChatSendPayload) {
 	user, err := h.userRepo.FindByID(client.UserID)
 	if err != nil {
 		log.Printf("Failed to fetch user info: %v", err)
+		h.sendChatError(client, payload, "sender_lookup_failed")
 		return
 	}
 
@@ -287,18 +310,27 @@ func (h *Hub) HandleChatSend(client *Client, payload ChatSendPayload) {
 
 	// 广播消息给房间所有成员
 	chatMsg := ChatMessagePayload{
-		ID:        msg.ID,
-		RoomID:    msg.RoomID,
-		SenderID:  msg.SenderID,
-		Type:      msg.Type,
-		Content:   msg.Content,
-		Meta:      payload.Meta,
-		CreatedAt: msg.CreatedAt,
-		Sender:    sender,
+		ID:              msg.ID,
+		RoomID:          msg.RoomID,
+		SenderID:        msg.SenderID,
+		Type:            msg.Type,
+		Content:         msg.Content,
+		Meta:            payload.Meta,
+		ClientMessageID: payload.ClientMessageID,
+		CreatedAt:       msg.CreatedAt,
+		Sender:          sender,
 	}
 
 	h.BroadcastToRoom(payload.RoomID, EventChatMessage, chatMsg, 0)
 	log.Printf("[Chat] Message %d broadcast to room %d", msg.ID, payload.RoomID)
+}
+
+func (h *Hub) sendChatError(client *Client, payload ChatSendPayload, reason string) {
+	client.SendEventToRoom(EventChatError, ChatErrorPayload{
+		RoomID:          payload.RoomID,
+		Reason:          reason,
+		ClientMessageID: payload.ClientMessageID,
+	}, payload.RoomID)
 }
 
 // KickUserFromRoom 将用户踢出房间

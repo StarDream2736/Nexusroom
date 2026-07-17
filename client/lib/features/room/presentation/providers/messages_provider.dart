@@ -9,8 +9,8 @@ typedef MessageKey = ({int roomId, String serverUrl});
 final messagesStreamProvider = StreamProvider.family<List<Message>, MessageKey>(
   (ref, key) {
     return ref.watch(appDatabaseProvider).messagesDao.watchByRoom(
-      key.roomId,
-      key.serverUrl,
-    );
+          key.roomId,
+          key.serverUrl,
+        );
   },
 );

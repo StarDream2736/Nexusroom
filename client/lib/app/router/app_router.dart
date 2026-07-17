@@ -38,10 +38,13 @@ CustomTransitionPage<void> _fadePage({
 }
 
 final appRouterProvider = Provider<GoRouter>((ref) {
-  final settings = ref.watch(appSettingsProvider);
+  final refresh = _RouterRefreshNotifier();
+  ref.onDispose(refresh.dispose);
+  ref.listen(appSettingsProvider, (_, __) => refresh.refresh());
 
-  return GoRouter(
+  final router = GoRouter(
     initialLocation: '/setup',
+    refreshListenable: refresh,
     routes: [
       // ─── Auth routes (outside Shell) ───────────────────
       GoRoute(
@@ -125,6 +128,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
     ],
     redirect: (context, state) {
+      final settings = ref.read(appSettingsProvider);
       if (settings.isLoading) {
         return null;
       }
@@ -144,18 +148,28 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         return '/setup';
       }
 
-      if (hasServer && !hasToken &&
+      if (hasServer &&
+          !hasToken &&
           location != '/login' &&
           location != '/register') {
         return '/login';
       }
 
-      if (hasServer && hasToken &&
-          (location == '/login' || location == '/register' || location == '/setup')) {
+      if (hasServer &&
+          hasToken &&
+          (location == '/login' ||
+              location == '/register' ||
+              location == '/setup')) {
         return '/home';
       }
 
       return null;
     },
   );
+  ref.onDispose(router.dispose);
+  return router;
 });
+
+class _RouterRefreshNotifier extends ChangeNotifier {
+  void refresh() => notifyListeners();
+}

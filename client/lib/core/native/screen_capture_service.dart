@@ -74,9 +74,8 @@ class ScreenCaptureService {
 
     // Build the full RTMP destination URL.
     // rtmpUrl typically ends with "/live/", streamKey is appended.
-    final destination = rtmpUrl.endsWith('/')
-        ? '$rtmpUrl$streamKey'
-        : '$rtmpUrl/$streamKey';
+    final destination =
+        rtmpUrl.endsWith('/') ? '$rtmpUrl$streamKey' : '$rtmpUrl/$streamKey';
 
     final args = <String>[];
 
