@@ -21,6 +21,8 @@
 - `docker compose config` 通过。
 - 三份部署 Shell 脚本通过 Bash 语法检查。
 - `git diff --check` 通过。
+- 修正 Alpine/musl 下 `go-sqlite3` 的 large-file 接口编译参数，使 Docker 与 Linux 直接构建使用一致的 `CGO_CFLAGS`。
+- 成功构建 `linux/amd64` 单体 Docker 镜像，并验证 `/app/nexusroom` 入口文件与 musl 动态链接依赖。
 
 ## 清理边界
 

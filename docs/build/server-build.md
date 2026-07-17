@@ -35,7 +35,9 @@ Linux Release：
 
 ```bash
 cd server
-CGO_ENABLED=1 GOOS=linux go build \
+CGO_ENABLED=1 \
+CGO_CFLAGS='-D_LARGEFILE64_SOURCE -D_GNU_SOURCE' \
+GOOS=linux go build \
   -trimpath \
   -ldflags='-s -w' \
   -o nexusroom \
@@ -65,6 +67,8 @@ go build -trimpath -ldflags='-s -w' -o nexusroom-server.exe ./cmd/server
 ```
 
 Windows 构建需要可用的 GCC，例如 MSYS2/MinGW。生产部署推荐 Linux。
+
+Alpine/musl 和部分 Linux 工具链需要显式启用 large-file/GNU 接口，否则 `go-sqlite3` 可能无法识别 `pread64`、`pwrite64` 和 `off64_t`。仓库 Dockerfile 与直接构建脚本已经包含对应的 `CGO_CFLAGS`。
 
 ## 4. 本地运行配置
 
