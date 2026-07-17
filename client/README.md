@@ -37,4 +37,6 @@ flutter build windows --release
 
 Windows 构建会从 `native/wg-helper/` 收集 `nexusroom-wg.exe` 和 `wintun.dll`，并从 `tools/` 收集 `ffmpeg.exe`。FFmpeg 是被 Git 忽略的本地打包依赖；WireGuard Helper 可由同目录源码重新构建。
 
-本次媒体改造只替换客户端连接实现，不改变既有 UI 布局、配色、状态图标或 UI emoji。
+客户端 2.x 保留原有页面分区，统一使用简洁的深色桌面视觉体系。在线、离线、语音和推流状态由文字、颜色与 Material 矢量图标表达，不使用 emoji。
+
+房间语音会等待 RTC 与 ICE 实际连通后再开放麦克风；断线状态下点击麦克风按钮会自动重连。推流入口同时提供服务器地址、推流密钥和经过校验的完整发布地址。

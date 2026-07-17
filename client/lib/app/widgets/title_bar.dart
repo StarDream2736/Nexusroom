@@ -2,14 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../theme/app_colors.dart';
+import '../theme/app_theme.dart';
 
-/// Custom macOS-style title bar with traffic-light window controls and drag area.
+/// Compact desktop title bar with a large drag region and conventional controls.
 class TitleBar extends StatefulWidget {
   const TitleBar({super.key, this.title});
 
   final String? title;
 
-  static const double height = 38.0;
+  static const double height = 40;
 
   @override
   State<TitleBar> createState() => _TitleBarState();
@@ -21,114 +22,132 @@ class _TitleBarState extends State<TitleBar> {
   @override
   void initState() {
     super.initState();
-    _checkMaximized();
+    _refreshWindowState();
   }
 
-  Future<void> _checkMaximized() async {
+  Future<void> _refreshWindowState() async {
     final maximized = await windowManager.isMaximized();
     if (mounted) setState(() => _isMaximized = maximized);
   }
 
+  Future<void> _toggleMaximized() async {
+    if (_isMaximized) {
+      await windowManager.unmaximize();
+    } else {
+      await windowManager.maximize();
+    }
+    await _refreshWindowState();
+  }
+
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onDoubleTap: () async {
-        if (_isMaximized) {
-          await windowManager.unmaximize();
-        } else {
-          await windowManager.maximize();
-        }
-        _checkMaximized();
-      },
-      child: DragToMoveArea(
-        child: Container(
-          height: TitleBar.height,
-          color: AppColors.titleBar,
-          child: Row(
-            children: [
-              const SizedBox(width: 12),
-              // ─── Traffic-light buttons ──────────────────
-              _TrafficButton(
-                color: AppColors.trafficClose,
-                icon: Icons.close,
-                onTap: () => windowManager.close(),
-              ),
-              const SizedBox(width: 8),
-              _TrafficButton(
-                color: AppColors.trafficMinimize,
-                icon: Icons.remove,
-                onTap: () => windowManager.minimize(),
-              ),
-              const SizedBox(width: 8),
-              _TrafficButton(
-                color: AppColors.trafficMaximize,
-                icon: _isMaximized ? Icons.fullscreen_exit : Icons.fullscreen,
-                onTap: () async {
-                  if (_isMaximized) {
-                    await windowManager.unmaximize();
-                  } else {
-                    await windowManager.maximize();
-                  }
-                  _checkMaximized();
-                },
-              ),
-              const SizedBox(width: 16),
-              // ─── Title ─────────────────────────────────
-              if (widget.title != null)
-                Text(
-                  widget.title!,
-                  style: TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
+    return Container(
+      height: TitleBar.height,
+      decoration: BoxDecoration(
+        color: AppColors.titleBar,
+        border: Border(bottom: BorderSide(color: AppColors.border)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onDoubleTap: _toggleMaximized,
+              child: DragToMoveArea(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.forum_outlined,
+                        size: 16,
+                        color: AppColors.primary,
+                      ),
+                      const SizedBox(width: 9),
+                      Text(
+                        widget.title ?? 'NexusRoom',
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.1,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              const Spacer(),
-            ],
+              ),
+            ),
           ),
-        ),
+          _WindowButton(
+            icon: Icons.remove,
+            tooltip: '最小化',
+            onTap: windowManager.minimize,
+          ),
+          _WindowButton(
+            icon: _isMaximized ? Icons.filter_none : Icons.crop_square,
+            tooltip: _isMaximized ? '还原' : '最大化',
+            onTap: _toggleMaximized,
+          ),
+          _WindowButton(
+            icon: Icons.close,
+            tooltip: '关闭',
+            isClose: true,
+            onTap: windowManager.close,
+          ),
+        ],
       ),
     );
   }
 }
 
-/// A small circular "traffic light" window-control button (macOS-style).
-class _TrafficButton extends StatefulWidget {
-  const _TrafficButton({
-    required this.color,
+class _WindowButton extends StatefulWidget {
+  const _WindowButton({
     required this.icon,
+    required this.tooltip,
     required this.onTap,
+    this.isClose = false,
   });
 
-  final Color color;
   final IconData icon;
-  final VoidCallback onTap;
+  final String tooltip;
+  final Future<void> Function() onTap;
+  final bool isClose;
 
   @override
-  State<_TrafficButton> createState() => _TrafficButtonState();
+  State<_WindowButton> createState() => _WindowButtonState();
 }
 
-class _TrafficButtonState extends State<_TrafficButton> {
+class _WindowButtonState extends State<_WindowButton> {
   bool _hovered = false;
 
   @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          width: 14,
-          height: 14,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: widget.color,
+    final hoverColor =
+        widget.isClose ? const Color(0xFFC94A52) : AppColors.hoverOverlay;
+    return Tooltip(
+      message: widget.tooltip,
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: AppTheme.durationHover,
+            width: 46,
+            height: TitleBar.height,
+            color: _hovered ? hoverColor : Colors.transparent,
+            alignment: Alignment.center,
+            child: Icon(
+              widget.icon,
+              size: 15,
+              color: _hovered && widget.isClose
+                  ? Colors.white
+                  : AppColors.textSecondary,
+            ),
           ),
-          child: _hovered
-              ? Icon(widget.icon, size: 9, color: Colors.black.withOpacity(0.6))
-              : null,
         ),
       ),
     );

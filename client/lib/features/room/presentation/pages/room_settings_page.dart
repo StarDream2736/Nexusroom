@@ -407,6 +407,13 @@ class _IngressCard extends ConsumerWidget {
             onCopy: () => _copy(context, ingress.streamKey, '推流密钥'),
             obscure: true,
           ),
+          const SizedBox(height: 8),
+          _CopyableField(
+            label: '完整发布地址',
+            value: ingress.publishUrl,
+            onCopy: () => _copy(context, ingress.publishUrl, '完整发布地址'),
+            obscure: true,
+          ),
           // Capture status indicator
           if (isThisCapturing) ...[
             const SizedBox(height: 10),

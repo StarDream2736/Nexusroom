@@ -3,12 +3,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 
-/// A wrapper that adds macOS-style hover scale + background brighten effects.
-///
-/// Wrap any child to get:
-///   - Scale 1.02 on hover
-///   - Subtle background highlight
-///   - 150 ms easeOutCubic animation
+/// A restrained hover surface without layout-shifting scale effects.
 class HoverScaleCard extends StatefulWidget {
   const HoverScaleCard({
     super.key,
@@ -16,7 +11,6 @@ class HoverScaleCard extends StatefulWidget {
     this.onTap,
     this.borderRadius,
     this.hoverColor,
-    this.scaleFactor = 1.02,
     this.padding,
   });
 
@@ -24,7 +18,6 @@ class HoverScaleCard extends StatefulWidget {
   final VoidCallback? onTap;
   final BorderRadius? borderRadius;
   final Color? hoverColor;
-  final double scaleFactor;
   final EdgeInsetsGeometry? padding;
 
   @override
@@ -45,22 +38,17 @@ class _HoverScaleCardState extends State<HoverScaleCard> {
           widget.onTap != null ? SystemMouseCursors.click : MouseCursor.defer,
       child: GestureDetector(
         onTap: widget.onTap,
-        child: AnimatedScale(
-          scale: _hovered ? widget.scaleFactor : 1.0,
+        child: AnimatedContainer(
           duration: AppTheme.durationHover,
           curve: AppTheme.curveStandard,
-          child: AnimatedContainer(
-            duration: AppTheme.durationHover,
-            curve: AppTheme.curveStandard,
-            padding: widget.padding,
-            decoration: BoxDecoration(
-              color: _hovered
-                  ? (widget.hoverColor ?? AppColors.hoverOverlay)
-                  : Colors.transparent,
-              borderRadius: radius,
-            ),
-            child: widget.child,
+          padding: widget.padding,
+          decoration: BoxDecoration(
+            color: _hovered
+                ? (widget.hoverColor ?? AppColors.hoverOverlay)
+                : Colors.transparent,
+            borderRadius: radius,
           ),
+          child: widget.child,
         ),
       ),
     );

@@ -2,10 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'app_colors.dart';
 
-/// NexusRoom — macOS-inspired dark theme.
-///
-/// Design language: "Deep Gray & Glass", Apple HIG-inspired.
-/// All corners rounded, elevation zero, subtle white-opacity borders.
+/// NexusRoom desktop theme: neutral surfaces, clear hierarchy and quiet motion.
 class AppTheme {
   // Legacy references kept for any existing hard-coded usage.
   static const Color primaryColor = AppColors.primary;
@@ -30,14 +27,14 @@ class AppTheme {
       Border.all(color: AppColors.border, width: 1);
 
   // ─── Radius tokens ────────────────────────────────────────
-  static final BorderRadius radiusStandard = BorderRadius.circular(12.0);
+  static final BorderRadius radiusStandard = BorderRadius.circular(10.0);
   static final BorderRadius radiusButton = BorderRadius.circular(8.0);
-  static final BorderRadius radiusBubble = BorderRadius.circular(16.0);
+  static final BorderRadius radiusBubble = BorderRadius.circular(12.0);
   static final BorderRadius radiusSmall = BorderRadius.circular(6.0);
 
   // ─── Animation constants ──────────────────────────────────
-  static const Duration durationPage = Duration(milliseconds: 300);
-  static const Duration durationHover = Duration(milliseconds: 150);
+  static const Duration durationPage = Duration(milliseconds: 180);
+  static const Duration durationHover = Duration(milliseconds: 120);
   static const Curve curveStandard = Curves.easeOutCubic;
   static const Curve curveMovement = Curves.easeOutQuart;
 
@@ -48,6 +45,8 @@ class AppTheme {
       brightness: Brightness.dark,
       scaffoldBackgroundColor: AppColors.background,
       canvasColor: AppColors.sidebar,
+      splashFactory: NoSplash.splashFactory,
+      visualDensity: VisualDensity.standard,
       colorScheme: ColorScheme.dark(
         primary: AppColors.primary,
         secondary: AppColors.secondary,
@@ -134,6 +133,8 @@ class AppTheme {
           backgroundColor: AppColors.primary,
           foregroundColor: Colors.white,
           elevation: 0,
+          disabledBackgroundColor: AppColors.cardHover,
+          disabledForegroundColor: AppColors.textMuted,
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           shape: RoundedRectangleBorder(borderRadius: radiusButton),
           textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),

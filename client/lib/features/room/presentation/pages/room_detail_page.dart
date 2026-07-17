@@ -146,7 +146,7 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
           if (state == RtcConnectionState.connected) {
             _rtcConnected = true;
             _rtcError = null;
-          } else if (state == RtcConnectionState.disconnected) {
+          } else {
             _rtcConnected = false;
           }
         });
@@ -169,20 +169,33 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
       return;
     }
 
+    if (mounted) setState(() => _isTogglingMic = true);
     try {
       await _rtcService!.connect(roomId: _roomId);
       if (!mounted) return;
 
       // 默认静音
       await _rtcService!.setMicrophoneEnabled(false);
+      if (mounted) {
+        setState(() {
+          _rtcConnected = true;
+          _isMuted = true;
+          _rtcError = null;
+        });
+      }
     } catch (e) {
       // RTC 连接失败不阻塞聊天，但在 UI 上显示
       debugPrint('[RTC] Connection failed: $e');
       // 连接失败时主动断开，避免残留旧连接
-      _rtcService?.disconnect();
+      await _rtcService?.disconnect();
       if (mounted) {
-        setState(() => _rtcError = '$e');
+        setState(() {
+          _rtcConnected = false;
+          _rtcError = '$e';
+        });
       }
+    } finally {
+      if (mounted) setState(() => _isTogglingMic = false);
     }
   }
 
@@ -226,12 +239,21 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
   }
 
   Future<void> _toggleMute() async {
-    if (!_rtcConnected || _rtcService == null || _isTogglingMic) return;
+    if (_rtcService == null || _isTogglingMic) return;
     final newMuted = !_isMuted;
     setState(() => _isTogglingMic = true);
     try {
+      if (!_rtcService!.isConnected) {
+        await _rtcService!.connect(roomId: _roomId);
+      }
       await _rtcService!.setMicrophoneEnabled(!newMuted);
-      if (mounted) setState(() => _isMuted = newMuted);
+      if (mounted) {
+        setState(() {
+          _isMuted = newMuted;
+          _rtcConnected = true;
+          _rtcError = null;
+        });
+      }
     } catch (e) {
       debugPrint('[RoomDetail] toggleMute failed: $e');
       if (mounted) {
@@ -482,7 +504,7 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
                               isConnected: _rtcConnected,
                               isBusy: _isTogglingMic,
                               error: _rtcError,
-                              onToggle: _rtcConnected ? _toggleMute : null,
+                              onToggle: _toggleMute,
                             ),
                             const SizedBox(width: 6),
                             _MiniControl(

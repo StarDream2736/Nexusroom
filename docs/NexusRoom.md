@@ -151,7 +151,7 @@ Docker 方案只构建并运行一个 `nexusroom` 容器。SQLite 和上传文�
 
 Flutter 客户端用 `flutter_webrtc` 连接内建语音 SFU，直播播放器仍保留既有 `media_kit` 路径。业务模型中的 `livekit_room_name` 已替换为中性的 `media_room_name`。
 
-本次改造不调整 UI 布局、颜色、组件尺寸和交互。在线、离线、说话状态所使用的圆点和 emoji 属于界面语义，继续保留。日志、脚本、README 和维护文档不使用 emoji。
+客户端 2.x 保留标题栏、左侧导航、中央内容区和房间右侧信息栏的基本分区。公共主题、面板、按钮、悬停反馈和窗口控件采用统一的深色桌面视觉；状态通过文字、颜色和矢量图标表达，不使用 emoji。
 
 ## 10. 开源依赖与维护边界
 
@@ -191,4 +191,6 @@ docker compose config --quiet
 - 内建 TURN 并通过应用 WebSocket下发 ICE 配置。
 - 网页资源编译进 Go 二进制，移除 nginx 容器。
 - Docker Compose 收敛为一个容器，并新增直接 Linux/systemd 部署。
-- 保留既有 UI 及其状态 emoji，移除非 UI 内容中的 emoji。
+- 保留既有页面分区，完成公共 UI 视觉重构并移除 emoji。
+- 规范化 RTMP 服务器地址，新增完整发布地址并在客户端启动 FFmpeg 前校验。
+- 语音按钮等待 RTC/ICE 实际连接，断线点击时自动重连并可靠同步静音状态。

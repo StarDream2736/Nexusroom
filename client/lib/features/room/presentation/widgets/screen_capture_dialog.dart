@@ -68,7 +68,7 @@ class _ScreenCaptureDialogState extends ConsumerState<ScreenCaptureDialog> {
       );
 
       await service.startCapture(
-        rtmpUrl: widget.ingress.rtmpUrl,
+        publishUrl: widget.ingress.publishUrl,
         streamKey: widget.ingress.streamKey,
         source: source,
         fps: _fps,

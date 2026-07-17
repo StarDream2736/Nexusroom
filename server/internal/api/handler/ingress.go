@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -72,7 +73,8 @@ func (h *IngressHandler) Create(c *gin.Context) {
 	}
 	util.Success(c, gin.H{
 		"id": ingress.ID, "ingress_id": ingress.IngressID, "rtmp_url": ingress.RTMPURL,
-		"stream_key": ingress.StreamKey, "label": ingress.Label,
+		"stream_key": ingress.StreamKey, "publish_url": joinRTMPPublishURL(ingress.RTMPURL, ingress.StreamKey),
+		"label": ingress.Label,
 	})
 	h.hub.BroadcastToRoom(roomID, ws.EventIngressUpdate, ws.IngressUpdatePayload{RoomID: roomID, Action: "created"}, 0)
 }
@@ -98,11 +100,13 @@ func (h *IngressHandler) List(c *gin.Context) {
 		return
 	}
 	result := make([]gin.H, 0, len(ingresses))
+	rtmpURL := h.deriveRTMPURL(c)
 	for _, ingress := range ingresses {
 		_, active := h.streams.Get(ingress.StreamKey)
 		result = append(result, gin.H{
-			"id": ingress.ID, "ingress_id": ingress.IngressID, "rtmp_url": ingress.RTMPURL,
-			"stream_key": ingress.StreamKey, "label": ingress.Label, "is_active": active,
+			"id": ingress.ID, "ingress_id": ingress.IngressID, "rtmp_url": rtmpURL,
+			"stream_key": ingress.StreamKey, "publish_url": joinRTMPPublishURL(rtmpURL, ingress.StreamKey),
+			"label": ingress.Label, "is_active": active,
 		})
 	}
 	util.Success(c, result)
@@ -155,20 +159,38 @@ func (h *IngressHandler) deriveRTMPURL(c *gin.Context) string {
 		if host == "" {
 			host = c.Request.Host
 		}
-		host = stripHostPort(host)
 	}
 	port := h.cfg.Media.RTMP.Port
 	if port == 0 {
 		port = 1935
 	}
-	return fmt.Sprintf("rtmp://%s:%d/live", host, port)
+	return buildRTMPURL(host, port)
+}
+
+func buildRTMPURL(value string, port int) string {
+	host := strings.TrimSpace(strings.Split(value, ",")[0])
+	if parsed, err := url.Parse(host); err == nil && parsed.Hostname() != "" {
+		host = parsed.Hostname()
+	} else if parsed, err := url.Parse("//" + host); err == nil && parsed.Hostname() != "" {
+		host = parsed.Hostname()
+	} else {
+		host = stripHostPort(strings.Trim(host, "[]/"))
+	}
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	return fmt.Sprintf("rtmp://%s/live", net.JoinHostPort(host, strconv.Itoa(port)))
 }
 
 func stripHostPort(host string) string {
 	if parsed, _, err := net.SplitHostPort(host); err == nil {
 		return parsed
 	}
-	return host
+	return strings.Trim(host, "[]")
+}
+
+func joinRTMPPublishURL(baseURL, streamKey string) string {
+	return strings.TrimRight(baseURL, "/") + "/" + strings.TrimLeft(streamKey, "/")
 }
 
 // ProxyStream serves a live HTTP-FLV stream directly from the embedded registry.

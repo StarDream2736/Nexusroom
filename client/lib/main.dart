@@ -37,13 +37,13 @@ void main() async {
   );
 }
 
-/// Global scroll behavior — BouncingScrollPhysics on all platforms (macOS feel).
-class _MacScrollBehavior extends ScrollBehavior {
-  const _MacScrollBehavior();
+/// Consistent desktop scrolling without overscroll bounce.
+class _DesktopScrollBehavior extends ScrollBehavior {
+  const _DesktopScrollBehavior();
 
   @override
   ScrollPhysics getScrollPhysics(BuildContext context) =>
-      const BouncingScrollPhysics();
+      const ClampingScrollPhysics();
 }
 
 class NexusRoomApp extends ConsumerStatefulWidget {
@@ -71,7 +71,7 @@ class _NexusRoomAppState extends ConsumerState<NexusRoomApp> {
       darkTheme: AppTheme.darkTheme,
       themeMode: ThemeMode.dark,
       routerConfig: router,
-      scrollBehavior: const _MacScrollBehavior(),
+      scrollBehavior: const _DesktopScrollBehavior(),
     );
   }
 }

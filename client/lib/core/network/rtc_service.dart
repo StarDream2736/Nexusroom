@@ -68,6 +68,7 @@ class RtcService {
   int _generation = 0;
   int? _connectedRoomId;
   bool _lastSpeaking = false;
+  bool _microphoneEnabled = false;
   bool _localDescriptionSignaled = false;
   bool _remoteDescriptionSet = false;
   Map<String, dynamic>? _queuedRemoteOffer;
@@ -87,8 +88,7 @@ class RtcService {
 
   int? get connectedRoomId => _connectedRoomId;
   bool get isConnected => _state == RtcConnectionState.connected;
-  bool get isMicrophoneEnabled =>
-      _localStream?.getAudioTracks().any((track) => track.enabled) ?? false;
+  bool get isMicrophoneEnabled => _microphoneEnabled;
   String? get lastError => _lastError;
   List<RtcParticipant> get participants => List.unmodifiable(_participants);
   Set<int> get currentSpeakers => _participants
@@ -182,6 +182,23 @@ class RtcService {
             break;
         }
       };
+      pc.onIceConnectionState = (state) {
+        switch (state) {
+          case RTCIceConnectionState.RTCIceConnectionStateConnected:
+          case RTCIceConnectionState.RTCIceConnectionStateCompleted:
+            _setState(RtcConnectionState.connected);
+            break;
+          case RTCIceConnectionState.RTCIceConnectionStateDisconnected:
+          case RTCIceConnectionState.RTCIceConnectionStateFailed:
+            _setState(RtcConnectionState.reconnecting);
+            break;
+          case RTCIceConnectionState.RTCIceConnectionStateClosed:
+            _setState(RtcConnectionState.disconnected);
+            break;
+          default:
+            break;
+        }
+      };
       pc.onTrack = (event) {
         if (event.track.kind == 'audio') {
           event.track.enabled = true;
@@ -224,6 +241,7 @@ class RtcService {
         track.enabled = false;
         await pc.addTrack(track, stream);
       }
+      _microphoneEnabled = false;
 
       // Reserve receive-only audio slots so a group call can add several
       // remote speakers without depending on fragile back-to-back renegotiation.
@@ -250,6 +268,7 @@ class RtcService {
       }
       _pendingLocalCandidates.clear();
       _startSpeakerMonitor();
+      await waitUntilConnected();
     } catch (error) {
       if (generation == _generation) {
         _emitError('RTC connection failed: $error');
@@ -257,6 +276,17 @@ class RtcService {
       }
       rethrow;
     }
+  }
+
+  Future<void> waitUntilConnected({
+    Duration timeout = const Duration(seconds: 12),
+  }) async {
+    if (isConnected) return;
+    await connectionStateStream
+        .firstWhere((state) => state == RtcConnectionState.connected)
+        .timeout(timeout, onTimeout: () {
+      throw TimeoutException('语音连接超时，请检查 UDP 端口与网络设置');
+    });
   }
 
   Future<void> _waitForWebSocket() async {
@@ -267,22 +297,25 @@ class RtcService {
   }
 
   Future<void> setMicrophoneEnabled(bool enabled) async {
+    if (!isConnected) {
+      throw StateError('语音尚未连接');
+    }
     final tracks = _localStream?.getAudioTracks() ?? const <MediaStreamTrack>[];
     if (tracks.isEmpty) {
-      throw StateError('未检测到可用的麦克风轨道');
+      throw StateError('未检测到可用的麦克风');
     }
+    final previous = _microphoneEnabled;
     for (final track in tracks) {
       track.enabled = enabled;
     }
-    if (tracks.any((track) => track.enabled != enabled)) {
-      throw StateError(enabled ? '麦克风启用失败' : '麦克风静音失败');
-    }
+    _microphoneEnabled = enabled;
     final roomId = _connectedRoomId;
     if (roomId != null) {
       if (!_ws.sendVoiceMute(roomId: roomId, muted: !enabled)) {
         for (final track in tracks) {
-          track.enabled = !enabled;
+          track.enabled = previous;
         }
+        _microphoneEnabled = previous;
         throw const WsUnavailableException('麦克风状态同步失败，请重试');
       }
       if (!enabled && _lastSpeaking) {
@@ -385,7 +418,9 @@ class RtcService {
 
   void _handleServerState(Map<String, dynamic> payload) {
     final state = payload['state']?.toString();
-    if (state == 'failed') {
+    if (state == 'connected') {
+      _setState(RtcConnectionState.connected);
+    } else if (state == 'failed' || state == 'disconnected') {
       _setState(RtcConnectionState.reconnecting);
     }
   }
@@ -429,6 +464,7 @@ class RtcService {
     final stream = _localStream;
     _pc = null;
     _localStream = null;
+    _microphoneEnabled = false;
     _localDescriptionSignaled = false;
     _remoteDescriptionSet = false;
     _pendingLocalCandidates.clear();

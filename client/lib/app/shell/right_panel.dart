@@ -38,7 +38,7 @@ class RightPanel extends ConsumerWidget {
     return Container(
       width: 200,
       decoration: BoxDecoration(
-        color: AppColors.sidebar.withOpacity(0.6),
+        color: AppColors.sidebar,
         border: Border(
           left: BorderSide(color: AppColors.border, width: 1),
         ),

@@ -42,7 +42,7 @@ class ScreenCaptureService {
 
   // ─── Start capture ──────────────────────────────────────────────────────
 
-  /// Begin screen capture and push an RTMP stream to [rtmpUrl]/[streamKey].
+  /// Begin screen capture and push to a validated, complete RTMP URL.
   ///
   /// [source] selects which display to capture.
   ///
@@ -52,7 +52,7 @@ class ScreenCaptureService {
   ///   • [preset]    – x264 preset (default "veryfast")
   ///   • [useHwAccel] – attempt NVENC hardware encoding (default true)
   Future<void> startCapture({
-    required String rtmpUrl,
+    required String publishUrl,
     required String streamKey,
     CaptureSource source = const CaptureSource.fullScreen(),
     int fps = 60,
@@ -72,10 +72,7 @@ class ScreenCaptureService {
     _setStatus(CaptureStatus.starting);
     _activeStreamKey = streamKey;
 
-    // Build the full RTMP destination URL.
-    // rtmpUrl typically ends with "/live/", streamKey is appended.
-    final destination =
-        rtmpUrl.endsWith('/') ? '$rtmpUrl$streamKey' : '$rtmpUrl/$streamKey';
+    final destination = _validatePublishUrl(publishUrl, streamKey);
 
     final args = <String>[];
 
@@ -151,7 +148,7 @@ class ScreenCaptureService {
     args.addAll(['-flvflags', 'no_duration_filesize']);
     args.addAll(['-f', 'flv', destination]);
 
-    debugPrint('[ScreenCapture] Starting: $ffmpeg ${args.join(' ')}');
+    debugPrint('[ScreenCapture] Starting FFmpeg screen publishing process');
 
     try {
       _ffmpegProcess = await Process.start(ffmpeg, args);
@@ -185,6 +182,21 @@ class ScreenCaptureService {
       _cleanup();
       rethrow;
     }
+  }
+
+  String _validatePublishUrl(String value, String streamKey) {
+    final uri = Uri.tryParse(value.trim());
+    if (uri == null ||
+        (uri.scheme != 'rtmp' && uri.scheme != 'rtmps') ||
+        uri.host.isEmpty ||
+        uri.query.isNotEmpty ||
+        uri.fragment.isNotEmpty ||
+        uri.pathSegments.isEmpty ||
+        uri.path.contains('//') ||
+        uri.pathSegments.last != streamKey) {
+      throw const ScreenCaptureException('完整推流地址无效');
+    }
+    return uri.toString();
   }
 
   // ─── Stop capture ───────────────────────────────────────────────────────
