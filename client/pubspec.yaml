@@ -28,8 +28,8 @@ dependencies:
   dio: ^5.9.1
   web_socket_channel: ^2.4.0
   
-  # LiveKit WebRTC (voice only)
-  livekit_client: ^2.0.1
+  # NexusRoom WebRTC voice transport
+  flutter_webrtc: 0.12.12+hotfix.1
   
   # Media player (HTTP-FLV streaming)
   media_kit: ^1.1.11

@@ -6,14 +6,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:livekit_client/livekit_client.dart' as lk;
 import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../../../app/theme/app_colors.dart';
 import '../../../../app/theme/app_theme.dart';
 import '../../../../app/theme/app_typography.dart';
-import '../../../../core/models/livekit_models.dart';
-import '../../../../core/network/livekit_service.dart';
+import '../../../../core/models/media_models.dart';
+import '../../../../core/network/rtc_service.dart';
 import '../../../../core/network/stream_player.dart';
 import '../../../../core/network/ws_service.dart';
 import '../../../../core/providers/app_providers.dart';
@@ -34,8 +33,8 @@ class RoomDetailPage extends ConsumerStatefulWidget {
 class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
   final _messageController = TextEditingController();
   bool _isMuted = true;
-  bool _livekitConnected = false;
-  String? _livekitError;
+  bool _rtcConnected = false;
+  String? _rtcError;
 
   // 直播流（独立于语音房间，使用 media_kit HTTP-FLV）
   final StreamPlayer _streamPlayer = StreamPlayer();
@@ -51,11 +50,9 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
   StreamSubscription? _memberJoinSub;
   StreamSubscription? _memberLeaveSub;
   StreamSubscription? _voiceStateSub;
-  StreamSubscription? _ingressRefreshSub;
   StreamSubscription? _ingressUpdateSub;
   WsService? _wsService;
-  LiveKitService? _livekitService;
-  int _lastIngressCount = -1;
+  RtcService? _rtcService;
 
   int get _roomId => int.parse(widget.roomId);
 
@@ -63,7 +60,7 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
   void initState() {
     super.initState();
     _wsService = ref.read(wsServiceProvider);
-    _livekitService = ref.read(livekitServiceProvider);
+    _rtcService = ref.read(rtcServiceProvider);
 
     // 切换房间时清理上一个房间的全局状态（延迟到第一帧构建完成后）
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -74,8 +71,11 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
     });
 
     // 房间 join/leave 由 AppShell 统一管理，此处不再冗余 join
-    final serverUrl = ref.read(appSettingsProvider).valueOrNull?.serverUrl ?? '';
-    ref.read(messageRepositoryProvider).syncLatest(_roomId, serverUrl: serverUrl);
+    final serverUrl =
+        ref.read(appSettingsProvider).valueOrNull?.serverUrl ?? '';
+    ref
+        .read(messageRepositoryProvider)
+        .syncLatest(_roomId, serverUrl: serverUrl);
 
     // 监听被踢出事件
     _kickedSub = _wsService!.on('room.kicked').listen((payload) {
@@ -112,16 +112,7 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
       }
     });
 
-    _connectLiveKit();
-
-    // 监听 LiveKit 参与者变化 → 自动刷新直播列表
-    _ingressRefreshSub = _livekitService!.participantsStream.listen((_) {
-      final count = _livekitService!.ingressParticipants.length;
-      if (count != _lastIngressCount) {
-        _lastIngressCount = count;
-        ref.invalidate(roomIngressesProvider(_roomId));
-      }
-    });
+    _connectRTC();
 
     // 监听 WS ingress 更新事件 → 实时刷新直播列表
     _ingressUpdateSub = _wsService!.on('room.ingress_update').listen((_) {
@@ -137,67 +128,50 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
     });
   }
 
-  Future<void> _connectLiveKit() async {
+  Future<void> _connectRTC() async {
     // 无论是否复用连接，都必须设置监听器（旧页面 dispose 已 cancel 了旧 subscription）
-    _connectionStateSub = _livekitService!.connectionStateStream.listen((state) {
+    _connectionStateSub = _rtcService!.connectionStateStream.listen((state) {
       if (mounted) {
         setState(() {
-          if (state == lk.ConnectionState.connected) {
-            _livekitConnected = true;
-            _livekitError = null;
-          } else if (state == lk.ConnectionState.disconnected) {
-            _livekitConnected = false;
+          if (state == RtcConnectionState.connected) {
+            _rtcConnected = true;
+            _rtcError = null;
+          } else if (state == RtcConnectionState.disconnected) {
+            _rtcConnected = false;
           }
         });
       }
     });
 
-    _errorSub = _livekitService!.errorStream.listen((error) {
+    _errorSub = _rtcService!.errorStream.listen((error) {
       if (mounted) {
-        setState(() => _livekitError = error);
+        setState(() => _rtcError = error);
       }
     });
 
-    // 如果 LiveKit 确实仍在连接同一房间（从设置页返回），复用连接
-    if (_livekitService!.connectedRoomId == _roomId && _livekitService!.isConnected) {
-      debugPrint('[LiveKit] Already connected to room $_roomId, reusing connection');
+    if (_rtcService!.connectedRoomId == _roomId && _rtcService!.isConnected) {
+      debugPrint(
+          '[RTC] Already connected to room $_roomId, reusing connection');
       setState(() {
-        _livekitConnected = true;
-        _isMuted = !_livekitService!.isMicrophoneEnabled;
+        _rtcConnected = true;
+        _isMuted = !_rtcService!.isMicrophoneEnabled;
       });
       return;
     }
 
     try {
-      // 获取 LiveKit Token 和动态 URL
-      final tokenResult =
-          await ref.read(roomRepositoryProvider).getLiveKitToken(_roomId);
-      if (!mounted) return; // 页面已 dispose，放弃连接
-
-      // 获取房间详情以获取动态 LiveKit URL
-      final roomDetail = await ref.read(roomDetailProvider(_roomId).future);
-      if (!mounted) return; // 页面已 dispose，放弃连接
-
-      // 使用房间返回的 LiveKit URL，如果为空则 fallback 到 token 中的 URL
-      final liveKitUrl = roomDetail.liveKitUrl.isNotEmpty 
-          ? roomDetail.liveKitUrl 
-          : tokenResult.url;
-      
-      debugPrint('[LiveKit] Voice room URL: $liveKitUrl, roomId=$_roomId');
-
-      // 连接语音房间（LiveKitService 内部有代数计数器，旧调用不会覆盖新连接）
-      await _livekitService!.connect(liveKitUrl, tokenResult.token, roomId: _roomId);
+      await _rtcService!.connect(roomId: _roomId);
       if (!mounted) return;
 
       // 默认静音
-      await _livekitService!.setMicrophoneEnabled(false);
+      await _rtcService!.setMicrophoneEnabled(false);
     } catch (e) {
-      // LiveKit 连接失败不阻塞聊天，但在 UI 上显示
-      debugPrint('[LiveKit] Connection failed: $e');
+      // RTC 连接失败不阻塞聊天，但在 UI 上显示
+      debugPrint('[RTC] Connection failed: $e');
       // 连接失败时主动断开，避免残留旧连接
-      _livekitService?.disconnect();
+      _rtcService?.disconnect();
       if (mounted) {
-        setState(() => _livekitError = '$e');
+        setState(() => _rtcError = '$e');
       }
     }
   }
@@ -208,11 +182,12 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
     // GoRouter 可能复用 State 对象（roomId 变了但 State 没重建）
     // 安全网：重新初始化连接
     if (oldWidget.roomId != widget.roomId) {
-      debugPrint('[RoomDetail] didUpdateWidget: roomId changed ${oldWidget.roomId} -> ${widget.roomId}');
-      _livekitConnected = false;
-      _livekitError = null;
+      debugPrint(
+          '[RoomDetail] didUpdateWidget: roomId changed ${oldWidget.roomId} -> ${widget.roomId}');
+      _rtcConnected = false;
+      _rtcError = null;
       _isMuted = true;
-      _connectLiveKit();
+      _connectRTC();
     }
   }
 
@@ -232,20 +207,19 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
     _memberJoinSub?.cancel();
     _memberLeaveSub?.cancel();
     _voiceStateSub?.cancel();
-    _ingressRefreshSub?.cancel();
     _ingressUpdateSub?.cancel();
     // 房间 join/leave 由 AppShell 统一管理
-    // LiveKit 语音连接由 AppShell._syncRoom 在切换房间时统一断开
+    // RTC 语音连接由 AppShell._syncRoom 在切换房间时统一断开
     // 此处只清理 StreamPlayer和事件订阅
     _messageController.dispose();
     super.dispose();
   }
 
   void _toggleMute() async {
-    if (!_livekitConnected || _livekitService == null) return;
+    if (!_rtcConnected || _rtcService == null) return;
     final newMuted = !_isMuted;
     try {
-      await _livekitService!.setMicrophoneEnabled(!newMuted);
+      await _rtcService!.setMicrophoneEnabled(!newMuted);
       _wsService?.sendVoiceMute(
         roomId: _roomId,
         muted: newMuted,
@@ -256,7 +230,7 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
     }
   }
 
-  /// 打开直播流（通过 HTTP-FLV 从 SRS 拉流）
+  /// 打开 NexusRoom 内建 HTTP-FLV 直播流
   Future<void> _selectStream(IngressModel ingress) async {
     // 断开之前的直播连接
     await _streamPlayer.disconnect();
@@ -266,7 +240,7 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
     });
 
     try {
-      // 通过 Go 服务器反向代理获取 HTTP-FLV 直播流（无需直连 SRS 8085 端口）
+      // 直接从 NexusRoom 服务器获取内建 HTTP-FLV 直播流。
       final serverUrl = ref.read(appSettingsProvider).value?.serverUrl ?? '';
       final flvUrl = '$serverUrl/api/v1/stream/${ingress.streamKey}';
       debugPrint('[StreamPlayer] Connecting to $flvUrl');
@@ -302,7 +276,8 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
         body: Stack(
           fit: StackFit.expand,
           children: [
-            Video(controller: _streamVideoController!, controls: NoVideoControls),
+            Video(
+                controller: _streamVideoController!, controls: NoVideoControls),
             Positioned(
               top: 16,
               right: 16,
@@ -366,8 +341,7 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
               _MiniControl(
                 icon: Icons.settings_outlined,
                 tooltip: '房间设置',
-                onTap: () =>
-                    context.go('/rooms/${widget.roomId}/settings'),
+                onTap: () => context.go('/rooms/${widget.roomId}/settings'),
               ),
             ],
           ),
@@ -391,8 +365,8 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
                             decoration: BoxDecoration(
                               color: AppColors.cardActive,
                               borderRadius: AppTheme.radiusStandard,
-                              border: Border.all(
-                                  color: AppColors.border, width: 1),
+                              border:
+                                  Border.all(color: AppColors.border, width: 1),
                             ),
                             child: ClipRRect(
                               borderRadius: AppTheme.radiusStandard,
@@ -430,18 +404,22 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
                               physics: const BouncingScrollPhysics(),
                               itemCount: messages.length,
                               itemBuilder: (context, index) {
-                                final message = messages[messages.length - 1 - index];
+                                final message =
+                                    messages[messages.length - 1 - index];
                                 final sender = message.senderNickname ??
                                     '用户${message.senderId}';
-                                final avatarUrl = message.senderAvatarUrl != null
-                                    ? _resolveUrl(baseUrl, message.senderAvatarUrl!)
-                                    : null;
+                                final avatarUrl =
+                                    message.senderAvatarUrl != null
+                                        ? _resolveUrl(
+                                            baseUrl, message.senderAvatarUrl!)
+                                        : null;
                                 final rawImageUrl = message.type == 'image'
                                     ? _resolveUrl(baseUrl, message.content)
                                     : null;
-                                final imageUrlWithToken = rawImageUrl != null && authToken != null
-                                    ? '$rawImageUrl?token=$authToken'
-                                    : rawImageUrl;
+                                final imageUrlWithToken =
+                                    rawImageUrl != null && authToken != null
+                                        ? '$rawImageUrl?token=$authToken'
+                                        : rawImageUrl;
                                 return TweenAnimationBuilder<double>(
                                   tween: Tween(begin: 0.0, end: 1.0),
                                   duration: const Duration(milliseconds: 300),
@@ -467,8 +445,8 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
                               },
                             );
                           },
-                          loading: () => const Center(
-                              child: CircularProgressIndicator()),
+                          loading: () =>
+                              const Center(child: CircularProgressIndicator()),
                           error: (error, _) => Center(
                               child: Text('消息加载失败: $error',
                                   style: AppTypography.bodySecondary)),
@@ -480,8 +458,7 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
                           border: Border(
-                            top: BorderSide(
-                                color: AppColors.border, width: 1),
+                            top: BorderSide(color: AppColors.border, width: 1),
                           ),
                         ),
                         child: Row(
@@ -489,10 +466,9 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
                             // Voice mic toggle (moved from top bar)
                             _VoiceControlButton(
                               isMuted: _isMuted,
-                              isConnected: _livekitConnected,
-                              error: _livekitError,
-                              onToggle:
-                                  _livekitConnected ? _toggleMute : null,
+                              isConnected: _rtcConnected,
+                              error: _rtcError,
+                              onToggle: _rtcConnected ? _toggleMute : null,
                             ),
                             const SizedBox(width: 6),
                             _MiniControl(
@@ -505,33 +481,26 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
                               child: TextField(
                                 controller: _messageController,
                                 style: TextStyle(
-                                    fontSize: 13,
-                                    color: AppColors.textPrimary),
+                                    fontSize: 13, color: AppColors.textPrimary),
                                 decoration: InputDecoration(
                                   hintText: '输入消息...',
                                   filled: true,
                                   fillColor: AppColors.background,
-                                  contentPadding:
-                                      const EdgeInsets.symmetric(
-                                          horizontal: 14, vertical: 8),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 14, vertical: 8),
                                   border: OutlineInputBorder(
-                                    borderRadius:
-                                        AppTheme.radiusBubble,
+                                    borderRadius: AppTheme.radiusBubble,
                                     borderSide: BorderSide.none,
                                   ),
                                   enabledBorder: OutlineInputBorder(
-                                    borderRadius:
-                                        AppTheme.radiusBubble,
+                                    borderRadius: AppTheme.radiusBubble,
                                     borderSide: BorderSide(
-                                        color: AppColors.border,
-                                        width: 1),
+                                        color: AppColors.border, width: 1),
                                   ),
                                   focusedBorder: OutlineInputBorder(
-                                    borderRadius:
-                                        AppTheme.radiusBubble,
+                                    borderRadius: AppTheme.radiusBubble,
                                     borderSide: BorderSide(
-                                        color: AppColors.primary,
-                                        width: 1),
+                                        color: AppColors.primary, width: 1),
                                   ),
                                 ),
                                 onSubmitted: (_) => _sendMessage(),
@@ -697,22 +666,21 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
     if (file == null) return;
 
     try {
-      final uploaded =
-          await ref.read(fileRepositoryProvider).uploadFile(
-                file.path,
-                roomId: _roomId,
-              );
-      ref.read(wsServiceProvider).sendChat(
+      final uploaded = await ref.read(fileRepositoryProvider).uploadFile(
+            file.path,
             roomId: _roomId,
-            type: 'image',
-            content: uploaded.url,
-            meta: {
-              'file_id': uploaded.fileId,
-              'file_name': File(file.path).uri.pathSegments.last,
-              'mime_type': uploaded.mimeType,
-              'size_bytes': uploaded.sizeBytes,
-            },
           );
+      ref.read(wsServiceProvider).sendChat(
+        roomId: _roomId,
+        type: 'image',
+        content: uploaded.url,
+        meta: {
+          'file_id': uploaded.fileId,
+          'file_name': File(file.path).uri.pathSegments.last,
+          'mime_type': uploaded.mimeType,
+          'size_bytes': uploaded.sizeBytes,
+        },
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -845,9 +813,10 @@ class _ChatBubble extends StatelessWidget {
           CircleAvatar(
             radius: 12,
             backgroundColor: AppColors.primary.withOpacity(0.15),
-            backgroundImage: senderAvatarUrl != null && senderAvatarUrl!.isNotEmpty
-                ? CachedNetworkImageProvider(senderAvatarUrl!)
-                : null,
+            backgroundImage:
+                senderAvatarUrl != null && senderAvatarUrl!.isNotEmpty
+                    ? CachedNetworkImageProvider(senderAvatarUrl!)
+                    : null,
             child: senderAvatarUrl == null || senderAvatarUrl!.isEmpty
                 ? Text(
                     sender.isNotEmpty ? sender[0] : '?',
@@ -872,8 +841,8 @@ class _ChatBubble extends StatelessWidget {
                 const SizedBox(height: 2),
                 if (content != null)
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     decoration: BoxDecoration(
                       color: AppColors.cardHover,
                       borderRadius: AppTheme.radiusBubble,
@@ -898,12 +867,15 @@ class _ChatBubble extends StatelessWidget {
                         placeholder: (context, url) => const SizedBox(
                           width: 120,
                           height: 80,
-                          child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                          child: Center(
+                              child: CircularProgressIndicator(strokeWidth: 2)),
                         ),
                         errorWidget: (context, url, error) => SizedBox(
                           width: 120,
                           height: 80,
-                          child: Center(child: Icon(Icons.broken_image, color: AppColors.textSecondary)),
+                          child: Center(
+                              child: Icon(Icons.broken_image,
+                                  color: AppColors.textSecondary)),
                         ),
                       ),
                     ),

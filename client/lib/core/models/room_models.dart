@@ -47,20 +47,18 @@ class RoomDetail {
     required this.name,
     required this.inviteCode,
     required this.ownerId,
-    required this.livekitRoomName,
+    required this.mediaRoomName,
     required this.members,
     required this.ingresses,
-    this.liveKitUrl = '',
   });
 
   final int id;
   final String name;
   final String inviteCode;
   final int ownerId;
-  final String livekitRoomName;
+  final String mediaRoomName;
   final List<RoomMember> members;
   final List<RoomIngressSummary> ingresses;
-  final String liveKitUrl;
 
   factory RoomDetail.fromJson(Map<String, dynamic> json) {
     final membersJson = (json['members'] as List<dynamic>? ?? []);
@@ -70,7 +68,7 @@ class RoomDetail {
       name: json['name'] as String,
       inviteCode: json['invite_code'] as String,
       ownerId: (json['owner_id'] as num?)?.toInt() ?? 0,
-      livekitRoomName: json['livekit_room_name'] as String? ?? '',
+      mediaRoomName: json['media_room_name'] as String? ?? '',
       members: membersJson
           .map((item) => RoomMember.fromJson(item as Map<String, dynamic>))
           .toList(),
@@ -78,7 +76,6 @@ class RoomDetail {
           .map((item) =>
               RoomIngressSummary.fromJson(item as Map<String, dynamic>))
           .toList(),
-      liveKitUrl: json['livekit_url'] as String? ?? '',
     );
   }
 }

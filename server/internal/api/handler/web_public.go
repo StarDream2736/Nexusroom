@@ -1,11 +1,7 @@
 package handler
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"sort"
@@ -14,37 +10,16 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"nexusroom-server/internal/config"
+	"nexusroom-server/internal/media/rtcplay"
+	mediastream "nexusroom-server/internal/media/stream"
 	"nexusroom-server/internal/repository"
 	"nexusroom-server/pkg/util"
 )
 
 type WebPublicHandler struct {
 	ingressRepo *repository.IngressRepository
-	cfg         *config.Config
-	httpClient  *http.Client
-}
-
-type srsStreamListResponse struct {
-	Code    int             `json:"code"`
-	Streams []srsStreamItem `json:"streams"`
-}
-
-type srsStreamItem struct {
-	App     string          `json:"app"`
-	Name    string          `json:"name"`
-	Stream  string          `json:"stream"`
-	Clients int             `json:"clients"`
-	Publish srsPublishState `json:"publish"`
-	Kbps    srsKbpsState    `json:"kbps"`
-}
-
-type srsPublishState struct {
-	Active bool `json:"active"`
-}
-
-type srsKbpsState struct {
-	Recv30s float64 `json:"recv_30s"`
+	streams     *mediastream.Registry
+	rtc         *rtcplay.Engine
 }
 
 type webLiveStream struct {
@@ -65,254 +40,107 @@ type webLiveRoom struct {
 	StreamCnt int             `json:"stream_count"`
 }
 
-func NewWebPublicHandler(ingressRepo *repository.IngressRepository, cfg *config.Config) *WebPublicHandler {
-	return &WebPublicHandler{
-		ingressRepo: ingressRepo,
-		cfg:         cfg,
-		httpClient: &http.Client{
-			Timeout: 5 * time.Second,
-		},
-	}
+func NewWebPublicHandler(ingressRepo *repository.IngressRepository, streams *mediastream.Registry, rtc *rtcplay.Engine) *WebPublicHandler {
+	return &WebPublicHandler{ingressRepo: ingressRepo, streams: streams, rtc: rtc}
 }
 
 func (h *WebPublicHandler) ListLiveRooms(c *gin.Context) {
-	liveStreams, err := h.fetchSRSLiveStreams(c.Request.Context())
-	if err != nil {
-		util.Error(c, 50001, "获取 SRS 直播流失败: "+err.Error())
-		return
-	}
-
+	liveStreams := h.streams.Snapshot()
 	streamKeys := make([]string, 0, len(liveStreams))
-	for _, s := range liveStreams {
-		streamKeys = append(streamKeys, s.Stream)
+	for _, live := range liveStreams {
+		streamKeys = append(streamKeys, live.Key)
 	}
-
 	refs, err := h.ingressRepo.ListRoomRefsByStreamKeys(streamKeys)
 	if err != nil {
 		util.Error(c, 50001, "查询房间映射失败: "+err.Error())
 		return
 	}
-
 	refByKey := make(map[string]repository.StreamRoomRef, len(refs))
 	for _, ref := range refs {
 		refByKey[ref.StreamKey] = ref
 	}
-
 	rooms := make([]webLiveRoom, 0)
-	knownIdx := make(map[uint64]int)
-
-	for _, stream := range liveStreams {
-		if ref, ok := refByKey[stream.Stream]; ok {
-			idx, exists := knownIdx[ref.RoomID]
+	knownIndex := make(map[uint64]int)
+	for _, live := range liveStreams {
+		if ref, ok := refByKey[live.Key]; ok {
+			index, exists := knownIndex[ref.RoomID]
 			if !exists {
-				rooms = append(rooms, webLiveRoom{
-					ID:      fmt.Sprintf("room-%d", ref.RoomID),
-					Name:    ref.RoomName,
-					Type:    "known",
-					RoomID:  ref.RoomID,
-					Streams: []webLiveStream{},
-				})
-				idx = len(rooms) - 1
-				knownIdx[ref.RoomID] = idx
+				rooms = append(rooms, webLiveRoom{ID: fmt.Sprintf("room-%d", ref.RoomID), Name: ref.RoomName, Type: "known", RoomID: ref.RoomID, Streams: []webLiveStream{}})
+				index = len(rooms) - 1
+				knownIndex[ref.RoomID] = index
 			}
-
 			label := strings.TrimSpace(ref.Label)
 			if label == "" {
-				label = stream.Stream
+				label = live.Key
 			}
-
-			rooms[idx].Streams = append(rooms[idx].Streams, webLiveStream{
-				App:       stream.App,
-				StreamKey: stream.Stream,
-				Label:     label,
-				Clients:   stream.Clients,
-				Bitrate:   stream.Kbps.Recv30s,
-				PlayURL:   fmt.Sprintf("/api/v1/stream/%s", stream.Stream),
-			})
+			rooms[index].Streams = append(rooms[index].Streams, toWebStream(live, label))
 			continue
 		}
-
-		prefix := stream.Stream
+		prefix := live.Key
 		if len(prefix) > 8 {
 			prefix = prefix[:8]
 		}
-
 		rooms = append(rooms, webLiveRoom{
-			ID:   "virtual-" + stream.Stream,
-			Name: "临时直播-" + prefix,
-			Type: "virtual",
-			Streams: []webLiveStream{{
-				App:       stream.App,
-				StreamKey: stream.Stream,
-				Label:     "未知流",
-				Clients:   stream.Clients,
-				Bitrate:   stream.Kbps.Recv30s,
-				PlayURL:   fmt.Sprintf("/api/v1/stream/%s", stream.Stream),
-			}},
+			ID: "virtual-" + live.Key, Name: "临时直播-" + prefix, Type: "virtual",
+			Streams: []webLiveStream{toWebStream(live, "未知流")},
 		})
 	}
-
 	for i := range rooms {
 		rooms[i].StreamCnt = len(rooms[i].Streams)
-		sort.Slice(rooms[i].Streams, func(a, b int) bool {
-			return rooms[i].Streams[a].StreamKey < rooms[i].Streams[b].StreamKey
-		})
+		sort.Slice(rooms[i].Streams, func(a, b int) bool { return rooms[i].Streams[a].StreamKey < rooms[i].Streams[b].StreamKey })
 	}
-
 	sort.Slice(rooms, func(i, j int) bool {
 		if rooms[i].Type != rooms[j].Type {
 			return rooms[i].Type < rooms[j].Type
 		}
 		return rooms[i].Name < rooms[j].Name
 	})
-
-	util.Success(c, gin.H{
-		"rooms":        rooms,
-		"total":        len(rooms),
-		"generated_at": time.Now().UTC(),
-	})
+	util.Success(c, gin.H{"rooms": rooms, "total": len(rooms), "generated_at": time.Now().UTC()})
 }
 
-func (h *WebPublicHandler) RTCPlayProxy(c *gin.Context) {
-	body, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		util.Error(c, 40001, "读取请求失败")
+func toWebStream(info mediastream.Info, label string) webLiveStream {
+	return webLiveStream{
+		App: "live", StreamKey: info.Key, Label: label, Clients: info.Viewers,
+		Bitrate: info.BitrateKbps, PlayURL: fmt.Sprintf("/api/v1/stream/%s", info.Key),
+	}
+}
+
+type rtcPlayRequest struct {
+	SDP       string `json:"sdp"`
+	StreamURL string `json:"streamurl"`
+}
+
+func (h *WebPublicHandler) RTCPlay(c *gin.Context) {
+	var request rtcPlayRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		util.Error(c, 40001, "WebRTC 播放请求格式错误")
 		return
 	}
-
-	target := fmt.Sprintf("http://%s:%d/rtc/v1/play/", h.srsHost(), h.srsAPIPort())
-	proxyBody := h.normalizeRTCPlayPayload(body, target, c.ClientIP())
-
-	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, target, bytes.NewReader(proxyBody))
+	streamKey, err := streamKeyFromURL(request.StreamURL)
 	if err != nil {
-		util.Error(c, 50001, "创建代理请求失败")
+		util.Error(c, 40001, err.Error())
 		return
 	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := h.httpClient.Do(req)
+	answer, err := h.rtc.Answer(c.Request.Context(), streamKey, request.SDP)
 	if err != nil {
-		util.Error(c, 50001, "SRS RTC 播放接口不可用")
+		status := http.StatusBadRequest
+		if err == mediastream.ErrNotFound {
+			status = http.StatusNotFound
+		}
+		c.JSON(status, gin.H{"code": 40001, "message": err.Error()})
 		return
 	}
-	defer resp.Body.Close()
+	c.JSON(http.StatusOK, gin.H{"code": 0, "server": "nexusroom", "sdp": answer, "sessionid": streamKey})
+}
 
-	respBody, err := io.ReadAll(resp.Body)
+func streamKeyFromURL(raw string) (string, error) {
+	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
-		util.Error(c, 50001, "读取 SRS 返回失败")
-		return
+		return "", fmt.Errorf("无效的播放地址")
 	}
-
-	c.Data(resp.StatusCode, "application/json", respBody)
-}
-
-func (h *WebPublicHandler) normalizeRTCPlayPayload(body []byte, targetAPI, clientIP string) []byte {
-	var payload map[string]interface{}
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return body
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) != 2 || parts[0] != "live" || strings.TrimSpace(parts[1]) == "" {
+		return "", fmt.Errorf("播放地址必须为 /live/{streamKey}")
 	}
-
-	// 确保 api 字段是 SRS 实际接收地址，避免被上游透传为应用层代理地址。
-	payload["api"] = targetAPI
-	if strings.TrimSpace(clientIP) != "" {
-		payload["clientip"] = clientIP
-	}
-
-	streamURL, _ := payload["streamurl"].(string)
-	streamURL = strings.TrimSpace(streamURL)
-	if streamURL != "" {
-		if normalized, ok := normalizeRTCStreamURL(streamURL); ok {
-			payload["streamurl"] = normalized
-		}
-	}
-
-	if out, err := json.Marshal(payload); err == nil {
-		return out
-	}
-	return body
-}
-
-func normalizeRTCStreamURL(raw string) (string, bool) {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return "", false
-	}
-
-	// 仅处理 webrtc/rtc 播放地址。
-	scheme := strings.ToLower(strings.TrimSpace(u.Scheme))
-	if scheme != "webrtc" && scheme != "rtc" {
-		return "", false
-	}
-
-	q := u.Query()
-	if strings.TrimSpace(q.Get("vhost")) == "" {
-		q.Set("vhost", "__defaultVhost__")
-	}
-	u.RawQuery = q.Encode()
-
-	return u.String(), true
-}
-
-func (h *WebPublicHandler) fetchSRSLiveStreams(reqCtx context.Context) ([]srsStreamItem, error) {
-	target := fmt.Sprintf("http://%s:%d/api/v1/streams", h.srsHost(), h.srsAPIPort())
-	req, err := http.NewRequest(http.MethodGet, target, nil)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(reqCtx)
-
-	resp, err := h.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		msg, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(msg)))
-	}
-
-	var payload srsStreamListResponse
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return nil, err
-	}
-	if payload.Code != 0 {
-		return nil, fmt.Errorf("srs code=%d", payload.Code)
-	}
-
-	result := make([]srsStreamItem, 0, len(payload.Streams))
-	for _, s := range payload.Streams {
-		streamKey := strings.TrimSpace(s.Name)
-		if streamKey == "" {
-			streamKey = strings.TrimSpace(s.Stream)
-		}
-		if streamKey == "" {
-			continue
-		}
-		if !s.Publish.Active {
-			continue
-		}
-		if strings.TrimSpace(s.App) == "" {
-			s.App = "live"
-		}
-		s.Stream = streamKey
-		result = append(result, s)
-	}
-
-	return result, nil
-}
-
-func (h *WebPublicHandler) srsHost() string {
-	host := strings.TrimSpace(h.cfg.SRS.Host)
-	if host == "" {
-		return "srs"
-	}
-	return host
-}
-
-func (h *WebPublicHandler) srsAPIPort() int {
-	if h.cfg.SRS.APIPort == 0 {
-		return 1985
-	}
-	return h.cfg.SRS.APIPort
+	return parts[1], nil
 }

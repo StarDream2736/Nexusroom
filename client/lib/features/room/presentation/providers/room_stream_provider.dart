@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../../core/models/livekit_models.dart';
+import '../../../../core/models/media_models.dart';
 import '../../../../core/providers/app_providers.dart';
 
 /// Loads the ingress list for a given room.

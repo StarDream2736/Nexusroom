@@ -9,13 +9,13 @@ import (
 )
 
 type Room struct {
-	ID              uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
-	RoomCode        string    `gorm:"uniqueIndex;size:16;not null" json:"room_code"`
-	InviteCode      string    `gorm:"uniqueIndex;size:8;not null" json:"invite_code"`
-	Name            string    `gorm:"size:128;not null" json:"name"`
-	OwnerID         uint64    `gorm:"not null;index" json:"owner_id"`
-	LiveKitRoomName string    `gorm:"uniqueIndex;size:128;not null" json:"livekit_room_name"`
-	CreatedAt       time.Time `json:"created_at"`
+	ID            uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
+	RoomCode      string    `gorm:"uniqueIndex;size:16;not null" json:"room_code"`
+	InviteCode    string    `gorm:"uniqueIndex;size:8;not null" json:"invite_code"`
+	Name          string    `gorm:"size:128;not null" json:"name"`
+	OwnerID       uint64    `gorm:"not null;index" json:"owner_id"`
+	MediaRoomName string    `gorm:"uniqueIndex;size:128;not null" json:"media_room_name"`
+	CreatedAt     time.Time `json:"created_at"`
 
 	// 关联
 	Owner   User         `gorm:"foreignKey:OwnerID" json:"owner,omitempty"`
@@ -33,8 +33,8 @@ func (r *Room) BeforeCreate(tx *gorm.DB) error {
 	if r.InviteCode == "" {
 		r.InviteCode = GenerateInviteCode()
 	}
-	if r.LiveKitRoomName == "" {
-		r.LiveKitRoomName = "nexusroom_" + r.RoomCode
+	if r.MediaRoomName == "" {
+		r.MediaRoomName = "nexusroom_" + r.RoomCode
 	}
 	return nil
 }

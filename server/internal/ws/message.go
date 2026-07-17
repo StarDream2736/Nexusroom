@@ -15,6 +15,11 @@ const (
 	EventRoomLeave      MessageType = "room.leave"
 	EventChatSend       MessageType = "chat.send"
 	EventVoiceMute      MessageType = "voice.mute"
+	EventRTCSpeaking    MessageType = "rtc.speaking"
+	EventRTCOffer       MessageType = "rtc.offer"
+	EventRTCAnswer      MessageType = "rtc.answer"
+	EventRTCICE         MessageType = "rtc.ice"
+	EventRTCLeave       MessageType = "rtc.leave"
 	EventVlanPeerUpdate MessageType = "vlan.peer_update"
 
 	// 服务端 -> 客户端
@@ -27,6 +32,7 @@ const (
 	EventRoomKicked       MessageType = "room.kicked"
 	EventRoomDisbanded    MessageType = "room.disbanded"
 	EventVoiceStateUpdate MessageType = "voice.state_update"
+	EventRTCError         MessageType = "rtc.error"
 	EventFriendRequest    MessageType = "friend.request"
 	EventFriendAccepted   MessageType = "friend.accepted"
 	EventIngressUpdate    MessageType = "room.ingress_update"
@@ -78,8 +84,19 @@ type PeerInfo struct {
 
 // 服务端发送的消息
 type ConnectedPayload struct {
-	UserID        uint64 `json:"user_id"`
-	ServerVersion string `json:"server_version"`
+	UserID        uint64          `json:"user_id"`
+	ServerVersion string          `json:"server_version"`
+	RTC           RTCClientConfig `json:"rtc"`
+}
+
+type RTCClientConfig struct {
+	ICEServers []RTCICEServer `json:"ice_servers"`
+}
+
+type RTCICEServer struct {
+	URLs       []string `json:"urls"`
+	Username   string   `json:"username,omitempty"`
+	Credential string   `json:"credential,omitempty"`
 }
 
 type ChatMessagePayload struct {

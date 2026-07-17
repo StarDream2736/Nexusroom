@@ -1,6 +1,7 @@
 package model
 
 import (
+	"database/sql/driver"
 	"encoding/json"
 	"errors"
 	"time"
@@ -12,9 +13,9 @@ type Message struct {
 	SenderID  uint64    `gorm:"not null;index" json:"sender_id"`
 	Type      string    `gorm:"size:16;not null" json:"type"` // text / image / system / file
 	Content   string    `gorm:"type:text;not null" json:"content"`
-	Meta      *JSON     `gorm:"type:jsonb" json:"meta,omitempty"` // 额外元数据，如文件名、大小等
+	Meta      *JSON     `gorm:"type:text" json:"meta,omitempty"` // 额外元数据，如文件名、大小等
 	CreatedAt time.Time `json:"created_at"`
-	
+
 	// 关联
 	Sender User `gorm:"foreignKey:SenderID" json:"sender,omitempty"`
 }
@@ -23,10 +24,10 @@ func (Message) TableName() string {
 	return "messages"
 }
 
-// JSON 类型用于 PostgreSQL jsonb
+// JSON is stored as UTF-8 JSON text in the embedded SQLite database.
 type JSON map[string]interface{}
 
-func (j JSON) Value() (interface{}, error) {
+func (j JSON) Value() (driver.Value, error) {
 	if j == nil {
 		return nil, nil
 	}
@@ -38,9 +39,14 @@ func (j *JSON) Scan(value interface{}) error {
 		*j = nil
 		return nil
 	}
-	bytes, ok := value.([]byte)
-	if !ok {
-		return errors.New("type assertion to []byte failed")
+	var bytes []byte
+	switch v := value.(type) {
+	case []byte:
+		bytes = v
+	case string:
+		bytes = []byte(v)
+	default:
+		return errors.New("unsupported JSON database value")
 	}
 	return json.Unmarshal(bytes, j)
 }

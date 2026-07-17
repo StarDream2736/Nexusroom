@@ -122,14 +122,14 @@ func (h *AdminHandler) ListRooms(c *gin.Context) {
 			ownerName = r.Owner.Nickname
 		}
 		list = append(list, gin.H{
-			"id":                r.ID,
-			"name":              r.Name,
-			"room_code":         r.RoomCode,
-			"invite_code":       r.InviteCode,
-			"owner_id":          r.OwnerID,
-			"owner_nickname":    ownerName,
-			"livekit_room_name": r.LiveKitRoomName,
-			"created_at":        r.CreatedAt,
+			"id":              r.ID,
+			"name":            r.Name,
+			"room_code":       r.RoomCode,
+			"invite_code":     r.InviteCode,
+			"owner_id":        r.OwnerID,
+			"owner_nickname":  ownerName,
+			"media_room_name": r.MediaRoomName,
+			"created_at":      r.CreatedAt,
 		})
 	}
 
@@ -162,9 +162,9 @@ func (h *AdminHandler) GetConfig(c *gin.Context) {
 		"server_mode":              h.cfg.Server.Mode,
 		"server_domain":            h.cfg.Server.Domain,
 		"message_retention_days":   h.cfg.Message.RetentionDays,
-		"livekit_url":              h.cfg.LiveKit.URL,
-		"srs_rtmp_port":            h.cfg.SRS.RTMPPort,
-		"srs_http_port":            h.cfg.SRS.HTTPPort,
+		"rtc_udp_port_min":         h.cfg.Media.RTC.UDPPortMin,
+		"rtc_udp_port_max":         h.cfg.Media.RTC.UDPPortMax,
+		"rtmp_port":                h.cfg.Media.RTMP.Port,
 		"wireguard_subnet":         h.cfg.WireGuard.Subnet,
 		"wireguard_gateway_ip":     h.cfg.WireGuard.GatewayIP,
 		"wireguard_listen_port":    h.cfg.WireGuard.ListenPort,

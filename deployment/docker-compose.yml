@@ -1,103 +1,26 @@
 services:
-  server:
+  nexusroom:
     build:
       context: ../server
       dockerfile: Dockerfile
     image: nexusroom-server:latest
-    container_name: nexusroom-server
+    container_name: nexusroom
     ports:
       - "8080:8080"
-      - "8881:8080"        # 网页直播独立入口（不影响旧客户端）
-      - "51820:51820/udp"   # WireGuard
+      - "1935:1935"
+      - "3478:3478/udp"
+      - "50000-50050:50000-50050/udp"
+      - "51000-51100:51000-51100/udp"
+      - "51820:51820/udp"
     volumes:
-      - ./config/server.yaml:/app/config.yaml
+      - ./config/server.yaml:/app/config.yaml:ro
       - ./data:/app/data
-    depends_on:
-      - postgres
-      - redis
-      - livekit
-      - srs
     cap_add:
-      - NET_ADMIN           # WireGuard 需要
-      - SYS_MODULE          # 加载内核模块
+      - NET_ADMIN
     devices:
-      - /dev/net/tun:/dev/net/tun  # TUN 设备访问
+      - /dev/net/tun:/dev/net/tun
     sysctls:
       - net.ipv4.ip_forward=1
       - net.ipv4.conf.all.rp_filter=0
       - net.ipv4.conf.default.rp_filter=0
     restart: unless-stopped
-    networks:
-      - nexusroom-network
-
-  postgres:
-    image: postgres:16-alpine
-    container_name: nexusroom-postgres
-    environment:
-      POSTGRES_DB: nexusroom
-      POSTGRES_USER: nexusroom
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-nexusroom_password}
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    restart: unless-stopped
-    networks:
-      - nexusroom-network
-
-  redis:
-    image: redis:7-alpine
-    container_name: nexusroom-redis
-    volumes:
-      - redisdata:/data
-    restart: unless-stopped
-    networks:
-      - nexusroom-network
-
-  livekit:
-    image: livekit/livekit-server:latest
-    container_name: nexusroom-livekit
-    ports:
-      - "7880:7880"
-      - "7881:7881"
-      - "50000-50050:50000-50050/udp"  # WebRTC UDP 端口范围
-      - "3478:3478/udp"                  # TURN 服务器（ICE 穿透）
-    volumes:
-      - ./config/livekit.yaml:/etc/livekit.yaml
-    command: --config /etc/livekit.yaml
-    restart: unless-stopped
-    networks:
-      - nexusroom-network
-
-  srs:
-    image: registry.cn-hangzhou.aliyuncs.com/ossrs/srs:6
-    container_name: nexusroom-srs
-    ports:
-      - "1935:1935"         # RTMP 推流接收端口
-      - "8883:1935"         # RTMP 推流别名端口（网页直播场景）
-      - "8085:8085"         # HTTP-FLV 拉流端口
-      - "8000:8000/udp"     # SRS WebRTC 媒体 UDP 端口
-    volumes:
-      - ./config/srs.conf:/usr/local/srs/conf/srs.conf
-    command: ./objs/srs -c conf/srs.conf
-    restart: unless-stopped
-    networks:
-      - nexusroom-network
-
-  web-admin:
-    image: nginx:alpine
-    container_name: nexusroom-web-admin
-    ports:
-      - "3000:80"
-    volumes:
-      - ./web-admin:/usr/share/nginx/html:ro
-      - ./config/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-    restart: unless-stopped
-    networks:
-      - nexusroom-network
-
-volumes:
-  pgdata:
-  redisdata:
-
-networks:
-  nexusroom-network:
-    driver: bridge

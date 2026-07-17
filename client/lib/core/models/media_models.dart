@@ -1,25 +1,4 @@
-/// LiveKit Token 响应
-class LiveKitTokenResult {
-  const LiveKitTokenResult({
-    required this.token,
-    required this.url,
-    required this.roomName,
-  });
-
-  final String token;
-  final String url;
-  final String roomName;
-
-  factory LiveKitTokenResult.fromJson(Map<String, dynamic> json) {
-    return LiveKitTokenResult(
-      token: json['token'] as String,
-      url: json['url'] as String,
-      roomName: json['room_name'] as String,
-    );
-  }
-}
-
-/// Ingress 推流入口模型
+/// NexusRoom RTMP publishing endpoint.
 class IngressModel {
   const IngressModel({
     required this.id,

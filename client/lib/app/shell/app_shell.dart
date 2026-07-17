@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -50,7 +49,8 @@ class _AppShellState extends ConsumerState<AppShell> {
       // 刷新房间列表
       ref.invalidate(roomsProvider);
       // 如果当前正在该房间中，导航回首页
-      if (_currentRoomId != null && disbandedRoomId.toString() == _currentRoomId) {
+      if (_currentRoomId != null &&
+          disbandedRoomId.toString() == _currentRoomId) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('房间已被解散')),
@@ -90,17 +90,16 @@ class _AppShellState extends ConsumerState<AppShell> {
 
   void _syncRoom(String location) {
     final roomId = _extractRoomId(location);
-    debugPrint('[AppShell] location=$location  roomId=$roomId  prev=$_currentRoomId');
+    debugPrint(
+        '[AppShell] location=$location  roomId=$roomId  prev=$_currentRoomId');
     if (roomId != _currentRoomId) {
       final oldRoomId = _currentRoomId;
       _currentRoomId = roomId;
 
-      // 离开旧房间时立即发起 LiveKit 断开（fire-and-forget）
-      // disconnect() 是并发安全的：立即清除字段，异步释放旧 Room 对象
-      // 新页面的 connect() 会 await _pendingDisconnect，不会竞态
+      // 离开旧房间时释放 NexusRoom RTC 连接。
       if (oldRoomId != null) {
-        debugPrint('[AppShell] disconnecting LiveKit (leaving room $oldRoomId)');
-        ref.read(livekitServiceProvider).disconnect();
+        debugPrint('[AppShell] disconnecting RTC (leaving room $oldRoomId)');
+        ref.read(rtcServiceProvider).disconnect();
 
         // 同时断开 VLAN 隧道 + 通知服务器移除 peer
         final wgService = ref.read(wireguardServiceProvider);
@@ -161,7 +160,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                     curve: AppTheme.curveMovement,
                     child: KeyedSubtree(
                       key: ValueKey('right_$roomId'),
-                      child: RightPanel(roomId: roomId!),
+                      child: RightPanel(roomId: roomId),
                     ),
                   ),
               ],

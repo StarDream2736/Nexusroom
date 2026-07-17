@@ -1,0 +1,8 @@
+.git
+.cache
+config.yaml
+data
+tmp
+*.exe
+*.test
+coverage

@@ -8,7 +8,7 @@ import 'package:path/path.dart' as p;
 /// FFmpeg-based screen capture and RTMP streaming service.
 ///
 /// Launches an ffmpeg subprocess to capture the desktop and push an RTMP
-/// stream to SRS.  The resulting stream is consumed by other clients through
+/// stream to NexusRoom. The resulting stream is consumed by other clients through
 /// the existing HTTP-FLV pipeline (Go reverse-proxy → media_kit).
 ///
 /// This follows the same "embedded helper binary" pattern used by

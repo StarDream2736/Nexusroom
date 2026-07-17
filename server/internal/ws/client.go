@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	"nexusroom-server/internal/media/voice"
 )
 
 const (
@@ -153,6 +155,16 @@ func (c *Client) HandleMessage(data []byte) {
 		c.handleChatSend(envelope)
 	case EventVoiceMute:
 		c.handleVoiceMute(envelope)
+	case EventRTCOffer:
+		c.handleRTCOffer(envelope)
+	case EventRTCAnswer:
+		c.handleRTCAnswer(envelope)
+	case EventRTCICE:
+		c.handleRTCICE(envelope)
+	case EventRTCLeave:
+		c.handleRTCLeave(envelope)
+	case EventRTCSpeaking:
+		c.handleRTCSpeaking(envelope)
 	default:
 		log.Printf("Unknown event type: %s", envelope.Event)
 	}
@@ -219,6 +231,9 @@ func (c *Client) handleRoomLeave(env Envelope) {
 	}
 
 	c.LeaveRoom(roomID)
+	if c.Hub.voiceEngine != nil {
+		c.Hub.voiceEngine.Leave(roomID, c.UserID)
+	}
 
 	// 广播成员离开事件
 	c.Hub.BroadcastToRoom(roomID, EventRoomMemberLeave, RoomMemberLeavePayload{
@@ -260,6 +275,9 @@ func (c *Client) handleVoiceMute(env Envelope) {
 		log.Printf("[WS] User %d voice.mute for room %d but not in room", c.UserID, roomID)
 		return
 	}
+	if c.Hub.voiceEngine != nil {
+		c.Hub.voiceEngine.SetMuted(roomID, c.UserID, p.Muted)
+	}
 
 	// 广播语音状态变更
 	c.Hub.BroadcastToRoom(roomID, EventVoiceStateUpdate, VoiceStateUpdatePayload{
@@ -267,6 +285,72 @@ func (c *Client) handleVoiceMute(env Envelope) {
 		RoomID: roomID,
 		Muted:  p.Muted,
 	}, 0) // 0 表示广播给所有人，包括自己
+}
+
+func (c *Client) handleRTCOffer(env Envelope) {
+	roomID := env.RoomID
+	if roomID == 0 || !c.IsInRoom(roomID) || !c.Hub.roomRepo.IsMember(roomID, c.UserID) {
+		c.SendEventToRoom(EventRTCError, map[string]string{"message": "not a room member"}, roomID)
+		return
+	}
+	if c.Hub.voiceEngine == nil {
+		c.SendEventToRoom(EventRTCError, map[string]string{"message": "RTC engine unavailable"}, roomID)
+		return
+	}
+	description, err := voice.DecodeDescription(env.Payload)
+	if err != nil {
+		c.SendEventToRoom(EventRTCError, map[string]string{"message": "invalid RTC offer"}, roomID)
+		return
+	}
+	if err := c.Hub.voiceEngine.HandleOffer(roomID, c.UserID, description); err != nil {
+		log.Printf("[RTC] offer user=%d room=%d: %v", c.UserID, roomID, err)
+		c.SendEventToRoom(EventRTCError, map[string]string{"message": err.Error()}, roomID)
+	}
+}
+
+func (c *Client) handleRTCAnswer(env Envelope) {
+	if c.Hub.voiceEngine == nil {
+		return
+	}
+	description, err := voice.DecodeDescription(env.Payload)
+	if err != nil {
+		return
+	}
+	if err := c.Hub.voiceEngine.HandleAnswer(env.RoomID, c.UserID, description); err != nil {
+		log.Printf("[RTC] answer user=%d room=%d: %v", c.UserID, env.RoomID, err)
+	}
+}
+
+func (c *Client) handleRTCICE(env Envelope) {
+	if c.Hub.voiceEngine == nil {
+		return
+	}
+	candidate, err := voice.DecodeCandidate(env.Payload)
+	if err != nil {
+		return
+	}
+	if err := c.Hub.voiceEngine.AddICECandidate(env.RoomID, c.UserID, candidate); err != nil {
+		log.Printf("[RTC] candidate user=%d room=%d: %v", c.UserID, env.RoomID, err)
+	}
+}
+
+func (c *Client) handleRTCLeave(env Envelope) {
+	if c.Hub.voiceEngine != nil {
+		c.Hub.voiceEngine.Leave(env.RoomID, c.UserID)
+	}
+}
+
+func (c *Client) handleRTCSpeaking(env Envelope) {
+	if c.Hub.voiceEngine == nil {
+		return
+	}
+	var payload struct {
+		Speaking bool `json:"speaking"`
+	}
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		return
+	}
+	c.Hub.voiceEngine.SetSpeaking(env.RoomID, c.UserID, payload.Speaking)
 }
 
 // closeSend 安全关闭 Send channel，防止 double-close panic

@@ -1,16 +1,12 @@
 package handler
 
 import (
-	"fmt"
-	"net"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
 
-	"nexusroom-server/internal/config"
 	"nexusroom-server/internal/model"
 	"nexusroom-server/internal/repository"
 	"nexusroom-server/internal/ws"
@@ -22,17 +18,15 @@ type RoomHandler struct {
 	userRepo    *repository.UserRepository
 	ingressRepo *repository.IngressRepository
 	hub         *ws.Hub
-	cfg         *config.Config
 }
 
 func NewRoomHandler(roomRepo *repository.RoomRepository, userRepo *repository.UserRepository,
-	ingressRepo *repository.IngressRepository, hub *ws.Hub, cfg *config.Config) *RoomHandler {
+	ingressRepo *repository.IngressRepository, hub *ws.Hub) *RoomHandler {
 	return &RoomHandler{
 		roomRepo:    roomRepo,
 		userRepo:    userRepo,
 		ingressRepo: ingressRepo,
 		hub:         hub,
-		cfg:         cfg,
 	}
 }
 
@@ -49,15 +43,14 @@ type JoinRoomRequest struct {
 }
 
 type RoomResponse struct {
-	ID              uint64            `json:"id"`
-	Name            string            `json:"name"`
-	RoomCode        string            `json:"room_code"`
-	InviteCode      string            `json:"invite_code"`
-	OwnerID         uint64            `json:"owner_id"`
-	LiveKitRoomName string            `json:"livekit_room_name"`
-	Members         []MemberResponse  `json:"members"`
-	Ingresses       []IngressResponse `json:"ingresses"`
-	LiveKitUrl      string            `json:"livekit_url"`
+	ID            uint64            `json:"id"`
+	Name          string            `json:"name"`
+	RoomCode      string            `json:"room_code"`
+	InviteCode    string            `json:"invite_code"`
+	OwnerID       uint64            `json:"owner_id"`
+	MediaRoomName string            `json:"media_room_name"`
+	Members       []MemberResponse  `json:"members"`
+	Ingresses     []IngressResponse `json:"ingresses"`
 }
 
 type MemberResponse struct {
@@ -108,11 +101,11 @@ func (h *RoomHandler) Create(c *gin.Context) {
 	}
 
 	util.Success(c, gin.H{
-		"id":                room.ID,
-		"name":              room.Name,
-		"room_code":         room.RoomCode,
-		"invite_code":       room.InviteCode,
-		"livekit_room_name": room.LiveKitRoomName,
+		"id":              room.ID,
+		"name":            room.Name,
+		"room_code":       room.RoomCode,
+		"invite_code":     room.InviteCode,
+		"media_room_name": room.MediaRoomName,
 	})
 }
 
@@ -150,11 +143,11 @@ func (h *RoomHandler) Join(c *gin.Context) {
 	}
 
 	util.Success(c, gin.H{
-		"id":                room.ID,
-		"name":              room.Name,
-		"room_code":         room.RoomCode,
-		"invite_code":       room.InviteCode,
-		"livekit_room_name": room.LiveKitRoomName,
+		"id":              room.ID,
+		"name":            room.Name,
+		"room_code":       room.RoomCode,
+		"invite_code":     room.InviteCode,
+		"media_room_name": room.MediaRoomName,
 	})
 }
 
@@ -204,46 +197,15 @@ func (h *RoomHandler) GetDetail(c *gin.Context) {
 		})
 	}
 
-	// 构建客户端应该连接的 LiveKit URL
-	// 优先使用 config 中配置的 public_url（排除 localhost/127.0.0.1）
-	var liveKitUrl string
-	publicURL := h.cfg.LiveKit.PublicURL
-	if publicURL != "" &&
-		!strings.Contains(publicURL, "localhost") &&
-		!strings.Contains(publicURL, "127.0.0.1") &&
-		!strings.Contains(publicURL, "livekit:") {
-		// config 中设置了有效的公网 URL，直接使用
-		liveKitUrl = publicURL
-	} else {
-		// 自动推导：从请求 Host 头提取 IP，使用 LiveKit 默认端口 7880
-		host := c.GetHeader("X-Forwarded-Host")
-		if host == "" {
-			host = c.Request.Host
-		}
-		// 剥离端口（API 服务器的 8080 等），只保留 IP/域名
-		hostOnly, _, err := net.SplitHostPort(host)
-		if err != nil {
-			// 本身没有端口，直接使用
-			hostOnly = host
-		}
-		scheme := c.GetHeader("X-Forwarded-Proto")
-		if scheme == "https" {
-			liveKitUrl = fmt.Sprintf("wss://%s:7880", hostOnly)
-		} else {
-			liveKitUrl = fmt.Sprintf("ws://%s:7880", hostOnly)
-		}
-	}
-
 	util.Success(c, RoomResponse{
-		ID:              room.ID,
-		Name:            room.Name,
-		RoomCode:        room.RoomCode,
-		InviteCode:      room.InviteCode,
-		OwnerID:         room.OwnerID,
-		LiveKitRoomName: room.LiveKitRoomName,
-		Members:         members,
-		Ingresses:       ingressList,
-		LiveKitUrl:      liveKitUrl,
+		ID:            room.ID,
+		Name:          room.Name,
+		RoomCode:      room.RoomCode,
+		InviteCode:    room.InviteCode,
+		OwnerID:       room.OwnerID,
+		MediaRoomName: room.MediaRoomName,
+		Members:       members,
+		Ingresses:     ingressList,
 	})
 }
 
@@ -259,12 +221,12 @@ func (h *RoomHandler) List(c *gin.Context) {
 	result := make([]gin.H, 0, len(rooms))
 	for _, room := range rooms {
 		result = append(result, gin.H{
-			"id":                room.ID,
-			"name":              room.Name,
-			"room_code":         room.RoomCode,
-			"invite_code":       room.InviteCode,
-			"owner_id":          room.OwnerID,
-			"livekit_room_name": room.LiveKitRoomName,
+			"id":              room.ID,
+			"name":            room.Name,
+			"room_code":       room.RoomCode,
+			"invite_code":     room.InviteCode,
+			"owner_id":        room.OwnerID,
+			"media_room_name": room.MediaRoomName,
 		})
 	}
 

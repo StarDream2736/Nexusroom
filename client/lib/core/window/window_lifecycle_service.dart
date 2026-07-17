@@ -4,13 +4,11 @@ import 'dart:ui';
 import 'package:window_manager/window_manager.dart';
 
 import '../native/screen_capture_service.dart';
-import '../network/livekit_service.dart';
 
 /// 窗口生命周期管理：最小化/失焦时暂停视频解码
 class WindowLifecycleService with WindowListener {
-  WindowLifecycleService(this._livekitService, this._screenCaptureService);
+  WindowLifecycleService(this._screenCaptureService);
 
-  final LiveKitService _livekitService;
   final ScreenCaptureService _screenCaptureService;
   bool _isBackground = false;
   bool _initialized = false;
@@ -75,15 +73,10 @@ class WindowLifecycleService with WindowListener {
   void _enterBackground() {
     if (_isBackground) return;
     _isBackground = true;
-    // 暂停所有视频轨道解码，音频不受影响
-    _livekitService.disableAllVideoTracks();
   }
 
   void _enterForeground() {
     if (!_isBackground) return;
     _isBackground = false;
-    // 仅恢复当前主视窗正在显示的视频轨道
-    // enableAllVideoTracks 在 LiveKitService 内部仅恢复已订阅的轨道
-    _livekitService.enableAllVideoTracks();
   }
 }

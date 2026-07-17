@@ -1,59 +1,68 @@
-# 通用
+# Operating system and editor metadata
 .DS_Store
 Thumbs.db
-*.log
-*.swp
-*.swo
-*~
-.metadata
-
-# IDE
+Desktop.ini
 .idea/
 .vscode/
 *.iml
+*.swp
+*.swo
+*~
 
-# 环境配置
+# Logs, temporary files, coverage, and local caches
+*.log
+*.tmp
+*.temp
+*.bak
+*.orig
+coverage/
+coverage.out
+*.test
+.cache/
+
+# Local configuration, secrets, and runtime state
 .env
+.env.*
+!.env.example
 config.yaml
 !config.yaml.template
-
-# 数据目录
+*.sqlite
+*.sqlite3
+*.db
 /data/
 uploads/
-*.sqlite
-*.db
+deployment/config/server.yaml
+deployment/data/
 
-# Docker 镜像
+# Docker image archives and local exports
 *.tar
+*.tar.gz
+*.tgz
 
-# 服务端
+# Go server build outputs
 server/nexusroom-server
-server/*.exe
+server/nexusroom-server.exe
+server/server
+server/server.exe
 server/tmp/
 
-# 客户端
+# Flutter and Dart generated files
 client/.dart_tool/
 client/.packages
+client/.pub-cache/
 client/build/
-client/pubspec.lock
 client/.flutter-plugins
 client/.flutter-plugins-dependencies
+client/windows/flutter/ephemeral/
 client/*.log
+
+# Local client binary dependencies
 client/tools/*.exe
 
-# Web 管理后台
+# Optional web administration build outputs
 web-admin/node_modules/
 web-admin/dist/
 web-admin/.env.local
-
-# 部署运行时文件（模板与静态配置仍受 Git 跟踪）
-deployment/.env
-deployment/config/server.yaml
-deployment/config/livekit.yaml
-deployment/config/srs.conf
-deployment/data/
-deployment/web-admin/
-
-# 测试
-coverage/
-*.test
+deployment/web-admin/node_modules/
+deployment/web-admin/dist/
+deployment/web-admin/.env.local

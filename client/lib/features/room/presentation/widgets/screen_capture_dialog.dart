@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../app/theme/app_colors.dart';
 import '../../../../app/theme/app_typography.dart';
 import '../../../../app/widgets/glass_container.dart';
-import '../../../../core/models/livekit_models.dart';
+import '../../../../core/models/media_models.dart';
 import '../../../../core/native/screen_capture_service.dart';
 import '../../../../core/native/screen_source_enumerator.dart';
 import '../../../../core/providers/app_providers.dart';

@@ -4,8 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
-/// 独立的直播流播放器，通过 HTTP-FLV 从 SRS 拉流。
-/// 与语音房间的 LiveKitService 完全隔离。
+/// 独立的直播流播放器，通过 NexusRoom 内建 HTTP-FLV 拉流。
+/// 与语音房间的 RtcService 完全隔离。
 class StreamPlayer {
   Player? _player;
   VideoController? _videoController;

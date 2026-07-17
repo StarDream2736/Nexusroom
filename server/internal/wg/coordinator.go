@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -49,14 +50,8 @@ func (c *Coordinator) InitInterface() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Auto-generate server private key if empty
-	if c.cfg.ServerPrivateKey == "" {
-		key, err := wgtypes.GeneratePrivateKey()
-		if err != nil {
-			return fmt.Errorf("failed to generate server private key: %w", err)
-		}
-		c.cfg.ServerPrivateKey = key.String()
-		log.Printf("[WG] Auto-generated server private key (public: %s)", key.PublicKey().String())
+	if err := c.loadOrCreatePrivateKey(); err != nil {
+		return err
 	}
 
 	// Create the WireGuard interface.
@@ -165,6 +160,39 @@ func (c *Coordinator) InitInterface() error {
 		log.Printf("[WG] Warning: failed to reload peers: %v", err)
 	}
 
+	return nil
+}
+
+func (c *Coordinator) loadOrCreatePrivateKey() error {
+	if strings.TrimSpace(c.cfg.ServerPrivateKey) != "" {
+		return nil
+	}
+	keyPath := strings.TrimSpace(c.cfg.PrivateKeyPath)
+	if keyPath == "" {
+		keyPath = "./data/wireguard.key"
+	}
+	if data, err := os.ReadFile(keyPath); err == nil {
+		keyText := strings.TrimSpace(string(data))
+		if _, parseErr := wgtypes.ParseKey(keyText); parseErr != nil {
+			return fmt.Errorf("invalid persisted WireGuard private key: %w", parseErr)
+		}
+		c.cfg.ServerPrivateKey = keyText
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("read WireGuard private key: %w", err)
+	}
+	key, err := wgtypes.GeneratePrivateKey()
+	if err != nil {
+		return fmt.Errorf("generate WireGuard private key: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(keyPath), 0700); err != nil {
+		return fmt.Errorf("create WireGuard key directory: %w", err)
+	}
+	if err := os.WriteFile(keyPath, []byte(key.String()+"\n"), 0600); err != nil {
+		return fmt.Errorf("persist WireGuard private key: %w", err)
+	}
+	c.cfg.ServerPrivateKey = key.String()
+	log.Printf("[WG] Generated persistent server key (public: %s)", key.PublicKey().String())
 	return nil
 }
 

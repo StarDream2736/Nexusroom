@@ -1,29 +1,40 @@
-# Deployment
+# NexusRoom deployment
 
-本目录只负责安装和运行 NexusRoom 服务端栈，不存放客户端或服务端业务源码。
+NexusRoom now runs as one server process. SQLite, WebSocket signaling, the voice SFU, RTMP ingest, HTTP-FLV/WebRTC playback, TURN, embedded web pages, and WireGuard coordination are all first-party modules in the same binary.
 
-## 目录
+No PostgreSQL, Redis, nginx, LiveKit server, or SRS server is required.
 
-```text
-deployment/
-├── docker-compose.yml
-├── scripts/install.sh
-├── templates/              # server、LiveKit、SRS 配置模板
-├── config/                 # 安装后生成的运行配置
-├── data/                   # 服务运行数据
-└── web-admin/              # 可选 Web 管理后台静态文件
-```
-
-`config/server.yaml`、`config/livekit.yaml`、`config/srs.conf`、`.env` 和 `data/` 均为本机运行状态，已被 Git 忽略。`config/nginx.conf` 是可提交的静态配置。
-
-## 一键安装
+## Docker deployment
 
 ```bash
 cd deployment
-chmod +x scripts/install.sh
+chmod +x scripts/*.sh
 ./scripts/install.sh
 ```
 
-脚本可以从仓库任意工作目录调用，并兼容 `docker compose` 与旧版 `docker-compose`。
+The installer creates `config/server.yaml`, persists application state below `data/`, builds the local server source, and starts one `nexusroom` container.
 
-已有本地配置在本次目录整理中已迁移到 `config/`，安装脚本不会覆盖已有文件。
+## Direct Linux deployment
+
+Install Go 1.25+, GCC, WireGuard tools, iproute2, and iptables first. Then run:
+
+```bash
+cd deployment
+chmod +x scripts/*.sh
+sudo ./scripts/install-direct.sh
+```
+
+The direct installer builds the same source, installs `/usr/local/bin/nexusroom`, writes `/etc/nexusroom/config.yaml`, stores state in `/var/lib/nexusroom`, and enables `nexusroom.service`.
+
+## Network ports
+
+| Port | Purpose |
+| --- | --- |
+| `8080/tcp` | API, WebSocket, embedded web player, HTTP-FLV |
+| `1935/tcp` | RTMP ingest |
+| `3478/udp` | STUN/TURN |
+| `50000-50050/udp` | direct WebRTC media |
+| `51000-51100/udp` | TURN relay allocation |
+| `51820/udp` | WireGuard |
+
+Keep `config/server.yaml` private because it contains JWT, administrator, and TURN credentials. Back up `data/nexusroom.db` and `data/uploads/`.

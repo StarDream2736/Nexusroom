@@ -1,5 +1,5 @@
 import '../../../core/models/room_models.dart';
-import '../../../core/models/livekit_models.dart';
+import '../../../core/models/media_models.dart';
 import '../../../core/network/api_client.dart';
 
 class RoomRepository {
@@ -38,13 +38,6 @@ class RoomRepository {
     await _client.patchData('/api/v1/rooms/$roomId', body: {
       'name': name,
     });
-  }
-
-  /// 获取 LiveKit Token（语音房间）
-  Future<LiveKitTokenResult> getLiveKitToken(int roomId) async {
-    final data =
-        await _client.postData('/api/v1/rooms/$roomId/livekit-token');
-    return LiveKitTokenResult.fromJson(data as Map<String, dynamic>);
   }
 
   /// 获取 Ingress 列表

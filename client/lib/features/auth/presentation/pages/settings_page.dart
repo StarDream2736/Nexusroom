@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:livekit_client/livekit_client.dart' show Hardware, MediaDevice;
+import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 
@@ -31,8 +31,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   String? _userDisplayId;
 
   // 音频设备
-  List<MediaDevice> _audioInputs = [];
-  List<MediaDevice> _audioOutputs = [];
+  List<MediaDeviceInfo> _audioInputs = [];
+  List<MediaDeviceInfo> _audioOutputs = [];
   String? _selectedAudioInputId;
   String? _selectedAudioOutputId;
 
@@ -45,8 +45,11 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
   Future<void> _loadAudioDevices() async {
     try {
-      final inputs = await Hardware.instance.enumerateDevices(type: 'audioinput');
-      final outputs = await Hardware.instance.enumerateDevices(type: 'audiooutput');
+      final devices = await navigator.mediaDevices.enumerateDevices();
+      final inputs =
+          devices.where((device) => device.kind == 'audioinput').toList();
+      final outputs =
+          devices.where((device) => device.kind == 'audiooutput').toList();
       if (!mounted) return;
 
       // 从持久化设置中恢复上次选择
@@ -61,31 +64,23 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         if (_audioInputs.isNotEmpty) {
           final hasMatch = savedInputId != null &&
               _audioInputs.any((d) => d.deviceId == savedInputId);
-          _selectedAudioInputId = hasMatch
-              ? savedInputId
-              : _audioInputs.first.deviceId;
+          _selectedAudioInputId =
+              hasMatch ? savedInputId : _audioInputs.first.deviceId;
         }
         if (_audioOutputs.isNotEmpty) {
           final hasMatch = savedOutputId != null &&
               _audioOutputs.any((d) => d.deviceId == savedOutputId);
-          _selectedAudioOutputId = hasMatch
-              ? savedOutputId
-              : _audioOutputs.first.deviceId;
+          _selectedAudioOutputId =
+              hasMatch ? savedOutputId : _audioOutputs.first.deviceId;
         }
       });
 
       // 应用已保存的设备选择
       if (_selectedAudioInputId != null) {
-        final device = _audioInputs.firstWhere(
-          (d) => d.deviceId == _selectedAudioInputId,
-        );
-        Hardware.instance.selectAudioInput(device);
+        await Helper.selectAudioInput(_selectedAudioInputId!);
       }
       if (_selectedAudioOutputId != null) {
-        final device = _audioOutputs.firstWhere(
-          (d) => d.deviceId == _selectedAudioOutputId,
-        );
-        Hardware.instance.selectAudioOutput(device);
+        await Helper.selectAudioOutput(_selectedAudioOutputId!);
       }
     } catch (_) {}
   }
@@ -139,7 +134,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       final formData = FormData.fromMap({
         'file': await MultipartFile.fromFile(image.path),
       });
-      final data = await apiClient.postForm('/api/v1/users/me/avatar', formData);
+      final data =
+          await apiClient.postForm('/api/v1/users/me/avatar', formData);
       final baseUrl = ref.read(appSettingsProvider).valueOrNull?.serverUrl;
       final avatarUrl = _resolveUrl(
         baseUrl,
@@ -186,8 +182,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     );
     if (confirmed != true || !mounted) return;
 
-    // 断开 LiveKit 语音连接
-    ref.read(livekitServiceProvider).disconnect();
+    // 断开 NexusRoom RTC 语音连接
+    ref.read(rtcServiceProvider).disconnect();
     // 清除所有本地消息缓存（跳服务器了，全清）
     await ref.read(appDatabaseProvider).messagesDao.clearAll();
     // 清除房间列表缓存
@@ -214,12 +210,15 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     );
     if (confirmed != true || !mounted) return;
 
-    // 断开 LiveKit 语音连接
-    ref.read(livekitServiceProvider).disconnect();
+    // 断开 NexusRoom RTC 语音连接
+    ref.read(rtcServiceProvider).disconnect();
     // 清除当前服务器的本地消息缓存
     final serverUrl = ref.read(appSettingsProvider).valueOrNull?.serverUrl;
     if (serverUrl != null && serverUrl.isNotEmpty) {
-      await ref.read(appDatabaseProvider).messagesDao.clearByServerUrl(serverUrl);
+      await ref
+          .read(appDatabaseProvider)
+          .messagesDao
+          .clearByServerUrl(serverUrl);
     }
     // 清状态，GoRouter redirect 会自动导航到 /login
     await ref.read(appSettingsProvider.notifier).clearAuth();
@@ -340,7 +339,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                         fontSize: AppTypography.sizeCaption,
                         color: AppColors.textMuted)),
               const SizedBox(height: 16),
-
               TextField(
                 controller: _nicknameController,
                 decoration: InputDecoration(
@@ -366,55 +364,56 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 children: [
                   Icon(Icons.headset, size: 18, color: AppColors.textSecondary),
                   const SizedBox(width: 8),
-                  Text('音频设置', style: TextStyle(
-                    fontSize: AppTypography.sizeBody,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textPrimary,
-                  )),
+                  Text('音频设置',
+                      style: TextStyle(
+                        fontSize: AppTypography.sizeBody,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
+                      )),
                 ],
               ),
               const SizedBox(height: 16),
               // 麦克风
-              Text('麦克风', style: TextStyle(
-                fontSize: AppTypography.sizeCaption,
-                color: AppColors.textMuted,
-              )),
+              Text('麦克风',
+                  style: TextStyle(
+                    fontSize: AppTypography.sizeCaption,
+                    color: AppColors.textMuted,
+                  )),
               const SizedBox(height: 4),
               _buildAudioDropdown(
                 devices: _audioInputs,
                 selectedId: _selectedAudioInputId,
                 onChanged: (deviceId) {
                   setState(() => _selectedAudioInputId = deviceId);
-                  final device = _audioInputs.firstWhere(
-                    (d) => d.deviceId == deviceId,
-                    orElse: () => _audioInputs.first,
-                  );
-                  Hardware.instance.selectAudioInput(device);
                   if (deviceId != null) {
-                    ref.read(appSettingsProvider.notifier)
+                    Helper.selectAudioInput(deviceId);
+                  }
+                  if (deviceId != null) {
+                    ref
+                        .read(appSettingsProvider.notifier)
                         .setAudioInputDeviceId(deviceId);
                   }
                 },
               ),
               const SizedBox(height: 12),
               // 扬声器
-              Text('扬声器', style: TextStyle(
-                fontSize: AppTypography.sizeCaption,
-                color: AppColors.textMuted,
-              )),
+              Text('扬声器',
+                  style: TextStyle(
+                    fontSize: AppTypography.sizeCaption,
+                    color: AppColors.textMuted,
+                  )),
               const SizedBox(height: 4),
               _buildAudioDropdown(
                 devices: _audioOutputs,
                 selectedId: _selectedAudioOutputId,
                 onChanged: (deviceId) {
                   setState(() => _selectedAudioOutputId = deviceId);
-                  final device = _audioOutputs.firstWhere(
-                    (d) => d.deviceId == deviceId,
-                    orElse: () => _audioOutputs.first,
-                  );
-                  Hardware.instance.selectAudioOutput(device);
                   if (deviceId != null) {
-                    ref.read(appSettingsProvider.notifier)
+                    Helper.selectAudioOutput(deviceId);
+                  }
+                  if (deviceId != null) {
+                    ref
+                        .read(appSettingsProvider.notifier)
                         .setAudioOutputDeviceId(deviceId);
                   }
                 },
@@ -464,15 +463,16 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   }
 
   Widget _buildAudioDropdown({
-    required List<MediaDevice> devices,
+    required List<MediaDeviceInfo> devices,
     required String? selectedId,
     required ValueChanged<String?> onChanged,
   }) {
     if (devices.isEmpty) {
-      return Text('未检测到设备', style: TextStyle(
-        fontSize: AppTypography.sizeCaption,
-        color: AppColors.textMuted,
-      ));
+      return Text('未检测到设备',
+          style: TextStyle(
+            fontSize: AppTypography.sizeCaption,
+            color: AppColors.textMuted,
+          ));
     }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -552,8 +552,7 @@ class _SettingsTileState extends State<_SettingsTile> {
                       color: AppColors.textMuted))
               : null,
           trailing: widget.onTap != null
-              ? Icon(Icons.chevron_right,
-                  size: 16, color: AppColors.textMuted)
+              ? Icon(Icons.chevron_right, size: 16, color: AppColors.textMuted)
               : null,
           onTap: widget.onTap,
         ),

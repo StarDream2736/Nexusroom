@@ -1,7 +1,9 @@
 package api
 
 import (
+	"io/fs"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -9,12 +11,14 @@ import (
 	"nexusroom-server/internal/api/handler"
 	"nexusroom-server/internal/api/middleware"
 	"nexusroom-server/internal/config"
+	"nexusroom-server/internal/media/rtcplay"
+	mediastream "nexusroom-server/internal/media/stream"
 	"nexusroom-server/internal/repository"
-	"nexusroom-server/internal/service"
 	"nexusroom-server/internal/wg"
 	"nexusroom-server/internal/ws"
 	"nexusroom-server/pkg/jwt"
 	"nexusroom-server/pkg/util"
+	webassets "nexusroom-server/web"
 )
 
 var upgrader = websocket.Upgrader{
@@ -34,38 +38,36 @@ func SetupRouter(
 	friendRepo *repository.FriendshipRepository,
 	wgCoordinator *wg.Coordinator,
 	hub *ws.Hub,
+	streams *mediastream.Registry,
+	playbackEngine *rtcplay.Engine,
 ) *gin.Engine {
 	router := gin.Default()
 
 	// 中间件
 	router.Use(middleware.CORSMiddleware())
 
-	// 服务初始化
-	livekitSvc := service.NewLiveKitService()
-
 	// Handler 初始化
 	authHandler := handler.NewAuthHandler(userRepo)
 	userHandler := handler.NewUserHandler(userRepo, cfg)
-	roomHandler := handler.NewRoomHandler(roomRepo, userRepo, ingressRepo, hub, cfg)
+	roomHandler := handler.NewRoomHandler(roomRepo, userRepo, ingressRepo, hub)
 	msgHandler := handler.NewMessageHandler(msgRepo, roomRepo)
-	livekitHandler := handler.NewLiveKitHandler(roomRepo, userRepo, livekitSvc, cfg)
-	ingressHandler := handler.NewIngressHandler(roomRepo, ingressRepo, cfg, hub)
+	ingressHandler := handler.NewIngressHandler(roomRepo, ingressRepo, cfg, hub, streams)
 	fileHandler := handler.NewFileHandler(cfg, roomRepo)
 	adminHandler := handler.NewAdminHandler(userRepo, roomRepo, msgRepo, hub, cfg)
 	friendHandler := handler.NewFriendHandler(friendRepo, userRepo, roomRepo, hub)
-	webhookHandler := handler.NewWebhookHandler(msgRepo, roomRepo, ingressRepo, hub, cfg)
+	webhookHandler := handler.NewWebhookHandler(msgRepo, roomRepo, hub, cfg)
 	vlanHandler := handler.NewVLANHandler(roomRepo, userRepo, wgCoordinator, hub)
-	webPublicHandler := handler.NewWebPublicHandler(ingressRepo, cfg)
+	webPublicHandler := handler.NewWebPublicHandler(ingressRepo, streams, playbackEngine)
 
 	// 健康检查
 	router.GET("/ping", func(c *gin.Context) {
-		util.Success(c, gin.H{"status": "ok", "version": "1.4.0"})
+		util.Success(c, gin.H{"status": "ok", "version": "2.0.0"})
 	})
 
 	// 静态文件（头像等公开资源）
 	router.Use(func(c *gin.Context) {
 		path := c.Request.URL.Path
-		if path == "/" || path == "/index.html" || path == "/player.html" || path == "/srs.sdk.js" || path == "/mpegts.min.js" {
+		if path == "/" || path == "/index.html" || path == "/player.html" || path == "/nexusroom-rtc.js" || path == "/mpegts.min.js" {
 			c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 			c.Header("Pragma", "no-cache")
 			c.Header("Expires", "0")
@@ -74,13 +76,15 @@ func SetupRouter(
 	})
 
 	router.Static("/uploads", cfg.Storage.Path)
-	router.GET("/", func(c *gin.Context) {
-		c.File("./web/index.html")
-	})
-	router.StaticFile("/index.html", "./web/index.html")
-	router.StaticFile("/player.html", "./web/player.html")
-	router.StaticFile("/srs.sdk.js", "./web/srs.sdk.js")
-	router.StaticFile("/mpegts.min.js", "./web/mpegts.min.js")
+	publicFS, err := fs.Sub(webassets.FS, ".")
+	if err != nil {
+		panic(err)
+	}
+	router.GET("/", serveEmbeddedFile(publicFS, "index.html"))
+	router.GET("/index.html", serveEmbeddedFile(publicFS, "index.html"))
+	router.GET("/player.html", serveEmbeddedFile(publicFS, "player.html"))
+	router.GET("/nexusroom-rtc.js", serveEmbeddedFile(publicFS, "nexusroom-rtc.js"))
+	router.GET("/mpegts.min.js", serveEmbeddedFile(publicFS, "mpegts.min.js"))
 
 	// API v1 路由组
 	apiV1 := router.Group("/api/v1")
@@ -126,9 +130,6 @@ func SetupRouter(
 				// 消息
 				rooms.GET("/:roomId/messages", msgHandler.GetMessages)
 
-				// LiveKit Token
-				rooms.POST("/:roomId/livekit-token", livekitHandler.GenerateToken)
-
 				// Ingress 管理
 				rooms.POST("/:roomId/ingresses", ingressHandler.Create)
 				rooms.GET("/:roomId/ingresses", ingressHandler.List)
@@ -172,15 +173,12 @@ func SetupRouter(
 		// QQ 机器人 Webhook
 		apiV1.POST("/webhook/qq", webhookHandler.QQWebhook)
 
-		// SRS 推流状态回调（SRS HTTP Hooks）
-		apiV1.POST("/webhook/srs", webhookHandler.SRSWebhook)
-
 		// HTTP-FLV 直播流代理（公开，无需认证）
 		apiV1.GET("/stream/:streamKey", ingressHandler.ProxyStream)
 
 		// 网页直播（独立于客户端业务流程）
 		apiV1.GET("/web/rooms/live", webPublicHandler.ListLiveRooms)
-		apiV1.POST("/web/rtc/play", webPublicHandler.RTCPlayProxy)
+		apiV1.POST("/web/rtc/play", webPublicHandler.RTCPlay)
 	}
 
 	// WebSocket 路由
@@ -211,4 +209,22 @@ func SetupRouter(
 	})
 
 	return router
+}
+
+func serveEmbeddedFile(files fs.FS, name string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		data, err := fs.ReadFile(files, name)
+		if err != nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		contentType := "application/octet-stream"
+		switch {
+		case strings.HasSuffix(name, ".html"):
+			contentType = "text/html; charset=utf-8"
+		case strings.HasSuffix(name, ".js"):
+			contentType = "application/javascript; charset=utf-8"
+		}
+		c.Data(http.StatusOK, contentType, data)
+	}
 }

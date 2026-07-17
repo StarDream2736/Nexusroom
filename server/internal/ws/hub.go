@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"nexusroom-server/internal/media/voice"
 	"nexusroom-server/internal/model"
 	"nexusroom-server/internal/repository"
 	"nexusroom-server/internal/wg"
@@ -24,6 +25,8 @@ type Hub struct {
 	roomRepo      *repository.RoomRepository
 	userRepo      *repository.UserRepository
 	wgCoordinator *wg.Coordinator // VLAN peer 清理
+	voiceEngine   *voice.Engine
+	rtcConfig     RTCClientConfig
 
 	// 短暂断线重连期间，延迟执行 VLAN peer 清理，避免误删
 	wgCleanupDelay time.Duration
@@ -54,6 +57,23 @@ func (h *Hub) SetWGCoordinator(c *wg.Coordinator) {
 	h.wgCoordinator = c
 }
 
+func (h *Hub) SetVoiceEngine(engine *voice.Engine) {
+	h.voiceEngine = engine
+}
+
+func (h *Hub) SetRTCClientConfig(config RTCClientConfig) {
+	h.rtcConfig = config
+}
+
+func (h *Hub) SendMediaSignal(userID, roomID uint64, event string, payload any) {
+	h.mu.RLock()
+	client := h.Clients[userID]
+	h.mu.RUnlock()
+	if client != nil {
+		client.SendEventToRoom(MessageType(event), payload, roomID)
+	}
+}
+
 func (h *Hub) Run() {
 	for {
 		select {
@@ -65,12 +85,16 @@ func (h *Hub) Run() {
 			// 发送连接成功事件
 			client.SendEvent(EventConnected, ConnectedPayload{
 				UserID:        client.UserID,
-				ServerVersion: "1.3.1",
+				ServerVersion: "2.0.0",
+				RTC:           h.rtcConfig,
 			})
 
 			log.Printf("User %d connected", client.UserID)
 
 		case client := <-h.Unregister:
+			if h.voiceEngine != nil {
+				h.voiceEngine.LeaveUser(client.UserID)
+			}
 			// 收集需要通知的房间，在释放写锁后再广播，
 			// 避免在持有 mu.Lock 的同时调用 BroadcastToRoom（发送到 h.Broadcast channel），
 			// 因为 Hub.Run() 是唯一读取 h.Broadcast 的 goroutine，会导致自死锁。

@@ -29,6 +29,7 @@ class WsService {
   Timer? _connectTimeoutTimer; // 连接超时看门狗
   String? _serverUrl;
   String? _token;
+  List<Map<String, dynamic>> _rtcIceServers = const [];
   bool _shouldReconnect = false;
 
   int _reconnectAttempts = 0;
@@ -45,6 +46,9 @@ class WsService {
   final _stateController = StreamController<WsConnectionState>.broadcast();
   Stream<WsConnectionState> get stateStream => _stateController.stream;
   WsConnectionState get connectionState => _state;
+  String? get serverUrl => _serverUrl;
+  List<Map<String, dynamic>> get rtcIceServers =>
+      List.unmodifiable(_rtcIceServers);
 
   /// 便捷方法：监听指定事件
   Stream<Map<String, dynamic>> on(String eventName) {
@@ -64,11 +68,15 @@ class WsService {
   }
 
   void connect(String serverUrl, String token) {
-    debugPrint('[WsService] connect() called  serverUrl=${serverUrl.length > 30 ? '${serverUrl.substring(0, 30)}...' : serverUrl}  token=${token.length > 15 ? '${token.substring(0, 15)}...' : token}  _channel=${_channel != null}  _state=$_state');
+    debugPrint(
+        '[WsService] connect() called  serverUrl=${serverUrl.length > 30 ? '${serverUrl.substring(0, 30)}...' : serverUrl}  token=${token.length > 15 ? '${token.substring(0, 15)}...' : token}  _channel=${_channel != null}  _state=$_state');
 
-    if (_serverUrl == serverUrl && _token == token &&
-        (_state == WsConnectionState.connected || _state == WsConnectionState.connecting)) {
-      debugPrint('[WsService] connect() — same config & already connected/connecting, skip');
+    if (_serverUrl == serverUrl &&
+        _token == token &&
+        (_state == WsConnectionState.connected ||
+            _state == WsConnectionState.connecting)) {
+      debugPrint(
+          '[WsService] connect() — same config & already connected/connecting, skip');
       return;
     }
 
@@ -109,7 +117,8 @@ class WsService {
       channel.ready.then((_) {
         debugPrint('[WsService] WebSocket handshake complete (ready resolved)');
       }).catchError((error) {
-        debugPrint('[WsService] WebSocket handshake FAILED (ready error): $error');
+        debugPrint(
+            '[WsService] WebSocket handshake FAILED (ready error): $error');
         // stream 的 onDone 应该也会触发，但作为安全网:
         _cleanupAndReconnect();
       });
@@ -117,7 +126,8 @@ class WsService {
       // 连接超时看门狗：10 秒内必须收到 connected 事件，否则强制重连
       _connectTimeoutTimer = Timer(const Duration(seconds: 10), () {
         if (_state == WsConnectionState.connecting) {
-          debugPrint('[WsService] CONNECT TIMEOUT — no "connected" event in 10s, forcing reconnect');
+          debugPrint(
+              '[WsService] CONNECT TIMEOUT — no "connected" event in 10s, forcing reconnect');
           _cleanupAndReconnect();
         }
       });
@@ -137,7 +147,9 @@ class WsService {
     _stopHeartbeat();
     _subscription?.cancel();
     _subscription = null;
-    try { _channel?.sink.close(); } catch (_) {}
+    try {
+      _channel?.sink.close();
+    } catch (_) {}
     _channel = null;
     _setState(WsConnectionState.disconnected);
     if (_shouldReconnect) {
@@ -171,12 +183,15 @@ class WsService {
   void _scheduleReconnect() {
     // 去重：如果重连定时器已在运行，不重复调度
     if (_reconnectTimer?.isActive ?? false) {
-      debugPrint('[WsService] _scheduleReconnect() skipped — timer already active');
+      debugPrint(
+          '[WsService] _scheduleReconnect() skipped — timer already active');
       return;
     }
-    final delaySec = min(30, _reconnectAttempts < 5 ? (1 << _reconnectAttempts) : 30);
+    final delaySec =
+        min(30, _reconnectAttempts < 5 ? (1 << _reconnectAttempts) : 30);
     _reconnectAttempts++;
-    debugPrint('[WsService] scheduling reconnect in ${delaySec}s (attempt $_reconnectAttempts)');
+    debugPrint(
+        '[WsService] scheduling reconnect in ${delaySec}s (attempt $_reconnectAttempts)');
     _reconnectTimer = Timer(Duration(seconds: delaySec), () {
       if (_shouldReconnect && _serverUrl != null && _token != null) {
         _open();
@@ -192,9 +207,12 @@ class WsService {
     _stopHeartbeat();
     _subscription?.cancel();
     _subscription = null;
-    try { _channel?.sink.close(); } catch (_) {}
+    try {
+      _channel?.sink.close();
+    } catch (_) {}
     _channel = null;
     _joinedRooms.clear();
+    _rtcIceServers = const [];
     _setState(WsConnectionState.disconnected);
     debugPrint('[WsService] disconnected');
   }
@@ -206,8 +224,12 @@ class WsService {
   }
 
   void joinRoom(int roomId) {
-    _joinedRooms.add(roomId);
+    final added = _joinedRooms.add(roomId);
     debugPrint('[WsService] joinRoom($roomId)  state=$_state');
+    if (!added) {
+      debugPrint('[WsService] joinRoom($roomId) skipped - already joined');
+      return;
+    }
     sendEvent('room.join', roomId: roomId, payload: {});
   }
 
@@ -223,7 +245,8 @@ class WsService {
     String type = 'text',
     Map<String, dynamic>? meta,
   }) {
-    debugPrint('[WsService] sendChat roomId=$roomId content="$content" state=$_state');
+    debugPrint(
+        '[WsService] sendChat roomId=$roomId content="$content" state=$_state');
     sendEvent('chat.send', roomId: roomId, payload: {
       'type': type,
       'content': content,
@@ -237,9 +260,11 @@ class WsService {
     });
   }
 
-  void sendEvent(String event, {int? roomId, Map<String, dynamic> payload = const {}}) {
+  void sendEvent(String event,
+      {int? roomId, Map<String, dynamic> payload = const {}}) {
     if (_channel == null || _state != WsConnectionState.connected) {
-      debugPrint('[WsService] sendEvent($event) DROPPED — state=$_state channel=${_channel != null}');
+      debugPrint(
+          '[WsService] sendEvent($event) DROPPED — state=$_state channel=${_channel != null}');
       return;
     }
     final envelope = <String, dynamic>{
@@ -257,7 +282,9 @@ class WsService {
 
   String _buildWsUrl(String serverUrl, String token) {
     // 移除尾部斜杠
-    var base = serverUrl.endsWith('/') ? serverUrl.substring(0, serverUrl.length - 1) : serverUrl;
+    var base = serverUrl.endsWith('/')
+        ? serverUrl.substring(0, serverUrl.length - 1)
+        : serverUrl;
     if (base.startsWith('https://')) {
       base = base.replaceFirst('https://', 'wss://');
     } else if (base.startsWith('http://')) {
@@ -290,12 +317,21 @@ class WsService {
 
     // 收到 connected 事件后，标记为已连接，启动心跳
     if (event == 'connected') {
+      final rtc = payload?['rtc'];
+      final rawIceServers = rtc is Map ? rtc['ice_servers'] : null;
+      if (rawIceServers is List) {
+        _rtcIceServers = rawIceServers
+            .whereType<Map>()
+            .map((server) => Map<String, dynamic>.from(server))
+            .toList(growable: false);
+      }
       _connectTimeoutTimer?.cancel();
       _reconnectAttempts = 0;
       _setState(WsConnectionState.connected);
       _startHeartbeat();
 
-      debugPrint('[WsService] CONNECTED! Rejoining ${_joinedRooms.length} rooms: $_joinedRooms');
+      debugPrint(
+          '[WsService] CONNECTED! Rejoining ${_joinedRooms.length} rooms: $_joinedRooms');
       // 断线重连后自动重新加入之前的房间
       for (final roomId in _joinedRooms) {
         sendEvent('room.join', roomId: roomId, payload: {});
@@ -325,9 +361,11 @@ class WsService {
     if (event == 'chat.message' && payload != null) {
       try {
         debugPrint('[WsService] chat.message payload=$payload');
-        final message = MessageModel.fromWs(payload, serverUrl: _serverUrl ?? '');
+        final message =
+            MessageModel.fromWs(payload, serverUrl: _serverUrl ?? '');
         _db.messagesDao.upsertMessages([message.toCompanion()]);
-        debugPrint('[WsService] chat.message written to DB, id=${message.id} roomId=${message.roomId}');
+        debugPrint(
+            '[WsService] chat.message written to DB, id=${message.id} roomId=${message.roomId}');
       } catch (e, st) {
         debugPrint('[WsService] chat.message PARSE/DB ERROR: $e\n$st');
       }

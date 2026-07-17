@@ -1,32 +1,18 @@
-FROM golang:1.22-alpine3.20 AS builder
+FROM golang:1.25-alpine AS builder
 
-ARG GOPROXY=https://goproxy.cn,direct
-ARG GOSUMDB=sum.golang.google.cn
+ARG GOPROXY=https://proxy.golang.org,direct
 ENV GOPROXY=${GOPROXY}
-ENV GOSUMDB=${GOSUMDB}
-
-WORKDIR /app
-
-RUN apk add --no-cache git
-
+WORKDIR /src
+RUN apk add --no-cache gcc git musl-dev
 COPY go.mod go.sum ./
 RUN go mod download
-
 COPY . .
+RUN CGO_ENABLED=1 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/nexusroom ./cmd/server
 
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o server cmd/server/main.go
-
-FROM alpine:3.23.2
-
+FROM alpine:3.22
 WORKDIR /app
-
-RUN apk --no-cache add ca-certificates wireguard-tools wireguard-go iproute2 iptables
-
-COPY --from=builder /app/server /app/server
-COPY --from=builder /app/web /app/web
-
-RUN mkdir -p /app/data
-
-EXPOSE 8080 51820/udp
-
-CMD ["./server"]
+RUN apk add --no-cache ca-certificates iproute2 iptables wireguard-go wireguard-tools \
+    && mkdir -p /app/data/uploads
+COPY --from=builder /out/nexusroom /app/nexusroom
+EXPOSE 8080 1935 3478/udp 50000-50050/udp 51000-51100/udp 51820/udp
+ENTRYPOINT ["/app/nexusroom"]

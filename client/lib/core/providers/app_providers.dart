@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../db/app_database.dart';
 import '../models/app_settings.dart';
 import '../network/api_client.dart';
-import '../network/livekit_service.dart';
+import '../network/rtc_service.dart';
 import '../network/ws_service.dart';
 import '../native/screen_capture_service.dart';
 import '../native/wireguard_service.dart';
@@ -30,7 +30,8 @@ final settingsRepositoryProvider = Provider<SettingsRepository>((ref) {
 });
 
 final appSettingsProvider =
-  StateNotifierProvider<AppSettingsController, AsyncValue<AppSettings>>((ref) {
+    StateNotifierProvider<AppSettingsController, AsyncValue<AppSettings>>(
+        (ref) {
   final repo = ref.watch(settingsRepositoryProvider);
   return AppSettingsController(repo);
 });
@@ -52,25 +53,30 @@ final wsServiceProvider = Provider<WsService>((ref) {
 
   // 尝试立即连接（应用重启时 settings 可能已加载完成）
   final settingsState = ref.read(appSettingsProvider);
-  debugPrint('[wsServiceProvider] appSettings state: ${settingsState.runtimeType} — loading=${settingsState is AsyncLoading} data=${settingsState.valueOrNull != null}');
+  debugPrint(
+      '[wsServiceProvider] appSettings state: ${settingsState.runtimeType} — loading=${settingsState is AsyncLoading} data=${settingsState.valueOrNull != null}');
   final settings = settingsState.valueOrNull;
   if (settings != null && settings.hasServerUrl && settings.hasToken) {
-    debugPrint('[wsServiceProvider] connecting immediately with url=${settings.serverUrl}');
+    debugPrint(
+        '[wsServiceProvider] connecting immediately with url=${settings.serverUrl}');
     service.connect(settings.serverUrl!, settings.token!);
   } else {
-    debugPrint('[wsServiceProvider] settings not ready, waiting for listen callback');
+    debugPrint(
+        '[wsServiceProvider] settings not ready, waiting for listen callback');
   }
 
   // 监听 settings 变化：覆盖 loading→data（重启）和 data→data（登录/切换服务器）
   ref.listen<AsyncValue<AppSettings>>(appSettingsProvider, (prev, next) {
-    debugPrint('[wsServiceProvider] listen callback: prev=${prev?.runtimeType} next=${next.runtimeType} hasValue=${next.valueOrNull != null}');
+    debugPrint(
+        '[wsServiceProvider] listen callback: prev=${prev?.runtimeType} next=${next.runtimeType} hasValue=${next.valueOrNull != null}');
     final s = next.valueOrNull;
     if (s == null || !s.hasServerUrl || !s.hasToken) {
       debugPrint('[wsServiceProvider] settings incomplete, disconnecting');
       service.disconnect();
       return;
     }
-    debugPrint('[wsServiceProvider] settings ready, calling connect serverUrl=${s.serverUrl}');
+    debugPrint(
+        '[wsServiceProvider] settings ready, calling connect serverUrl=${s.serverUrl}');
     service.connect(s.serverUrl!, s.token!);
   });
 
@@ -79,17 +85,15 @@ final wsServiceProvider = Provider<WsService>((ref) {
   return service;
 });
 
-final livekitServiceProvider = Provider<LiveKitService>((ref) {
-  final service = LiveKitService();
+final rtcServiceProvider = Provider<RtcService>((ref) {
+  final service = RtcService(ref.watch(wsServiceProvider));
   ref.onDispose(service.dispose);
   return service;
 });
 
-final windowLifecycleServiceProvider =
-    Provider<WindowLifecycleService>((ref) {
-  final livekitService = ref.watch(livekitServiceProvider);
+final windowLifecycleServiceProvider = Provider<WindowLifecycleService>((ref) {
   final screenCaptureService = ref.watch(screenCaptureServiceProvider);
-  final service = WindowLifecycleService(livekitService, screenCaptureService);
+  final service = WindowLifecycleService(screenCaptureService);
   ref.onDispose(service.dispose);
   return service;
 });

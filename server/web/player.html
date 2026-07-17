@@ -128,7 +128,7 @@
 
   <div id="errorToast"></div>
 
-  <script src="srs.sdk.js"></script>
+  <script src="nexusroom-rtc.js"></script>
   <script>
     const urlParams = new URLSearchParams(window.location.search);
     const app = urlParams.get('app') || 'live';
@@ -241,7 +241,7 @@
       const host = window.location.hostname;
       const port = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
       const schema = window.location.protocol === 'https:' ? 'https' : 'http';
-      // SRS 对 streamurl 的路径段不会总是解码，特殊字符（例如 ':'）被 encode 后可能匹配不到真实流名。
+      // Keep the stream key as a literal path segment for server-side matching.
       // 这里对 app 仍编码，但 stream 保持原样，优先保证与推流流名一致。
       const encodedApp = encodeURIComponent(app);
       return `webrtc://${host}:${port}/${encodedApp}/${stream}?play=/api/v1/web/rtc/play/&schema=${schema}`;
@@ -285,7 +285,7 @@
         } catch (_) {}
       }
       rtcPlayer = null;
-      window.srs_player = null;
+      window.nexusroom_player = null;
 
       if (!flvPlayer) return;
       try {
@@ -335,8 +335,8 @@
       currentMode = 'webrtc';
       logDiag('playWithRTC: 开始 WebRTC 播放');
       document.getElementById('appLabel').textContent = app.toUpperCase() + ' / WEBRTC';
-      rtcPlayer = new SrsRtcPlayerAsync();
-      window.srs_player = rtcPlayer;
+      rtcPlayer = new NexusRoomRtcPlayer();
+      window.nexusroom_player = rtcPlayer;
       const rtcUrl = buildRTCUrl();
       logDiag('playWithRTC: URL = ' + rtcUrl);
       const rtcOptions = (mode === 'videoOnly') ? { videoOnly: true } : undefined;
@@ -386,7 +386,7 @@
               if (rtcPlayer) {
                 try { rtcPlayer.close(); } catch (_) {}
                 rtcPlayer = null;
-                window.srs_player = null;
+                window.nexusroom_player = null;
               }
               await playWithRTC('videoOnly');
               return;

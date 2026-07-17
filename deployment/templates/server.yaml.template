@@ -1,67 +1,43 @@
-# ============================================================
-# NexusRoom Server 配置文件模板
-# ============================================================
-# 安装脚本会从本模板生成 deployment/config/server.yaml。
-# 修改生成文件后重启服务生效：docker compose restart server
-#
-# 标记说明：
-#   【必改】 — 部署前必须修改，否则服务不安全或无法正常工作
-#   【可选】 — 可保持默认值，按需修改
-# ============================================================
-
 server:
-  port: 8080                        # 【可选】HTTP 监听端口
-  mode: release                     # 【可选】运行模式: debug / release
-  domain: ""                        # 【可选】绑定域名，留空则不启用
+  port: 8080
+  mode: release
+  domain: ""
 
-# ------ 数据库（PostgreSQL） ------
 database:
-  host: postgres                    # Docker 内部服务名，勿改
-  port: 5432
-  name: nexusroom
-  user: nexusroom
-  password: "CHANGE_ME"             # 【必改】数据库密码，需与 .env 中 DB_PASSWORD 一致
+  path: "DATA_DIR/nexusroom.db"
 
-# ------ 缓存（Redis） ------
-redis:
-  host: redis                       # Docker 内部服务名，勿改
-  port: 6379
-  password: ""                      # 【可选】Redis 密码，默认无密码
-
-# ------ 认证 ------
 auth:
-  jwt_secret: "CHANGE_ME"           # 【必改】JWT 签名密钥，建议至少 32 位随机字符串
-  jwt_expire_hours: 720             # 【可选】Token 有效期（默认 30 天）
-  admin_token: ""                   # 【可选】超管注册令牌，持此令牌注册的用户获超管权限
-                                    #         首个超管注册后建议清空
+  jwt_secret: "CHANGE_ME_JWT"
+  jwt_expire_hours: 720
+  admin_token: "CHANGE_ME_ADMIN"
 
-# ------ 消息 ------
 message:
-  retention_days: 30                # 【可选】消息保留天数（0 = 永久保留）
+  retention_days: 30
 
-# ------ LiveKit（仅用于语音通话） ------
-livekit:
-  url: ws://livekit:7880            # Docker 内部服务名，勿改
-  public_url: ws://YOUR_IP:7880     # 【必改】客户端连接的公网地址，例如 ws://1.2.3.4:7880
-  api_key: "CHANGE_ME"              # 【必改】LiveKit API Key，需与 livekit.yaml 中 keys 一致
-  api_secret: "CHANGE_ME"           # 【必改】LiveKit API Secret，需与 livekit.yaml 中 keys 一致
+media:
+  public_ip: "YOUR_IP"
+  rtc:
+    udp_port_min: 50000
+    udp_port_max: 50050
+  rtmp:
+    port: 1935
+  turn:
+    enabled: true
+    port: 3478
+    realm: nexusroom
+    username: "CHANGE_ME_TURN_USER"
+    password: "CHANGE_ME_TURN_PASSWORD"
+    relay_port_min: 51000
+    relay_port_max: 51100
 
-# ------ SRS 6（RTMP 推流 + HTTP-FLV 拉流） ------
-srs:
-  rtmp_port: 1935                   # 【可选】SRS RTMP 推流端口
-  http_port: 8085                   # 【可选】SRS HTTP-FLV 内部端口（客户端通过 /api/v1/stream/ 代理访问）
-  api_port: 1985                    # 【可选】SRS HTTP API/RTC API 内部端口（网页直播识别与 WebRTC 播放代理）
-  host: srs                         # Docker 内部服务名，勿改
-
-# ------ WireGuard VPN ------
 wireguard:
-  server_ip: "YOUR_IP"              # 【必改】服务器公网 IP
-  listen_port: 51820                # 【可选】WireGuard 监听端口
-  server_private_key: ""            # 首次启动时自动生成，无需手动填写
-  subnet: "10.0.8.0/24"            # 【可选】VPN 子网，与物理网段冲突时修改
-  gateway_ip: "10.0.8.1"           # 【可选】VPN 网关 IP
+  server_ip: "YOUR_IP"
+  listen_port: 51820
+  server_private_key: ""
+  private_key_path: "DATA_DIR/wireguard.key"
+  subnet: "10.0.8.0/24"
+  gateway_ip: "10.0.8.1"
 
-# ------ 文件存储 ------
 storage:
-  path: ./data/uploads              # 【可选】上传文件存储路径
-  max_file_size_mb: 20              # 【可选】单文件大小上限（MB）
+  path: "DATA_DIR/uploads"
+  max_file_size_mb: 20

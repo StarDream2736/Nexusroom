@@ -9,11 +9,9 @@ import (
 type Config struct {
 	Server    ServerConfig    `mapstructure:"server"`
 	Database  DatabaseConfig  `mapstructure:"database"`
-	Redis     RedisConfig     `mapstructure:"redis"`
 	Auth      AuthConfig      `mapstructure:"auth"`
 	Message   MessageConfig   `mapstructure:"message"`
-	LiveKit   LiveKitConfig   `mapstructure:"livekit"`
-	SRS       SRSConfig       `mapstructure:"srs"`
+	Media     MediaConfig     `mapstructure:"media"`
 	WireGuard WireGuardConfig `mapstructure:"wireguard"`
 	Storage   StorageConfig   `mapstructure:"storage"`
 }
@@ -25,17 +23,7 @@ type ServerConfig struct {
 }
 
 type DatabaseConfig struct {
-	Host     string `mapstructure:"host"`
-	Port     int    `mapstructure:"port"`
-	Name     string `mapstructure:"name"`
-	User     string `mapstructure:"user"`
-	Password string `mapstructure:"password"`
-}
-
-type RedisConfig struct {
-	Host     string `mapstructure:"host"`
-	Port     int    `mapstructure:"port"`
-	Password string `mapstructure:"password"`
+	Path string `mapstructure:"path"`
 }
 
 type AuthConfig struct {
@@ -48,24 +36,37 @@ type MessageConfig struct {
 	RetentionDays int `mapstructure:"retention_days"`
 }
 
-type LiveKitConfig struct {
-	URL       string `mapstructure:"url"`
-	PublicURL string `mapstructure:"public_url"`
-	APIKey    string `mapstructure:"api_key"`
-	APISecret string `mapstructure:"api_secret"`
+type MediaConfig struct {
+	PublicIP string     `mapstructure:"public_ip"`
+	RTC      RTCConfig  `mapstructure:"rtc"`
+	RTMP     RTMPConfig `mapstructure:"rtmp"`
+	TURN     TURNConfig `mapstructure:"turn"`
 }
 
-type SRSConfig struct {
-	RTMPPort int    `mapstructure:"rtmp_port"`
-	HTTPPort int    `mapstructure:"http_port"`
-	APIPort  int    `mapstructure:"api_port"`
-	Host     string `mapstructure:"host"` // SRS Docker 服务名（内网），默认 srs
+type RTCConfig struct {
+	UDPPortMin uint16 `mapstructure:"udp_port_min"`
+	UDPPortMax uint16 `mapstructure:"udp_port_max"`
+}
+
+type RTMPConfig struct {
+	Port int `mapstructure:"port"`
+}
+
+type TURNConfig struct {
+	Enabled      bool   `mapstructure:"enabled"`
+	Port         int    `mapstructure:"port"`
+	Realm        string `mapstructure:"realm"`
+	Username     string `mapstructure:"username"`
+	Password     string `mapstructure:"password"`
+	RelayPortMin uint16 `mapstructure:"relay_port_min"`
+	RelayPortMax uint16 `mapstructure:"relay_port_max"`
 }
 
 type WireGuardConfig struct {
 	ServerIP         string `mapstructure:"server_ip"`
 	ListenPort       int    `mapstructure:"listen_port"`
 	ServerPrivateKey string `mapstructure:"server_private_key"`
+	PrivateKeyPath   string `mapstructure:"private_key_path"`
 	Subnet           string `mapstructure:"subnet"`
 	GatewayIP        string `mapstructure:"gateway_ip"`
 }
@@ -80,25 +81,30 @@ var GlobalConfig *Config
 func Load(configPath string) (*Config, error) {
 	viper.SetConfigFile(configPath)
 	viper.SetConfigType("yaml")
-
+	viper.SetDefault("database.path", "./data/nexusroom.db")
+	viper.SetDefault("media.rtc.udp_port_min", 50000)
+	viper.SetDefault("media.rtc.udp_port_max", 50050)
+	viper.SetDefault("media.rtmp.port", 1935)
+	viper.SetDefault("media.turn.enabled", true)
+	viper.SetDefault("media.turn.port", 3478)
+	viper.SetDefault("media.turn.realm", "nexusroom")
+	viper.SetDefault("media.turn.relay_port_min", 51000)
+	viper.SetDefault("media.turn.relay_port_max", 51100)
+	viper.SetDefault("wireguard.private_key_path", "./data/wireguard.key")
 	if err := viper.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
-
 	var cfg Config
 	if err := viper.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
-
 	GlobalConfig = &cfg
 	return &cfg, nil
 }
 
-func (c *Config) GetDSN() string {
-	return fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-		c.Database.Host, c.Database.Port, c.Database.User, c.Database.Password, c.Database.Name)
-}
-
-func (c *Config) GetRedisAddr() string {
-	return fmt.Sprintf("%s:%d", c.Redis.Host, c.Redis.Port)
+func (c *Config) GetDatabasePath() string {
+	if c.Database.Path == "" {
+		return "./data/nexusroom.db"
+	}
+	return c.Database.Path
 }

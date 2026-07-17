@@ -5,10 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/providers/app_providers.dart';
 
-/// 当前正在说话的用户 ID 集合（基于 LiveKit ActiveSpeakers 检测）
+/// 当前正在说话的用户 ID 集合（基于 NexusRoom RTC 音频级别检测）
 final speakingUsersProvider = StreamProvider<Set<int>>((ref) {
-  final lk = ref.watch(livekitServiceProvider);
-  return lk.speakingUsersStream;
+  final rtc = ref.watch(rtcServiceProvider);
+  return rtc.speakingUsersStream;
 });
 
 /// 当前房间 ID（由 RightPanel / RoomDetailPage 设置）
