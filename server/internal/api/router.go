@@ -61,7 +61,7 @@ func SetupRouter(
 
 	// 健康检查
 	router.GET("/ping", func(c *gin.Context) {
-		util.Success(c, gin.H{"status": "ok", "version": "2.0.0"})
+		util.Success(c, gin.H{"status": "ok", "version": "2.1.0"})
 	})
 
 	// 静态文件（头像等公开资源）

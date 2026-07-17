@@ -10,7 +10,7 @@ class TitleBar extends StatefulWidget {
 
   final String? title;
 
-  static const double height = 40;
+  static const double height = 44;
 
   @override
   State<TitleBar> createState() => _TitleBarState();
@@ -44,8 +44,8 @@ class _TitleBarState extends State<TitleBar> {
     return Container(
       height: TitleBar.height,
       decoration: BoxDecoration(
-        color: AppColors.titleBar,
-        border: Border(bottom: BorderSide(color: AppColors.border)),
+        color: context.colors.titleBar,
+        border: Border(bottom: BorderSide(color: context.colors.border)),
       ),
       child: Row(
         children: [
@@ -55,22 +55,31 @@ class _TitleBarState extends State<TitleBar> {
               onDoubleTap: _toggleMaximized,
               child: DragToMoveArea(
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
                   child: Row(
                     children: [
-                      const Icon(
-                        Icons.forum_outlined,
-                        size: 16,
-                        color: AppColors.primary,
+                      Container(
+                        width: 24,
+                        height: 24,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: context.colors.primary,
+                          borderRadius: BorderRadius.circular(7),
+                        ),
+                        child: Icon(
+                          Icons.forum_outlined,
+                          size: 14,
+                          color: context.colors.onPrimary,
+                        ),
                       ),
-                      const SizedBox(width: 9),
+                      const SizedBox(width: 10),
                       Text(
                         widget.title ?? 'NexusRoom',
                         style: TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 12,
+                          color: context.colors.textPrimary,
+                          fontSize: 12.5,
                           fontWeight: FontWeight.w600,
-                          letterSpacing: 0.1,
+                          letterSpacing: -0.05,
                         ),
                       ),
                     ],
@@ -124,7 +133,7 @@ class _WindowButtonState extends State<_WindowButton> {
   @override
   Widget build(BuildContext context) {
     final hoverColor =
-        widget.isClose ? const Color(0xFFC94A52) : AppColors.hoverOverlay;
+        widget.isClose ? const Color(0xFFC94A52) : context.colors.hoverOverlay;
     return Tooltip(
       message: widget.tooltip,
       child: MouseRegion(
@@ -136,7 +145,7 @@ class _WindowButtonState extends State<_WindowButton> {
           onTap: widget.onTap,
           child: AnimatedContainer(
             duration: AppTheme.durationHover,
-            width: 46,
+            width: 42,
             height: TitleBar.height,
             color: _hovered ? hoverColor : Colors.transparent,
             alignment: Alignment.center,
@@ -145,7 +154,7 @@ class _WindowButtonState extends State<_WindowButton> {
               size: 15,
               color: _hovered && widget.isClose
                   ? Colors.white
-                  : AppColors.textSecondary,
+                  : context.colors.textSecondary,
             ),
           ),
         ),

@@ -16,6 +16,7 @@ import 'package:path/path.dart' as p;
 class ScreenCaptureService {
   Process? _ffmpegProcess;
   StreamSubscription? _stderrSub;
+  bool _disposed = false;
 
   final _statusController = StreamController<CaptureStatus>.broadcast();
   final _statsController = StreamController<CaptureStats>.broadcast();
@@ -238,6 +239,8 @@ class ScreenCaptureService {
   /// and an async `stopCapture()` would never complete, leaving FFmpeg
   /// running in the background.
   void dispose() {
+    if (_disposed) return;
+    _disposed = true;
     _ffmpegProcess?.kill();
     _stderrSub?.cancel();
     _stderrSub = null;
@@ -250,7 +253,7 @@ class ScreenCaptureService {
   // ─── Internals ──────────────────────────────────────────────────────────
 
   void _setStatus(CaptureStatus status) {
-    if (_status == status) return;
+    if (_disposed || _status == status) return;
     _status = status;
     _statusController.add(status);
     debugPrint('[ScreenCapture] Status → $status');
@@ -270,6 +273,7 @@ class ScreenCaptureService {
   /// frame=  120 fps= 30 q=28.0 size=    768kB time=00:00:04.00 bitrate=1572.9kbits/s speed=1.00x
   /// ```
   void _parseStderr(String line) {
+    if (_disposed || _statsController.isClosed) return;
     // Only parse progress lines (contain "frame=" and "fps=").
     if (!line.contains('frame=') || !line.contains('fps=')) {
       // Still log diagnostic messages.

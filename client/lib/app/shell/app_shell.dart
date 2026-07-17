@@ -6,7 +6,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/providers/app_providers.dart';
 import '../../features/room/presentation/providers/rooms_provider.dart';
-import '../../features/room/presentation/providers/speaking_users_provider.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/title_bar.dart';
@@ -99,13 +98,13 @@ class _AppShellState extends ConsumerState<AppShell> {
       // 离开旧房间时释放 NexusRoom RTC 连接。
       if (oldRoomId != null) {
         debugPrint('[AppShell] disconnecting RTC (leaving room $oldRoomId)');
-        ref.read(rtcServiceProvider).disconnect();
+        unawaited(ref.read(rtcServiceProvider).disconnect());
 
         // 同时断开 VLAN 隧道 + 通知服务器移除 peer
         final wgService = ref.read(wireguardServiceProvider);
         if (wgService.isConnected) {
           debugPrint('[AppShell] disconnecting VLAN (leaving room $oldRoomId)');
-          wgService.stopTunnel();
+          unawaited(wgService.stopTunnel());
           // 通知服务器移除 peer，避免其他客户端仍显示该用户在 VLAN 中
           try {
             ref.read(vlanRepositoryProvider).leave(oldRoomId);
@@ -130,9 +129,6 @@ class _AppShellState extends ConsumerState<AppShell> {
             }),
           );
         }
-        // 更新 activeRoomIdProvider 以驱动 onlineUsersProvider
-        ref.read(activeRoomIdProvider.notifier).state =
-            roomId != null ? int.tryParse(roomId) : null;
       });
     }
   }
@@ -144,7 +140,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     final showRightPanel = roomId != null && !location.endsWith('/settings');
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: context.colors.background,
       body: Column(
         children: [
           const TitleBar(title: 'NexusRoom'),
@@ -153,9 +149,12 @@ class _AppShellState extends ConsumerState<AppShell> {
               children: [
                 const Sidebar(),
                 Expanded(
-                  child: KeyedSubtree(
-                    key: ValueKey(location),
-                    child: widget.child,
+                  child: ColoredBox(
+                    color: context.colors.background,
+                    child: KeyedSubtree(
+                      key: ValueKey(location),
+                      child: widget.child,
+                    ),
                   ),
                 ),
                 if (showRightPanel)

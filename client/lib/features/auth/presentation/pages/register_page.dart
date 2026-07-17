@@ -67,7 +67,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: context.colors.background,
       body: Column(
         children: [
           const TitleBar(),
@@ -86,11 +86,11 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
                       children: [
                         Text('创建账号',
                             textAlign: TextAlign.center,
-                            style: AppTypography.h1),
+                            style: AppTypography.h1(context)),
                         const SizedBox(height: 6),
                         Text('注册一个新的 NexusRoom 账号',
                             textAlign: TextAlign.center,
-                            style: AppTypography.bodySecondary),
+                            style: AppTypography.bodySecondary(context)),
                         const SizedBox(height: 28),
                         TextFormField(
                           controller: _nicknameController,
@@ -162,7 +162,8 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Text('已有账号？', style: AppTypography.bodySecondary),
+                            Text('已有账号？',
+                                style: AppTypography.bodySecondary(context)),
                             TextButton(
                               onPressed: () => context.pop(),
                               child: const Text('立即登录'),
@@ -178,7 +179,8 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
                           },
                           child: Text('更换服务器',
                               style: TextStyle(
-                                  fontSize: 12, color: AppColors.textMuted)),
+                                  fontSize: 12,
+                                  color: context.colors.textMuted)),
                         ),
                       ],
                     ),

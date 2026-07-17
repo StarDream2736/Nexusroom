@@ -1,18 +1,14 @@
-import 'dart:io';
-
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 
 import '../../../../app/theme/app_colors.dart';
 import '../../../../app/theme/app_typography.dart';
 import '../../../../app/widgets/glass_container.dart';
 import '../../../../app/widgets/mac_dialog.dart';
+import '../../../../core/models/app_settings.dart';
 import '../../../../core/providers/app_providers.dart';
 import '../../../room/presentation/providers/rooms_provider.dart';
 
@@ -232,8 +228,13 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
     // 断开 NexusRoom RTC 语音连接
     ref.read(rtcServiceProvider).disconnect();
-    // 清除所有本地消息缓存（跳服务器了，全清）
-    await ref.read(appDatabaseProvider).messagesDao.clearAll();
+    final currentSettings = ref.read(appSettingsProvider).valueOrNull;
+    if (currentSettings?.serverUrl != null && currentSettings?.userId != null) {
+      await ref.read(appDatabaseProvider).messagesDao.clearAccount(
+            currentSettings!.serverUrl!,
+            currentSettings.userId!,
+          );
+    }
     // 清除房间列表缓存
     ref.invalidate(roomsProvider);
     // 清状态，GoRouter redirect 会自动导航到 /setup
@@ -261,12 +262,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     // 断开 NexusRoom RTC 语音连接
     ref.read(rtcServiceProvider).disconnect();
     // 清除当前服务器的本地消息缓存
-    final serverUrl = ref.read(appSettingsProvider).valueOrNull?.serverUrl;
-    if (serverUrl != null && serverUrl.isNotEmpty) {
-      await ref
-          .read(appDatabaseProvider)
-          .messagesDao
-          .clearByServerUrl(serverUrl);
+    final currentSettings = ref.read(appSettingsProvider).valueOrNull;
+    if (currentSettings?.serverUrl != null && currentSettings?.userId != null) {
+      await ref.read(appDatabaseProvider).messagesDao.clearAccount(
+            currentSettings!.serverUrl!,
+            currentSettings.userId!,
+          );
     }
     // 清状态，GoRouter redirect 会自动导航到 /login
     await ref.read(appSettingsProvider.notifier).clearAuth();
@@ -276,7 +277,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     final confirmed = await showMacDialog<bool>(
       context: context,
       title: '清除本地数据',
-      content: '将删除本地数据库和图片缓存，应用会自动重启。确认继续？',
+      content: '将清除全部账号设置、登录状态和房间消息缓存，并返回服务器设置页。确认继续？',
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context, false),
@@ -284,29 +285,19 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         ),
         TextButton(
           onPressed: () => Navigator.pop(context, true),
-          child: const Text('确认清除', style: TextStyle(color: AppColors.error)),
+          child: Text('确认清除', style: TextStyle(color: context.colors.error)),
         ),
       ],
     );
     if (confirmed != true || !mounted) return;
 
     try {
-      // 1. 关闭数据库连接
+      // Keep the live database connection available to Riverpod services.
+      ref.read(rtcServiceProvider).disconnect();
+      ref.read(wsServiceProvider).disconnect();
       final db = ref.read(appDatabaseProvider);
-      await db.close();
-
-      // 2. 删除 SQLite 数据库文件
-      final dir = await getApplicationDocumentsDirectory();
-      final dbFile = File('${dir.path}/nexusroom.sqlite');
-      if (await dbFile.exists()) {
-        await dbFile.delete();
-      }
-
-      // 3. 清除图片缓存
-      await DefaultCacheManager().emptyCache();
-
-      // 4. 退出应用，下次启动时会重建数据库
-      exit(0);
+      await db.clearLocalData();
+      await ref.read(appSettingsProvider.notifier).reload();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -340,8 +331,58 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     return ListView(
       padding: const EdgeInsets.all(28),
       children: [
-        Text('设置', style: AppTypography.h1),
+        Text('设置', style: AppTypography.h1(context)),
         const SizedBox(height: 24),
+
+        GlassContainer(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.contrast_outlined,
+                      size: 18, color: context.colors.textSecondary),
+                  const SizedBox(width: 8),
+                  Text(
+                    '外观',
+                    style: TextStyle(
+                      fontSize: AppTypography.sizeBody,
+                      fontWeight: FontWeight.w600,
+                      color: context.colors.textPrimary,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: SegmentedButton<AppColorMode>(
+                  segments: const [
+                    ButtonSegment(
+                      value: AppColorMode.dark,
+                      label: Text('暗色'),
+                      icon: Icon(Icons.dark_mode_outlined, size: 16),
+                    ),
+                    ButtonSegment(
+                      value: AppColorMode.light,
+                      label: Text('亮色'),
+                      icon: Icon(Icons.light_mode_outlined, size: 16),
+                    ),
+                  ],
+                  selected: {settings?.colorMode ?? AppColorMode.dark},
+                  showSelectedIcon: false,
+                  onSelectionChanged: (selection) {
+                    ref
+                        .read(appSettingsProvider.notifier)
+                        .setColorMode(selection.first);
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
 
         // ─── Profile card ──────────────────────────────────
         GlassContainer(
@@ -354,14 +395,14 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   children: [
                     CircleAvatar(
                       radius: 42,
-                      backgroundColor: AppColors.cardActive,
+                      backgroundColor: context.colors.cardActive,
                       backgroundImage:
                           _avatarUrl != null && _avatarUrl!.isNotEmpty
-                              ? CachedNetworkImageProvider(_avatarUrl!)
+                              ? NetworkImage(_avatarUrl!)
                               : null,
                       child: _avatarUrl == null || _avatarUrl!.isEmpty
                           ? Icon(Icons.person,
-                              size: 36, color: AppColors.textMuted)
+                              size: 36, color: context.colors.textMuted)
                           : null,
                     ),
                     Positioned(
@@ -369,8 +410,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       right: 0,
                       child: Container(
                         padding: const EdgeInsets.all(4),
-                        decoration: const BoxDecoration(
-                          color: AppColors.accent,
+                        decoration: BoxDecoration(
+                          color: context.colors.accent,
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(Icons.camera_alt,
@@ -385,7 +426,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 Text('ID: $_userDisplayId',
                     style: TextStyle(
                         fontSize: AppTypography.sizeCaption,
-                        color: AppColors.textMuted)),
+                        color: context.colors.textMuted)),
               const SizedBox(height: 16),
               TextField(
                 controller: _nicknameController,
@@ -410,13 +451,14 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             children: [
               Row(
                 children: [
-                  Icon(Icons.headset, size: 18, color: AppColors.textSecondary),
+                  Icon(Icons.headset,
+                      size: 18, color: context.colors.textSecondary),
                   const SizedBox(width: 8),
                   Text('音频设置',
                       style: TextStyle(
                         fontSize: AppTypography.sizeBody,
                         fontWeight: FontWeight.w600,
-                        color: AppColors.textPrimary,
+                        color: context.colors.textPrimary,
                       )),
                 ],
               ),
@@ -424,9 +466,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               if (_audioError != null) ...[
                 Text(
                   _audioError!,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: AppTypography.sizeCaption,
-                    color: AppColors.error,
+                    color: context.colors.error,
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -435,7 +477,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               Text('麦克风',
                   style: TextStyle(
                     fontSize: AppTypography.sizeCaption,
-                    color: AppColors.textMuted,
+                    color: context.colors.textMuted,
                   )),
               const SizedBox(height: 4),
               _buildAudioDropdown(
@@ -448,7 +490,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               Text('扬声器',
                   style: TextStyle(
                     fontSize: AppTypography.sizeCaption,
-                    color: AppColors.textMuted,
+                    color: context.colors.textMuted,
                   )),
               const SizedBox(height: 4),
               _buildAudioDropdown(
@@ -471,26 +513,26 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 label: '当前服务器',
                 subtitle: settings?.serverUrl ?? '未配置',
               ),
-              Divider(height: 1, color: AppColors.border),
+              Divider(height: 1, color: context.colors.border),
               _SettingsTile(
                 icon: Icons.swap_horiz,
                 label: '更换服务器',
                 onTap: _changeServer,
               ),
-              Divider(height: 1, color: AppColors.border),
+              Divider(height: 1, color: context.colors.border),
               _SettingsTile(
                 icon: Icons.logout,
                 label: '退出登录',
-                iconColor: AppColors.error,
-                labelColor: AppColors.error,
+                iconColor: context.colors.error,
+                labelColor: context.colors.error,
                 onTap: _logout,
               ),
-              Divider(height: 1, color: AppColors.border),
+              Divider(height: 1, color: context.colors.border),
               _SettingsTile(
                 icon: Icons.delete_forever,
                 label: '清除本地数据',
-                iconColor: AppColors.error,
-                labelColor: AppColors.error,
+                iconColor: context.colors.error,
+                labelColor: context.colors.error,
                 onTap: _clearLocalData,
               ),
             ],
@@ -509,23 +551,23 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       return Text('未检测到设备',
           style: TextStyle(
             fontSize: AppTypography.sizeCaption,
-            color: AppColors.textMuted,
+            color: context.colors.textMuted,
           ));
     }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: context.colors.border),
         borderRadius: BorderRadius.circular(6),
       ),
       child: DropdownButton<String>(
         value: selectedId,
         isExpanded: true,
         underline: const SizedBox.shrink(),
-        dropdownColor: AppColors.sidebar,
+        dropdownColor: context.colors.sidebar,
         style: TextStyle(
           fontSize: 12,
-          color: AppColors.textPrimary,
+          color: context.colors.textPrimary,
         ),
         items: devices.map((d) {
           return DropdownMenuItem<String>(
@@ -574,23 +616,25 @@ class _SettingsTileState extends State<_SettingsTile> {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
         curve: Curves.easeOutCubic,
-        color: _hovered ? AppColors.hoverOverlay : Colors.transparent,
+        color: _hovered ? context.colors.hoverOverlay : Colors.transparent,
         child: ListTile(
           dense: true,
           leading: Icon(widget.icon,
-              size: 18, color: widget.iconColor ?? AppColors.textSecondary),
+              size: 18,
+              color: widget.iconColor ?? context.colors.textSecondary),
           title: Text(widget.label,
               style: TextStyle(
                   fontSize: AppTypography.sizeBody,
-                  color: widget.labelColor ?? AppColors.textPrimary)),
+                  color: widget.labelColor ?? context.colors.textPrimary)),
           subtitle: widget.subtitle != null
               ? Text(widget.subtitle!,
                   style: TextStyle(
                       fontSize: AppTypography.sizeCaption,
-                      color: AppColors.textMuted))
+                      color: context.colors.textMuted))
               : null,
           trailing: widget.onTap != null
-              ? Icon(Icons.chevron_right, size: 16, color: AppColors.textMuted)
+              ? Icon(Icons.chevron_right,
+                  size: 16, color: context.colors.textMuted)
               : null,
           onTap: widget.onTap,
         ),

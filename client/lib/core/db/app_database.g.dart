@@ -210,6 +210,14 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
       type: DriftSqlType.string,
       requiredDuringInsert: false,
       defaultValue: const Constant(''));
+  static const VerificationMeta _accountUserIdMeta =
+      const VerificationMeta('accountUserId');
+  @override
+  late final GeneratedColumn<int> accountUserId = GeneratedColumn<int>(
+      'account_user_id', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(0));
   static const VerificationMeta _roomIdMeta = const VerificationMeta('roomId');
   @override
   late final GeneratedColumn<int> roomId = GeneratedColumn<int>(
@@ -260,6 +268,7 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
   List<GeneratedColumn> get $columns => [
         id,
         serverUrl,
+        accountUserId,
         roomId,
         senderId,
         type,
@@ -287,6 +296,12 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
     if (data.containsKey('server_url')) {
       context.handle(_serverUrlMeta,
           serverUrl.isAcceptableOrUnknown(data['server_url']!, _serverUrlMeta));
+    }
+    if (data.containsKey('account_user_id')) {
+      context.handle(
+          _accountUserIdMeta,
+          accountUserId.isAcceptableOrUnknown(
+              data['account_user_id']!, _accountUserIdMeta));
     }
     if (data.containsKey('room_id')) {
       context.handle(_roomIdMeta,
@@ -338,7 +353,7 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
   }
 
   @override
-  Set<GeneratedColumn> get $primaryKey => {serverUrl, id};
+  Set<GeneratedColumn> get $primaryKey => {serverUrl, accountUserId, id};
   @override
   Message map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
@@ -347,6 +362,8 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
           .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
       serverUrl: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}server_url'])!,
+      accountUserId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}account_user_id'])!,
       roomId: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}room_id'])!,
       senderId: attachedDatabase.typeMapping
@@ -378,6 +395,9 @@ class Message extends DataClass implements Insertable<Message> {
 
   /// 消息所属服务器 URL，用于隔离不同服务器的数据
   final String serverUrl;
+
+  /// Local account that owns this cached row.
+  final int accountUserId;
   final int roomId;
   final int senderId;
   final String type;
@@ -389,6 +409,7 @@ class Message extends DataClass implements Insertable<Message> {
   const Message(
       {required this.id,
       required this.serverUrl,
+      required this.accountUserId,
       required this.roomId,
       required this.senderId,
       required this.type,
@@ -402,6 +423,7 @@ class Message extends DataClass implements Insertable<Message> {
     final map = <String, Expression>{};
     map['id'] = Variable<int>(id);
     map['server_url'] = Variable<String>(serverUrl);
+    map['account_user_id'] = Variable<int>(accountUserId);
     map['room_id'] = Variable<int>(roomId);
     map['sender_id'] = Variable<int>(senderId);
     map['type'] = Variable<String>(type);
@@ -423,6 +445,7 @@ class Message extends DataClass implements Insertable<Message> {
     return MessagesCompanion(
       id: Value(id),
       serverUrl: Value(serverUrl),
+      accountUserId: Value(accountUserId),
       roomId: Value(roomId),
       senderId: Value(senderId),
       type: Value(type),
@@ -446,6 +469,7 @@ class Message extends DataClass implements Insertable<Message> {
     return Message(
       id: serializer.fromJson<int>(json['id']),
       serverUrl: serializer.fromJson<String>(json['serverUrl']),
+      accountUserId: serializer.fromJson<int>(json['accountUserId']),
       roomId: serializer.fromJson<int>(json['roomId']),
       senderId: serializer.fromJson<int>(json['senderId']),
       type: serializer.fromJson<String>(json['type']),
@@ -462,6 +486,7 @@ class Message extends DataClass implements Insertable<Message> {
     return <String, dynamic>{
       'id': serializer.toJson<int>(id),
       'serverUrl': serializer.toJson<String>(serverUrl),
+      'accountUserId': serializer.toJson<int>(accountUserId),
       'roomId': serializer.toJson<int>(roomId),
       'senderId': serializer.toJson<int>(senderId),
       'type': serializer.toJson<String>(type),
@@ -476,6 +501,7 @@ class Message extends DataClass implements Insertable<Message> {
   Message copyWith(
           {int? id,
           String? serverUrl,
+          int? accountUserId,
           int? roomId,
           int? senderId,
           String? type,
@@ -487,6 +513,7 @@ class Message extends DataClass implements Insertable<Message> {
       Message(
         id: id ?? this.id,
         serverUrl: serverUrl ?? this.serverUrl,
+        accountUserId: accountUserId ?? this.accountUserId,
         roomId: roomId ?? this.roomId,
         senderId: senderId ?? this.senderId,
         type: type ?? this.type,
@@ -503,6 +530,9 @@ class Message extends DataClass implements Insertable<Message> {
     return Message(
       id: data.id.present ? data.id.value : this.id,
       serverUrl: data.serverUrl.present ? data.serverUrl.value : this.serverUrl,
+      accountUserId: data.accountUserId.present
+          ? data.accountUserId.value
+          : this.accountUserId,
       roomId: data.roomId.present ? data.roomId.value : this.roomId,
       senderId: data.senderId.present ? data.senderId.value : this.senderId,
       type: data.type.present ? data.type.value : this.type,
@@ -523,6 +553,7 @@ class Message extends DataClass implements Insertable<Message> {
     return (StringBuffer('Message(')
           ..write('id: $id, ')
           ..write('serverUrl: $serverUrl, ')
+          ..write('accountUserId: $accountUserId, ')
           ..write('roomId: $roomId, ')
           ..write('senderId: $senderId, ')
           ..write('type: $type, ')
@@ -536,14 +567,25 @@ class Message extends DataClass implements Insertable<Message> {
   }
 
   @override
-  int get hashCode => Object.hash(id, serverUrl, roomId, senderId, type,
-      content, createdAt, senderNickname, senderAvatarUrl, metaJson);
+  int get hashCode => Object.hash(
+      id,
+      serverUrl,
+      accountUserId,
+      roomId,
+      senderId,
+      type,
+      content,
+      createdAt,
+      senderNickname,
+      senderAvatarUrl,
+      metaJson);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is Message &&
           other.id == this.id &&
           other.serverUrl == this.serverUrl &&
+          other.accountUserId == this.accountUserId &&
           other.roomId == this.roomId &&
           other.senderId == this.senderId &&
           other.type == this.type &&
@@ -557,6 +599,7 @@ class Message extends DataClass implements Insertable<Message> {
 class MessagesCompanion extends UpdateCompanion<Message> {
   final Value<int> id;
   final Value<String> serverUrl;
+  final Value<int> accountUserId;
   final Value<int> roomId;
   final Value<int> senderId;
   final Value<String> type;
@@ -569,6 +612,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
   const MessagesCompanion({
     this.id = const Value.absent(),
     this.serverUrl = const Value.absent(),
+    this.accountUserId = const Value.absent(),
     this.roomId = const Value.absent(),
     this.senderId = const Value.absent(),
     this.type = const Value.absent(),
@@ -582,6 +626,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
   MessagesCompanion.insert({
     required int id,
     this.serverUrl = const Value.absent(),
+    this.accountUserId = const Value.absent(),
     required int roomId,
     required int senderId,
     required String type,
@@ -600,6 +645,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
   static Insertable<Message> custom({
     Expression<int>? id,
     Expression<String>? serverUrl,
+    Expression<int>? accountUserId,
     Expression<int>? roomId,
     Expression<int>? senderId,
     Expression<String>? type,
@@ -613,6 +659,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (serverUrl != null) 'server_url': serverUrl,
+      if (accountUserId != null) 'account_user_id': accountUserId,
       if (roomId != null) 'room_id': roomId,
       if (senderId != null) 'sender_id': senderId,
       if (type != null) 'type': type,
@@ -628,6 +675,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
   MessagesCompanion copyWith(
       {Value<int>? id,
       Value<String>? serverUrl,
+      Value<int>? accountUserId,
       Value<int>? roomId,
       Value<int>? senderId,
       Value<String>? type,
@@ -640,6 +688,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     return MessagesCompanion(
       id: id ?? this.id,
       serverUrl: serverUrl ?? this.serverUrl,
+      accountUserId: accountUserId ?? this.accountUserId,
       roomId: roomId ?? this.roomId,
       senderId: senderId ?? this.senderId,
       type: type ?? this.type,
@@ -660,6 +709,9 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     }
     if (serverUrl.present) {
       map['server_url'] = Variable<String>(serverUrl.value);
+    }
+    if (accountUserId.present) {
+      map['account_user_id'] = Variable<int>(accountUserId.value);
     }
     if (roomId.present) {
       map['room_id'] = Variable<int>(roomId.value);
@@ -696,6 +748,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     return (StringBuffer('MessagesCompanion(')
           ..write('id: $id, ')
           ..write('serverUrl: $serverUrl, ')
+          ..write('accountUserId: $accountUserId, ')
           ..write('roomId: $roomId, ')
           ..write('senderId: $senderId, ')
           ..write('type: $type, ')
@@ -847,6 +900,7 @@ typedef $$SettingsTableProcessedTableManager = ProcessedTableManager<
 typedef $$MessagesTableCreateCompanionBuilder = MessagesCompanion Function({
   required int id,
   Value<String> serverUrl,
+  Value<int> accountUserId,
   required int roomId,
   required int senderId,
   required String type,
@@ -860,6 +914,7 @@ typedef $$MessagesTableCreateCompanionBuilder = MessagesCompanion Function({
 typedef $$MessagesTableUpdateCompanionBuilder = MessagesCompanion Function({
   Value<int> id,
   Value<String> serverUrl,
+  Value<int> accountUserId,
   Value<int> roomId,
   Value<int> senderId,
   Value<String> type,
@@ -885,6 +940,9 @@ class $$MessagesTableFilterComposer
 
   ColumnFilters<String> get serverUrl => $composableBuilder(
       column: $table.serverUrl, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get accountUserId => $composableBuilder(
+      column: $table.accountUserId, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<int> get roomId => $composableBuilder(
       column: $table.roomId, builder: (column) => ColumnFilters(column));
@@ -928,6 +986,10 @@ class $$MessagesTableOrderingComposer
   ColumnOrderings<String> get serverUrl => $composableBuilder(
       column: $table.serverUrl, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<int> get accountUserId => $composableBuilder(
+      column: $table.accountUserId,
+      builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<int> get roomId => $composableBuilder(
       column: $table.roomId, builder: (column) => ColumnOrderings(column));
 
@@ -969,6 +1031,9 @@ class $$MessagesTableAnnotationComposer
 
   GeneratedColumn<String> get serverUrl =>
       $composableBuilder(column: $table.serverUrl, builder: (column) => column);
+
+  GeneratedColumn<int> get accountUserId => $composableBuilder(
+      column: $table.accountUserId, builder: (column) => column);
 
   GeneratedColumn<int> get roomId =>
       $composableBuilder(column: $table.roomId, builder: (column) => column);
@@ -1020,6 +1085,7 @@ class $$MessagesTableTableManager extends RootTableManager<
           updateCompanionCallback: ({
             Value<int> id = const Value.absent(),
             Value<String> serverUrl = const Value.absent(),
+            Value<int> accountUserId = const Value.absent(),
             Value<int> roomId = const Value.absent(),
             Value<int> senderId = const Value.absent(),
             Value<String> type = const Value.absent(),
@@ -1033,6 +1099,7 @@ class $$MessagesTableTableManager extends RootTableManager<
               MessagesCompanion(
             id: id,
             serverUrl: serverUrl,
+            accountUserId: accountUserId,
             roomId: roomId,
             senderId: senderId,
             type: type,
@@ -1046,6 +1113,7 @@ class $$MessagesTableTableManager extends RootTableManager<
           createCompanionCallback: ({
             required int id,
             Value<String> serverUrl = const Value.absent(),
+            Value<int> accountUserId = const Value.absent(),
             required int roomId,
             required int senderId,
             required String type,
@@ -1059,6 +1127,7 @@ class $$MessagesTableTableManager extends RootTableManager<
               MessagesCompanion.insert(
             id: id,
             serverUrl: serverUrl,
+            accountUserId: accountUserId,
             roomId: roomId,
             senderId: senderId,
             type: type,

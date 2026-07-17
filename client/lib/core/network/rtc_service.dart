@@ -1,10 +1,50 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import 'ws_service.dart';
 
 enum RtcConnectionState { disconnected, connecting, connected, reconnecting }
+
+/// Applies threshold hysteresis and a short silence hold to raw microphone
+/// levels so natural pauses do not repeatedly restart the speaking indicator.
+class VoiceActivityDetector {
+  VoiceActivityDetector({
+    this.startThreshold = 0.018,
+    this.stopThreshold = 0.008,
+    this.silenceSamplesToStop = 5,
+  });
+
+  final double startThreshold;
+  final double stopThreshold;
+  final int silenceSamplesToStop;
+  bool _speaking = false;
+  int _silentSamples = 0;
+
+  bool get speaking => _speaking;
+
+  bool update(double level) {
+    if (level > startThreshold) {
+      _speaking = true;
+      _silentSamples = 0;
+    } else if (_speaking && level < stopThreshold) {
+      _silentSamples++;
+      if (_silentSamples >= silenceSamplesToStop) {
+        _speaking = false;
+        _silentSamples = 0;
+      }
+    } else if (_speaking) {
+      _silentSamples = 0;
+    }
+    return _speaking;
+  }
+
+  void reset() {
+    _speaking = false;
+    _silentSamples = 0;
+  }
+}
 
 class RtcParticipant {
   const RtcParticipant({
@@ -64,11 +104,16 @@ class RtcService {
   RTCPeerConnection? _pc;
   MediaStream? _localStream;
   Timer? _speakerTimer;
+  Future<void>? _connectOperation;
+  int? _connectingRoomId;
   bool _negotiating = false;
   int _generation = 0;
   int? _connectedRoomId;
-  bool _lastSpeaking = false;
+  final VoiceActivityDetector _voiceActivity = VoiceActivityDetector();
+  bool _speakerSampleInProgress = false;
   bool _microphoneEnabled = false;
+  double? _previousAudioEnergy;
+  double? _previousAudioDuration;
   bool _localDescriptionSignaled = false;
   bool _remoteDescriptionSet = false;
   Map<String, dynamic>? _queuedRemoteOffer;
@@ -103,7 +148,27 @@ class RtcService {
   Stream<String> get errorStream => _errorController.stream;
   Stream<Set<int>> get speakingUsersStream => _speakingUsersController.stream;
 
-  Future<void> connect({required int roomId}) async {
+  Future<void> connect({required int roomId}) {
+    final existing = _connectOperation;
+    if (_connectingRoomId == roomId && existing != null) return existing;
+
+    final operation = _connect(roomId);
+    _connectingRoomId = roomId;
+    _connectOperation = operation;
+    unawaited(operation.then<void>(
+      (_) => _clearConnectOperation(operation),
+      onError: (_, __) => _clearConnectOperation(operation),
+    ));
+    return operation;
+  }
+
+  void _clearConnectOperation(Future<void> operation) {
+    if (!identical(_connectOperation, operation)) return;
+    _connectOperation = null;
+    _connectingRoomId = null;
+  }
+
+  Future<void> _connect(int roomId) async {
     if (_connectedRoomId == roomId && _pc != null && isConnected) return;
     final generation = ++_generation;
     await _closePeer(sendLeave: _connectedRoomId != null);
@@ -318,8 +383,8 @@ class RtcService {
         _microphoneEnabled = previous;
         throw const WsUnavailableException('麦克风状态同步失败，请重试');
       }
-      if (!enabled && _lastSpeaking) {
-        _lastSpeaking = false;
+      if (!enabled && _voiceActivity.speaking) {
+        _voiceActivity.reset();
         _ws.sendEvent('rtc.speaking',
             roomId: roomId, payload: {'speaking': false});
       }
@@ -328,12 +393,17 @@ class RtcService {
 
   Future<void> disconnect() async {
     _generation++;
-    await _closePeer(sendLeave: true);
+    final roomId = _connectedRoomId;
     _connectedRoomId = null;
     _participants = const [];
-    _participantsController.add(const []);
-    _speakingUsersController.add(const {});
+    if (!_participantsController.isClosed) {
+      _participantsController.add(const []);
+    }
+    if (!_speakingUsersController.isClosed) {
+      _speakingUsersController.add(const {});
+    }
     _setState(RtcConnectionState.disconnected);
+    await _closePeer(sendLeave: roomId != null, roomIdOverride: roomId);
   }
 
   Future<void> _handleAnswer(Map<String, dynamic> payload) async {
@@ -427,36 +497,100 @@ class RtcService {
 
   void _startSpeakerMonitor() {
     _speakerTimer?.cancel();
+    _previousAudioEnergy = null;
+    _previousAudioDuration = null;
     _speakerTimer =
-        Timer.periodic(const Duration(milliseconds: 400), (_) async {
+        Timer.periodic(const Duration(milliseconds: 200), (_) async {
       final pc = _pc;
       final roomId = _connectedRoomId;
-      if (pc == null || roomId == null || !isMicrophoneEnabled) return;
+      if (pc == null ||
+          roomId == null ||
+          !isMicrophoneEnabled ||
+          _speakerSampleInProgress) {
+        return;
+      }
+      _speakerSampleInProgress = true;
       try {
         final reports = await pc.getStats();
         double level = 0;
+        double totalEnergy = 0;
+        double totalDuration = 0;
         for (final report in reports) {
-          final value = report.values['audioLevel'];
-          if (value is num && value.toDouble() > level) {
-            level = value.toDouble();
+          final values = report.values;
+          if (!_isLocalAudioReport(values, report.type)) continue;
+
+          final standardLevel = _readStatNumber(values['audioLevel']);
+          if (standardLevel != null) {
+            level = math.max(level, standardLevel.clamp(0.0, 1.0));
+          }
+
+          final legacyLevel = _readStatNumber(values['googAudioInputLevel']);
+          if (legacyLevel != null) {
+            level = math.max(level, (legacyLevel / 32767).clamp(0.0, 1.0));
+          }
+
+          final energy = _readStatNumber(values['totalAudioEnergy']);
+          final duration = _readStatNumber(values['totalSamplesDuration']);
+          if (energy != null && duration != null) {
+            totalEnergy += energy;
+            totalDuration += duration;
           }
         }
-        final speaking = level > 0.015;
-        if (speaking != _lastSpeaking) {
-          _lastSpeaking = speaking;
+
+        final previousEnergy = _previousAudioEnergy;
+        final previousDuration = _previousAudioDuration;
+        if (totalDuration > 0) {
+          _previousAudioEnergy = totalEnergy;
+          _previousAudioDuration = totalDuration;
+          if (previousEnergy != null && previousDuration != null) {
+            final energyDelta = totalEnergy - previousEnergy;
+            final durationDelta = totalDuration - previousDuration;
+            if (energyDelta >= 0 && durationDelta > 0) {
+              level = math.max(level, math.sqrt(energyDelta / durationDelta));
+            }
+          }
+        }
+        final wasSpeaking = _voiceActivity.speaking;
+        final speaking = _voiceActivity.update(level);
+        if (speaking != wasSpeaking) {
           _ws.sendEvent('rtc.speaking',
               roomId: roomId, payload: {'speaking': speaking});
         }
       } catch (_) {
         // Audio level is optional on some desktop WebRTC backends.
+      } finally {
+        _speakerSampleInProgress = false;
       }
     });
   }
 
-  Future<void> _closePeer({required bool sendLeave}) async {
+  double? _readStatNumber(dynamic value) {
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
+  }
+
+  bool _isLocalAudioReport(Map<dynamic, dynamic> values, String reportType) {
+    final kind = (values['kind'] ?? values['mediaType'])?.toString();
+    if (kind != null && kind != 'audio') return false;
+
+    final type =
+        reportType.isNotEmpty ? reportType : values['type']?.toString();
+    if (type == 'inbound-rtp' || values['remoteSource'] == true) return false;
+    return type == null ||
+        type == 'media-source' ||
+        type == 'outbound-rtp' ||
+        type == 'sender' ||
+        type == 'track';
+  }
+
+  Future<void> _closePeer({
+    required bool sendLeave,
+    int? roomIdOverride,
+  }) async {
     _speakerTimer?.cancel();
     _speakerTimer = null;
-    final roomId = _connectedRoomId;
+    final roomId = roomIdOverride ?? _connectedRoomId;
     if (sendLeave && roomId != null) {
       _ws.sendEvent('rtc.leave', roomId: roomId);
     }
@@ -464,12 +598,22 @@ class RtcService {
     final stream = _localStream;
     _pc = null;
     _localStream = null;
+    _voiceActivity.reset();
+    _speakerSampleInProgress = false;
     _microphoneEnabled = false;
+    _previousAudioEnergy = null;
+    _previousAudioDuration = null;
     _localDescriptionSignaled = false;
     _remoteDescriptionSet = false;
     _pendingLocalCandidates.clear();
     _pendingRemoteCandidates.clear();
     _queuedRemoteOffer = null;
+    if (pc != null) {
+      pc.onConnectionState = null;
+      pc.onIceConnectionState = null;
+      pc.onIceCandidate = null;
+      pc.onTrack = null;
+    }
     for (final track in stream?.getTracks() ?? const <MediaStreamTrack>[]) {
       await track.stop();
     }

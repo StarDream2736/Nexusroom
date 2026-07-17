@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 
-/// A sidebar navigation item with hover highlight and an active indicator bar.
+/// Compact navigation row with a quiet selected surface.
 class SidebarItem extends StatefulWidget {
   const SidebarItem({
     super.key,
@@ -40,36 +40,41 @@ class _SidebarItemState extends State<SidebarItem> {
         child: AnimatedContainer(
           duration: AppTheme.durationHover,
           curve: AppTheme.curveStandard,
-          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
           decoration: BoxDecoration(
             color: isActive
-                ? AppColors.selectedOverlay
+                ? context.colors.selectedOverlay
                 : _hovered
-                    ? AppColors.hoverOverlay
+                    ? context.colors.hoverOverlay
                     : Colors.transparent,
             borderRadius: AppTheme.radiusButton,
+            border: isActive
+                ? Border.all(color: context.colors.border)
+                : Border.all(color: Colors.transparent),
           ),
           child: Row(
             children: [
-              // Active indicator bar
               AnimatedContainer(
                 duration: AppTheme.durationHover,
-                width: 3,
-                height: isActive ? 16 : 0,
-                margin: const EdgeInsets.only(right: 8),
+                width: 28,
+                height: 28,
+                alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: isActive ? AppColors.primary : Colors.transparent,
-                  borderRadius: BorderRadius.circular(2),
+                  color: isActive
+                      ? context.colors.primary
+                      : context.colors.cardHover,
+                  borderRadius: BorderRadius.circular(7),
+                ),
+                child: Icon(
+                  widget.icon,
+                  size: 15,
+                  color: isActive
+                      ? context.colors.onPrimary
+                      : context.colors.textSecondary,
                 ),
               ),
-              Icon(
-                widget.icon,
-                size: 16,
-                color:
-                    isActive ? AppColors.textPrimary : AppColors.textSecondary,
-              ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 9),
               Expanded(
                 child: Text(
                   widget.label,
@@ -77,8 +82,8 @@ class _SidebarItemState extends State<SidebarItem> {
                     fontSize: 13,
                     fontWeight: isActive ? FontWeight.w500 : FontWeight.w400,
                     color: isActive
-                        ? AppColors.textPrimary
-                        : AppColors.textSecondary,
+                        ? context.colors.textPrimary
+                        : context.colors.textSecondary,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),

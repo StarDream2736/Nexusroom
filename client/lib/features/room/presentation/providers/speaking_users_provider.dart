@@ -3,78 +3,123 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/network/rtc_service.dart';
+import '../../../../core/network/ws_service.dart';
 import '../../../../core/providers/app_providers.dart';
 
-/// 当前正在说话的用户 ID 集合（基于 NexusRoom RTC 音频级别检测）
-final speakingUsersProvider = StreamProvider<Set<int>>((ref) {
+/// Speaking users scoped to one room. A new room always starts empty so state
+/// from the previous RTC session cannot leak into its member list.
+final speakingUsersProvider =
+    StreamProvider.family<Set<int>, int>((ref, roomId) {
   final rtc = ref.watch(rtcServiceProvider);
-  return rtc.speakingUsersStream;
+  final controller = StreamController<Set<int>>();
+
+  void publishCurrent() {
+    if (controller.isClosed) return;
+    controller.add(
+      rtc.connectedRoomId == roomId ? rtc.currentSpeakers : const <int>{},
+    );
+  }
+
+  publishCurrent();
+  final speakingSub = rtc.speakingUsersStream.listen((users) {
+    if (!controller.isClosed) {
+      controller.add(rtc.connectedRoomId == roomId ? users : const <int>{});
+    }
+  });
+  final connectionSub = rtc.connectionStateStream.listen((state) {
+    if (state != RtcConnectionState.connected ||
+        rtc.connectedRoomId != roomId) {
+      if (!controller.isClosed) controller.add(const <int>{});
+    }
+  });
+
+  ref.onDispose(() async {
+    await speakingSub.cancel();
+    await connectionSub.cancel();
+    await controller.close();
+  });
+  return controller.stream;
 });
 
-/// 当前房间 ID（由 RightPanel / RoomDetailPage 设置）
-final activeRoomIdProvider = StateProvider<int?>((ref) => null);
-
-/// 当前房间在线用户 ID 集合（基于 WS 事件 + REST API fallback）
-final onlineUsersProvider = StreamProvider<Set<int>>((ref) {
-  final roomId = ref.watch(activeRoomIdProvider);
-  if (roomId == null) return const Stream.empty();
-
+/// Online users scoped to one room. WebSocket events update immediately while
+/// REST refreshes repair any missed event without overwriting newer changes.
+final onlineUsersProvider = StreamProvider.family<Set<int>, int>((ref, roomId) {
   final ws = ref.watch(wsServiceProvider);
   final roomRepo = ref.watch(roomRepositoryProvider);
-
   final controller = StreamController<Set<int>>();
-  final onlineSet = <int>{};
+  final online = <int>{};
+  var revision = 0;
 
-  // 初始化：从 REST API 获取在线用户列表
-  roomRepo.getOnlineUsers(roomId).then((users) {
-    onlineSet
-      ..clear()
-      ..addAll(users);
-    if (!controller.isClosed) controller.add(Set.from(onlineSet));
-  }).catchError((e) {
-    debugPrint('[onlineUsersProvider] REST API failed: $e');
-  });
+  void publish() {
+    if (!controller.isClosed) controller.add(Set.unmodifiable(online));
+  }
 
-  // 监听 WS member_join 事件
-  final joinSub = ws.on('room.member_join').listen((payload) {
-    final eventRoomId = payload['room_id'] as int?;
-    if (eventRoomId != null && eventRoomId != roomId) return;
-    final userId = payload['user_id'] as int?;
-    if (userId != null) {
-      onlineSet.add(userId);
-      if (!controller.isClosed) controller.add(Set.from(onlineSet));
-    }
-  });
-
-  // 监听 WS member_leave 事件
-  final leaveSub = ws.on('room.member_leave').listen((payload) {
-    final eventRoomId = payload['room_id'] as int?;
-    if (eventRoomId != null && eventRoomId != roomId) return;
-    final userId = payload['user_id'] as int?;
-    if (userId != null) {
-      onlineSet.remove(userId);
-      if (!controller.isClosed) controller.add(Set.from(onlineSet));
-    }
-  });
-
-  // 定期刷新（10 秒）作为 fallback
-  final timer = Timer.periodic(const Duration(seconds: 10), (_) {
-    roomRepo.getOnlineUsers(roomId).then((users) {
-      onlineSet
+  Future<void> refresh() async {
+    final startedAtRevision = revision;
+    try {
+      final users = await roomRepo.getOnlineUsers(roomId);
+      if (controller.isClosed || startedAtRevision != revision) return;
+      online
         ..clear()
         ..addAll(users);
-      if (!controller.isClosed) controller.add(Set.from(onlineSet));
-    }).catchError((e) {
-      debugPrint('[onlineUsersProvider] periodic refresh failed: $e');
-    });
+      publish();
+    } catch (error) {
+      debugPrint('[onlineUsersProvider] refresh failed: $error');
+    }
+  }
+
+  void setOnline(int userId, bool value) {
+    revision++;
+    if (value) {
+      online.add(userId);
+    } else {
+      online.remove(userId);
+    }
+    publish();
+  }
+
+  publish();
+  unawaited(refresh());
+
+  final joinedSub = ws.on('room.joined').listen((payload) {
+    if ((payload['room_id'] as num?)?.toInt() != roomId) return;
+    final userId = ref.read(appSettingsProvider).valueOrNull?.userId;
+    if (userId != null) setOnline(userId, true);
+    unawaited(refresh());
+  });
+  final joinSub = ws.on('room.member_join').listen((payload) {
+    if ((payload['room_id'] as num?)?.toInt() != roomId) return;
+    final userId = (payload['user_id'] as num?)?.toInt();
+    if (userId != null) setOnline(userId, true);
+  });
+  final leaveSub = ws.on('room.member_leave').listen((payload) {
+    if ((payload['room_id'] as num?)?.toInt() != roomId) return;
+    final userId = (payload['user_id'] as num?)?.toInt();
+    if (userId != null) setOnline(userId, false);
+  });
+  final stateSub = ws.stateStream.listen((state) {
+    revision++;
+    if (state == WsConnectionState.connected) {
+      unawaited(refresh());
+    } else if (state == WsConnectionState.disconnected) {
+      online.clear();
+      publish();
+    }
+  });
+  final timer = Timer.periodic(const Duration(seconds: 5), (_) {
+    if (ws.connectionState == WsConnectionState.connected) {
+      unawaited(refresh());
+    }
   });
 
-  ref.onDispose(() {
-    joinSub.cancel();
-    leaveSub.cancel();
+  ref.onDispose(() async {
     timer.cancel();
-    controller.close();
+    await joinedSub.cancel();
+    await joinSub.cancel();
+    await leaveSub.cancel();
+    await stateSub.cancel();
+    await controller.close();
   });
-
   return controller.stream;
 });

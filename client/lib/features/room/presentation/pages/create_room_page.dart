@@ -62,9 +62,10 @@ class _CreateRoomPageState extends ConsumerState<CreateRoomPage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('创建新房间', style: AppTypography.h1),
+              Text('创建新房间', style: AppTypography.h1(context)),
               const SizedBox(height: 6),
-              Text('创建一个房间，邀请好友加入', style: AppTypography.bodySecondary),
+              Text('创建一个房间，邀请好友加入',
+                  style: AppTypography.bodySecondary(context)),
               const SizedBox(height: 28),
               TextFormField(
                 controller: _nameController,

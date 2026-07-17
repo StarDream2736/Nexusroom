@@ -4,13 +4,14 @@ import '../../../../core/db/app_database.dart';
 import '../../../../core/providers/app_providers.dart';
 
 /// Family key: (roomId, serverUrl)
-typedef MessageKey = ({int roomId, String serverUrl});
+typedef MessageKey = ({int roomId, String serverUrl, int accountUserId});
 
 final messagesStreamProvider = StreamProvider.family<List<Message>, MessageKey>(
   (ref, key) {
     return ref.watch(appDatabaseProvider).messagesDao.watchByRoom(
           key.roomId,
           key.serverUrl,
+          key.accountUserId,
         );
   },
 );

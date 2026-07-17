@@ -22,6 +22,7 @@ class AppSettingsController extends StateNotifier<AsyncValue<AppSettings>> {
       final avatarUrl = await _repository.getAvatarUrl();
       final audioInputDeviceId = await _repository.getAudioInputDeviceId();
       final audioOutputDeviceId = await _repository.getAudioOutputDeviceId();
+      final colorMode = await _repository.getColorMode();
       state = AsyncValue.data(AppSettings(
         serverUrl: serverUrl,
         token: token,
@@ -32,6 +33,7 @@ class AppSettingsController extends StateNotifier<AsyncValue<AppSettings>> {
         avatarUrl: avatarUrl,
         audioInputDeviceId: audioInputDeviceId,
         audioOutputDeviceId: audioOutputDeviceId,
+        colorMode: AppColorMode.fromStorage(colorMode),
       ));
     } catch (error, stackTrace) {
       state = AsyncValue.error(error, stackTrace);
@@ -89,6 +91,11 @@ class AppSettingsController extends StateNotifier<AsyncValue<AppSettings>> {
     await _load();
   }
 
+  Future<void> setColorMode(AppColorMode colorMode) async {
+    await _repository.setColorMode(colorMode.name);
+    await _load();
+  }
+
   Future<void> clearAuth() async {
     await _repository.clearAuth();
     await _load();
@@ -99,4 +106,6 @@ class AppSettingsController extends StateNotifier<AsyncValue<AppSettings>> {
     await _repository.clearAll();
     await _load();
   }
+
+  Future<void> reload() => _load();
 }

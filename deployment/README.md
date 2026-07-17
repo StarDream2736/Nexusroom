@@ -1,44 +1,7 @@
-# NexusRoom deployment
+# Deployment
 
-NexusRoom now runs as one server process. SQLite, WebSocket signaling, the voice SFU, RTMP ingest, HTTP-FLV/WebRTC playback, TURN, embedded web pages, and WireGuard coordination are all first-party modules in the same binary.
+此目录只保存 NexusRoom 的 Docker、systemd、安装脚本和配置模板。
 
-No PostgreSQL, Redis, nginx, LiveKit server, or SRS server is required.
-
-## Docker deployment
-
-```bash
-cd deployment
-chmod +x scripts/*.sh
-./scripts/install.sh
-```
-
-The installer creates `config/server.yaml`, persists application state below `data/`, builds the local server source, and starts one `nexusroom` container.
-
-If host port `8080` is already occupied, set `NEXUSROOM_HTTP_PORT` in `deployment/.env`, for example `NEXUSROOM_HTTP_PORT=18080`. This changes only the host-side HTTP port.
-
-The TURN relay mapping follows `NEXUSROOM_TURN_RELAY_PORT_RANGE` and must match `media.turn.relay_port_min`/`relay_port_max` in `config/server.yaml`. This is useful on Windows hosts where the default range may overlap dynamic system ports.
-
-## Direct Linux deployment
-
-Install Go 1.25+, GCC, WireGuard tools, iproute2, and iptables first. Then run:
-
-```bash
-cd deployment
-chmod +x scripts/*.sh
-sudo ./scripts/install-direct.sh
-```
-
-The direct installer builds the same source, installs `/usr/local/bin/nexusroom`, writes `/etc/nexusroom/config.yaml`, stores state in `/var/lib/nexusroom`, and enables `nexusroom.service`.
-
-## Network ports
-
-| Port | Purpose |
-| --- | --- |
-| `8080/tcp` | API, WebSocket, embedded web player, HTTP-FLV |
-| `1935/tcp` | RTMP ingest |
-| `3478/udp` | STUN/TURN |
-| `50000-50050/udp` | direct WebRTC media |
-| `51000-51100/udp` | TURN relay allocation |
-| `51820/udp` | WireGuard |
-
-Keep `config/server.yaml` private because it contains JWT, administrator, and TURN credentials. Back up `data/nexusroom.db` and `data/uploads/`.
+- [安装与部署指南](../docs/guides/deployment.md)
+- [服务端编译与打包](../docs/build/server-build.md)
+- [完整技术规范](../docs/NexusRoom.md)

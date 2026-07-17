@@ -51,7 +51,7 @@ class _ServerSetupPageState extends ConsumerState<ServerSetupPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: context.colors.background,
       body: Column(
         children: [
           const TitleBar(),
@@ -66,15 +66,16 @@ class _ServerSetupPageState extends ConsumerState<ServerSetupPage> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const Icon(Icons.chat_bubble_outline,
-                          size: 52, color: AppColors.accent),
+                      Icon(Icons.chat_bubble_outline,
+                          size: 52, color: context.colors.accent),
                       const SizedBox(height: 18),
                       Text('NexusRoom',
-                          textAlign: TextAlign.center, style: AppTypography.h1),
+                          textAlign: TextAlign.center,
+                          style: AppTypography.h1(context)),
                       const SizedBox(height: 6),
                       Text('配置您的服务器',
                           textAlign: TextAlign.center,
-                          style: AppTypography.bodySecondary),
+                          style: AppTypography.bodySecondary(context)),
                       const SizedBox(height: 32),
                       TextFormField(
                         controller: _serverUrlController,
@@ -112,7 +113,7 @@ class _ServerSetupPageState extends ConsumerState<ServerSetupPage> {
                           textAlign: TextAlign.center,
                           style: TextStyle(
                               fontSize: AppTypography.sizeCaption,
-                              color: AppColors.textMuted)),
+                              color: context.colors.textMuted)),
                     ],
                   ),
                 ),

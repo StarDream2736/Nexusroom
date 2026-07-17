@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -157,7 +156,7 @@ class _FriendsPageState extends ConsumerState<FriendsPage>
           // ─── Header row ─────────────────────────────────
           Row(
             children: [
-              Expanded(child: Text('好友', style: AppTypography.h1)),
+              Expanded(child: Text('好友', style: AppTypography.h1(context))),
               _MiniIcon(
                   icon: Icons.person_add,
                   tooltip: '添加好友',
@@ -175,13 +174,13 @@ class _FriendsPageState extends ConsumerState<FriendsPage>
             child: TabBar(
               controller: _tabController,
               indicator: BoxDecoration(
-                color: AppColors.cardHover,
+                color: context.colors.cardHover,
                 borderRadius: BorderRadius.circular(6),
               ),
               indicatorSize: TabBarIndicatorSize.tab,
               dividerColor: Colors.transparent,
-              labelColor: AppColors.textPrimary,
-              unselectedLabelColor: AppColors.textMuted,
+              labelColor: context.colors.textPrimary,
+              unselectedLabelColor: context.colors.textMuted,
               labelStyle: const TextStyle(
                   fontSize: AppTypography.sizeBody,
                   fontWeight: FontWeight.w500),
@@ -213,7 +212,8 @@ class _FriendsPageState extends ConsumerState<FriendsPage>
   Widget _buildFriendsList() {
     final baseUrl = ref.watch(appSettingsProvider).value?.serverUrl;
     if (_friends.isEmpty) {
-      return Center(child: Text('暂无好友', style: AppTypography.bodySecondary));
+      return Center(
+          child: Text('暂无好友', style: AppTypography.bodySecondary(context)));
     }
     return ListView.builder(
       itemCount: _friends.length,
@@ -233,7 +233,8 @@ class _FriendsPageState extends ConsumerState<FriendsPage>
   Widget _buildPendingList() {
     final baseUrl = ref.watch(appSettingsProvider).value?.serverUrl;
     if (_pendingRequests.isEmpty) {
-      return Center(child: Text('暂无待处理申请', style: AppTypography.bodySecondary));
+      return Center(
+          child: Text('暂无待处理申请', style: AppTypography.bodySecondary(context)));
     }
     return ListView.builder(
       itemCount: _pendingRequests.length,
@@ -281,10 +282,12 @@ class _MiniIconState extends State<_MiniIcon> {
             curve: Curves.easeOutCubic,
             padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
-              color: _hovered ? AppColors.hoverOverlay : Colors.transparent,
+              color:
+                  _hovered ? context.colors.hoverOverlay : Colors.transparent,
               borderRadius: BorderRadius.circular(6),
             ),
-            child: Icon(widget.icon, size: 16, color: AppColors.textSecondary),
+            child: Icon(widget.icon,
+                size: 16, color: context.colors.textSecondary),
           ),
         ),
       ),
@@ -320,20 +323,21 @@ class _FriendTileState extends State<_FriendTile> {
         margin: const EdgeInsets.only(bottom: 2),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
-          color: _hovered ? AppColors.hoverOverlay : Colors.transparent,
+          color: _hovered ? context.colors.hoverOverlay : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
         ),
         child: Row(
           children: [
             CircleAvatar(
               radius: 16,
-              backgroundColor: AppColors.cardActive,
+              backgroundColor: context.colors.cardActive,
               backgroundImage:
                   widget.avatarUrl != null && widget.avatarUrl!.isNotEmpty
-                      ? CachedNetworkImageProvider(widget.avatarUrl!)
+                      ? NetworkImage(widget.avatarUrl!)
                       : null,
               child: widget.avatarUrl == null || widget.avatarUrl!.isEmpty
-                  ? Icon(Icons.person, size: 16, color: AppColors.textMuted)
+                  ? Icon(Icons.person,
+                      size: 16, color: context.colors.textMuted)
                   : null,
             ),
             const SizedBox(width: 10),
@@ -344,11 +348,11 @@ class _FriendTileState extends State<_FriendTile> {
                   Text(widget.nickname,
                       style: TextStyle(
                           fontSize: AppTypography.sizeBody,
-                          color: AppColors.textPrimary)),
+                          color: context.colors.textPrimary)),
                   Text('ID: ${widget.displayId}',
                       style: TextStyle(
                           fontSize: AppTypography.sizeMini,
-                          color: AppColors.textMuted)),
+                          color: context.colors.textMuted)),
                 ],
               ),
             ),
@@ -357,8 +361,9 @@ class _FriendTileState extends State<_FriendTile> {
               height: 8,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color:
-                    widget.isOnline ? AppColors.success : AppColors.textMuted,
+                color: widget.isOnline
+                    ? context.colors.success
+                    : context.colors.textMuted,
               ),
             ),
           ],
@@ -398,20 +403,21 @@ class _PendingTileState extends State<_PendingTile> {
         margin: const EdgeInsets.only(bottom: 2),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
-          color: _hovered ? AppColors.hoverOverlay : Colors.transparent,
+          color: _hovered ? context.colors.hoverOverlay : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
         ),
         child: Row(
           children: [
             CircleAvatar(
               radius: 16,
-              backgroundColor: AppColors.cardActive,
+              backgroundColor: context.colors.cardActive,
               backgroundImage:
                   widget.avatarUrl != null && widget.avatarUrl!.isNotEmpty
-                      ? CachedNetworkImageProvider(widget.avatarUrl!)
+                      ? NetworkImage(widget.avatarUrl!)
                       : null,
               child: widget.avatarUrl == null || widget.avatarUrl!.isEmpty
-                  ? Icon(Icons.person, size: 16, color: AppColors.textMuted)
+                  ? Icon(Icons.person,
+                      size: 16, color: context.colors.textMuted)
                   : null,
             ),
             const SizedBox(width: 10),
@@ -422,22 +428,22 @@ class _PendingTileState extends State<_PendingTile> {
                   Text(widget.nickname,
                       style: TextStyle(
                           fontSize: AppTypography.sizeBody,
-                          color: AppColors.textPrimary)),
+                          color: context.colors.textPrimary)),
                   Text('ID: ${widget.displayId}',
                       style: TextStyle(
                           fontSize: AppTypography.sizeMini,
-                          color: AppColors.textMuted)),
+                          color: context.colors.textMuted)),
                 ],
               ),
             ),
             IconButton(
-              icon: const Icon(Icons.check, size: 18, color: AppColors.success),
+              icon: Icon(Icons.check, size: 18, color: context.colors.success),
               tooltip: '接受',
               onPressed: widget.onAccept,
               visualDensity: VisualDensity.compact,
             ),
             IconButton(
-              icon: const Icon(Icons.close, size: 18, color: AppColors.error),
+              icon: Icon(Icons.close, size: 18, color: context.colors.error),
               tooltip: '拒绝',
               onPressed: widget.onReject,
               visualDensity: VisualDensity.compact,

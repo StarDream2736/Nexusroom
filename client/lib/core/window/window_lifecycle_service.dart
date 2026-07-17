@@ -1,28 +1,39 @@
 import 'dart:async';
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../native/screen_capture_service.dart';
+import '../native/wireguard_service.dart';
+import '../network/rtc_service.dart';
+import '../network/ws_service.dart';
 
-/// 窗口生命周期管理：最小化/失焦时暂停视频解码
+/// Coordinates window visibility and bounded native-resource shutdown.
 class WindowLifecycleService with WindowListener {
-  WindowLifecycleService(this._screenCaptureService);
+  WindowLifecycleService(
+    this._screenCaptureService,
+    this._rtcService,
+    this._wsService,
+    this._wireGuardService,
+  );
 
   final ScreenCaptureService _screenCaptureService;
+  final RtcService _rtcService;
+  final WsService _wsService;
+  final WireGuardService _wireGuardService;
   bool _isBackground = false;
   bool _initialized = false;
+  bool _isClosing = false;
   Timer? _blurTimer;
 
   bool get isBackground => _isBackground;
 
   Future<void> init() async {
-    if (_initialized) return; // 防止重复初始化
+    if (_initialized) return;
     _initialized = true;
     await windowManager.ensureInitialized();
     windowManager.addListener(this);
-
-    // 设置窗口属性
     await windowManager.setPreventClose(true);
     await windowManager.setMinimumSize(const Size(900, 600));
   }
@@ -34,39 +45,61 @@ class WindowLifecycleService with WindowListener {
 
   @override
   void onWindowClose() {
-    // Synchronously kill FFmpeg before the window is destroyed.
-    // dispose() calls Process.kill() which is synchronous on Windows.
-    _screenCaptureService.dispose();
-    windowManager.destroy();
+    if (_isClosing) return;
+    _isClosing = true;
+    unawaited(_closeWindow());
   }
 
-  @override
-  void onWindowMinimize() {
-    _enterBackground();
-  }
-
-  @override
-  void onWindowRestore() {
-    _enterForeground();
-  }
-
-  @override
-  void onWindowFocus() {
+  Future<void> _closeWindow() async {
     _blurTimer?.cancel();
-    if (_isBackground) {
-      _enterForeground();
+
+    // Remove the window immediately. Native media cleanup may take hundreds
+    // of milliseconds on Windows and must not hold the visible UI open.
+    try {
+      await windowManager.hide();
+    } catch (error) {
+      debugPrint('[WindowLifecycle] hide failed: $error');
+    }
+
+    _screenCaptureService.dispose();
+    _wsService.disconnect();
+
+    final cleanup = <Future<void>>[
+      _rtcService.disconnect(),
+      if (_wireGuardService.isConnected) _wireGuardService.stopTunnel(),
+    ];
+    try {
+      await Future.wait(cleanup).timeout(const Duration(milliseconds: 1200));
+    } catch (error) {
+      debugPrint('[WindowLifecycle] cleanup timed out or failed: $error');
+    }
+
+    try {
+      await windowManager.setPreventClose(false);
+      await windowManager.destroy();
+    } catch (error) {
+      debugPrint('[WindowLifecycle] destroy failed: $error');
     }
   }
 
   @override
+  void onWindowMinimize() => _enterBackground();
+
+  @override
+  void onWindowRestore() => _enterForeground();
+
+  @override
+  void onWindowFocus() {
+    _blurTimer?.cancel();
+    if (_isBackground) _enterForeground();
+  }
+
+  @override
   void onWindowBlur() {
-    // 失焦时加 1 秒延迟，避免窗口切换过渡期误触发
     _blurTimer?.cancel();
     _blurTimer = Timer(const Duration(seconds: 1), () async {
       final focused = await windowManager.isFocused();
-      if (!focused) {
-        _enterBackground();
-      }
+      if (!focused) _enterBackground();
     });
   }
 

@@ -56,10 +56,17 @@ final wsServiceProvider = Provider<WsService>((ref) {
   debugPrint(
       '[wsServiceProvider] appSettings state: ${settingsState.runtimeType} — loading=${settingsState is AsyncLoading} data=${settingsState.valueOrNull != null}');
   final settings = settingsState.valueOrNull;
-  if (settings != null && settings.hasServerUrl && settings.hasToken) {
+  if (settings != null &&
+      settings.hasServerUrl &&
+      settings.hasToken &&
+      settings.userId != null) {
     debugPrint(
         '[wsServiceProvider] connecting immediately with url=${settings.serverUrl}');
-    service.connect(settings.serverUrl!, settings.token!);
+    service.connect(
+      settings.serverUrl!,
+      settings.token!,
+      accountUserId: settings.userId!,
+    );
   } else {
     debugPrint(
         '[wsServiceProvider] settings not ready, waiting for listen callback');
@@ -70,14 +77,18 @@ final wsServiceProvider = Provider<WsService>((ref) {
     debugPrint(
         '[wsServiceProvider] listen callback: prev=${prev?.runtimeType} next=${next.runtimeType} hasValue=${next.valueOrNull != null}');
     final s = next.valueOrNull;
-    if (s == null || !s.hasServerUrl || !s.hasToken) {
+    if (s == null || !s.hasServerUrl || !s.hasToken || s.userId == null) {
       debugPrint('[wsServiceProvider] settings incomplete, disconnecting');
       service.disconnect();
       return;
     }
     debugPrint(
         '[wsServiceProvider] settings ready, calling connect serverUrl=${s.serverUrl}');
-    service.connect(s.serverUrl!, s.token!);
+    service.connect(
+      s.serverUrl!,
+      s.token!,
+      accountUserId: s.userId!,
+    );
   });
 
   ref.onDispose(service.dispose);
@@ -99,7 +110,12 @@ final rtcServiceProvider = Provider<RtcService>((ref) {
 
 final windowLifecycleServiceProvider = Provider<WindowLifecycleService>((ref) {
   final screenCaptureService = ref.watch(screenCaptureServiceProvider);
-  final service = WindowLifecycleService(screenCaptureService);
+  final service = WindowLifecycleService(
+    screenCaptureService,
+    ref.watch(rtcServiceProvider),
+    ref.watch(wsServiceProvider),
+    ref.watch(wireguardServiceProvider),
+  );
   ref.onDispose(service.dispose);
   return service;
 });

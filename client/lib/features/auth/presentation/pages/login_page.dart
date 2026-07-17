@@ -56,7 +56,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: context.colors.background,
       body: Column(
         children: [
           const TitleBar(),
@@ -72,11 +72,12 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Text('欢迎回来',
-                          textAlign: TextAlign.center, style: AppTypography.h1),
+                          textAlign: TextAlign.center,
+                          style: AppTypography.h1(context)),
                       const SizedBox(height: 6),
                       Text('登录您的 NexusRoom 账号',
                           textAlign: TextAlign.center,
-                          style: AppTypography.bodySecondary),
+                          style: AppTypography.bodySecondary(context)),
                       const SizedBox(height: 32),
                       TextFormField(
                         controller: _usernameController,
@@ -125,7 +126,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Text('还没有账号？', style: AppTypography.bodySecondary),
+                          Text('还没有账号？',
+                              style: AppTypography.bodySecondary(context)),
                           TextButton(
                             onPressed: () => context.push('/register'),
                             child: const Text('立即注册'),
@@ -140,7 +142,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                         },
                         child: Text('更换服务器',
                             style: TextStyle(
-                                fontSize: 12, color: AppColors.textMuted)),
+                                fontSize: 12, color: context.colors.textMuted)),
                       ),
                     ],
                   ),

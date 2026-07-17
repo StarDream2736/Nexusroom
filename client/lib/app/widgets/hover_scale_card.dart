@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 
-/// A restrained hover surface without layout-shifting scale effects.
+/// Pointer-aware action surface without layout-shifting scale effects.
 class HoverScaleCard extends StatefulWidget {
   const HoverScaleCard({
     super.key,
@@ -44,9 +44,12 @@ class _HoverScaleCardState extends State<HoverScaleCard> {
           padding: widget.padding,
           decoration: BoxDecoration(
             color: _hovered
-                ? (widget.hoverColor ?? AppColors.hoverOverlay)
+                ? (widget.hoverColor ?? context.colors.hoverOverlay)
                 : Colors.transparent,
             borderRadius: radius,
+            border: Border.all(
+              color: _hovered ? context.colors.border : Colors.transparent,
+            ),
           ),
           child: widget.child,
         ),

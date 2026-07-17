@@ -1,3 +1,11 @@
+enum AppColorMode {
+  dark,
+  light;
+
+  static AppColorMode fromStorage(String? value) =>
+      value == AppColorMode.light.name ? AppColorMode.light : AppColorMode.dark;
+}
+
 class AppSettings {
   const AppSettings({
     this.serverUrl,
@@ -9,6 +17,7 @@ class AppSettings {
     this.avatarUrl,
     this.audioInputDeviceId,
     this.audioOutputDeviceId,
+    this.colorMode = AppColorMode.dark,
   });
 
   final String? serverUrl;
@@ -20,6 +29,7 @@ class AppSettings {
   final String? avatarUrl;
   final String? audioInputDeviceId;
   final String? audioOutputDeviceId;
+  final AppColorMode colorMode;
 
   bool get hasServerUrl => serverUrl != null && serverUrl!.isNotEmpty;
   bool get hasToken => token != null && token!.isNotEmpty;

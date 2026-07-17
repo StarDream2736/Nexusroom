@@ -24,9 +24,10 @@ class RoomListPage extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const SizedBox(height: 8),
-          Text('欢迎回来', style: AppTypography.h1),
+          Text('欢迎回来', style: AppTypography.h1(context)),
           const SizedBox(height: 4),
-          Text('选择左侧房间进入，或从下方快速操作', style: AppTypography.bodySecondary),
+          Text('选择左侧房间进入，或从下方快速操作',
+              style: AppTypography.bodySecondary(context)),
           const SizedBox(height: 32),
 
           // Quick action cards
@@ -54,18 +55,18 @@ class RoomListPage extends ConsumerWidget {
           const SizedBox(height: 32),
 
           // Room count info
-          _buildRoomInfo(ref),
+          _buildRoomInfo(context, ref),
         ],
       ),
     );
   }
 
-  Widget _buildRoomInfo(WidgetRef ref) {
+  Widget _buildRoomInfo(BuildContext context, WidgetRef ref) {
     final roomsAsync = ref.watch(roomsProvider);
     return roomsAsync.when(
       data: (rooms) => Text(
         '当前加入了 ${rooms.length} 个房间',
-        style: AppTypography.caption,
+        style: AppTypography.caption(context),
       ),
       loading: () => const SizedBox.shrink(),
       error: (_, __) => const SizedBox.shrink(),
@@ -154,15 +155,15 @@ class _QuickActionCard extends StatelessWidget {
               width: 36,
               height: 36,
               decoration: BoxDecoration(
-                color: AppColors.primary.withOpacity(0.12),
+                color: context.colors.primary.withOpacity(0.12),
                 borderRadius: AppTheme.radiusButton,
               ),
-              child: Icon(icon, size: 18, color: AppColors.primary),
+              child: Icon(icon, size: 18, color: context.colors.primary),
             ),
             const SizedBox(height: 12),
-            Text(label, style: AppTypography.h3),
+            Text(label, style: AppTypography.h3(context)),
             const SizedBox(height: 4),
-            Text(description, style: AppTypography.caption),
+            Text(description, style: AppTypography.caption(context)),
           ],
         ),
       ),

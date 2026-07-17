@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -26,16 +25,16 @@ class Sidebar extends ConsumerWidget {
     final settings = ref.watch(appSettingsProvider).valueOrNull;
 
     return Container(
-      width: 220,
+      width: 236,
       decoration: BoxDecoration(
-        color: AppColors.sidebar,
+        color: context.colors.sidebar,
         border: Border(
-          right: BorderSide(color: AppColors.border, width: 1),
+          right: BorderSide(color: context.colors.border, width: 1),
         ),
       ),
       child: Column(
         children: [
-          const SizedBox(height: 4),
+          const SizedBox(height: 8),
 
           // ─── User profile mini-card ──────────────────
           _UserCard(
@@ -50,10 +49,10 @@ class Sidebar extends ConsumerWidget {
 
           // ─── Section header ──────────────────────────
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+            padding: const EdgeInsets.fromLTRB(18, 8, 12, 6),
             child: Row(
               children: [
-                Text('房间', style: AppTypography.sectionHeader),
+                Text('房间', style: AppTypography.sectionHeader(context)),
                 const Spacer(),
                 _MiniIconButton(
                   icon: Icons.home_outlined,
@@ -72,7 +71,8 @@ class Sidebar extends ConsumerWidget {
                   return Center(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
-                      child: Text('暂无房间', style: AppTypography.bodySecondary),
+                      child: Text('暂无房间',
+                          style: AppTypography.bodySecondary(context)),
                     ),
                   );
                 }
@@ -106,14 +106,15 @@ class Sidebar extends ConsumerWidget {
               error: (e, _) => Center(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
-                  child: Text('加载失败', style: AppTypography.bodySecondary),
+                  child:
+                      Text('加载失败', style: AppTypography.bodySecondary(context)),
                 ),
               ),
             ),
           ),
 
           // ─── Divider ─────────────────────────────────
-          Divider(height: 1, color: AppColors.border),
+          Divider(height: 1, color: context.colors.border),
 
           // ─── Bottom nav ──────────────────────────────
           Padding(
@@ -186,25 +187,25 @@ class _UserCardState extends State<_UserCard> {
           margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           decoration: BoxDecoration(
-            color: _hovered ? AppColors.hoverOverlay : Colors.transparent,
+            color: _hovered ? context.colors.hoverOverlay : Colors.transparent,
             borderRadius: AppTheme.radiusButton,
           ),
           child: Row(
             children: [
               CircleAvatar(
                 radius: 14,
-                backgroundColor: AppColors.primary.withOpacity(0.2),
+                backgroundColor: context.colors.primary.withOpacity(0.2),
                 backgroundImage:
                     widget.avatarUrl != null && widget.avatarUrl!.isNotEmpty
-                        ? CachedNetworkImageProvider(widget.avatarUrl!)
+                        ? NetworkImage(widget.avatarUrl!)
                         : null,
                 child: widget.avatarUrl == null || widget.avatarUrl!.isEmpty
                     ? Text(
                         widget.nickname.isNotEmpty ? widget.nickname[0] : '?',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
-                          color: AppColors.primary,
+                          color: context.colors.primary,
                         ),
                       )
                     : null,
@@ -219,7 +220,7 @@ class _UserCardState extends State<_UserCard> {
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w500,
-                        color: AppColors.textPrimary,
+                        color: context.colors.textPrimary,
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -228,7 +229,7 @@ class _UserCardState extends State<_UserCard> {
                         '#${widget.displayId}',
                         style: TextStyle(
                           fontSize: 10,
-                          color: AppColors.textMuted,
+                          color: context.colors.textMuted,
                         ),
                       ),
                   ],
@@ -275,13 +276,14 @@ class _MiniIconButtonState extends State<_MiniIconButton> {
             width: 22,
             height: 22,
             decoration: BoxDecoration(
-              color: _hovered ? AppColors.hoverOverlay : Colors.transparent,
+              color:
+                  _hovered ? context.colors.hoverOverlay : Colors.transparent,
               borderRadius: BorderRadius.circular(5),
             ),
             child: Icon(
               widget.icon,
               size: 14,
-              color: AppColors.textMuted,
+              color: context.colors.textMuted,
             ),
           ),
         ),
@@ -326,9 +328,9 @@ class _BottomNavIconState extends State<_BottomNavIcon> {
             height: 32,
             decoration: BoxDecoration(
               color: widget.selected
-                  ? AppColors.selectedOverlay
+                  ? context.colors.selectedOverlay
                   : _hovered
-                      ? AppColors.hoverOverlay
+                      ? context.colors.hoverOverlay
                       : Colors.transparent,
               borderRadius: AppTheme.radiusSmall,
             ),
@@ -336,8 +338,8 @@ class _BottomNavIconState extends State<_BottomNavIcon> {
               widget.icon,
               size: 18,
               color: widget.selected
-                  ? AppColors.textPrimary
-                  : AppColors.textSecondary,
+                  ? context.colors.textPrimary
+                  : context.colors.textSecondary,
             ),
           ),
         ),

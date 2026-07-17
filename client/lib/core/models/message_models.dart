@@ -52,10 +52,11 @@ class MessageModel {
     return MessageModel.fromApi(json, serverUrl: serverUrl);
   }
 
-  MessagesCompanion toCompanion() {
+  MessagesCompanion toCompanion({required int accountUserId}) {
     return MessagesCompanion(
       id: Value(id),
       serverUrl: Value(serverUrl),
+      accountUserId: Value(accountUserId),
       roomId: Value(roomId),
       senderId: Value(senderId),
       type: Value(type),

@@ -73,6 +73,7 @@ class WsService {
   Timer? _connectTimeoutTimer; // 连接超时看门狗
   String? _serverUrl;
   String? _token;
+  int? _accountUserId;
   List<Map<String, dynamic>> _rtcIceServers = const [];
   bool _shouldReconnect = false;
   int _connectionGeneration = 0;
@@ -117,12 +118,13 @@ class WsService {
     }
   }
 
-  void connect(String serverUrl, String token) {
+  void connect(String serverUrl, String token, {required int accountUserId}) {
     debugPrint(
         '[WsService] connect() called serverUrl=$serverUrl authenticated=${token.isNotEmpty} state=$_state');
 
     if (_serverUrl == serverUrl &&
         _token == token &&
+        _accountUserId == accountUserId &&
         (_state == WsConnectionState.connected ||
             _state == WsConnectionState.connecting)) {
       debugPrint(
@@ -133,6 +135,7 @@ class WsService {
     disconnect();
     _serverUrl = serverUrl;
     _token = token;
+    _accountUserId = accountUserId;
     _shouldReconnect = true;
     _open();
   }
@@ -583,11 +586,14 @@ class WsService {
     if (event == 'chat.message' && payload != null) {
       try {
         debugPrint('[WsService] chat.message payload=$payload');
+        final accountUserId = _accountUserId;
+        if (accountUserId == null) return;
         final message =
             MessageModel.fromWs(payload, serverUrl: _serverUrl ?? '');
         unawaited(
-          _db.messagesDao.upsertMessages([message.toCompanion()]).catchError(
-              (Object error) {
+          _db.messagesDao.upsertMessages([
+            message.toCompanion(accountUserId: accountUserId),
+          ]).catchError((Object error) {
             debugPrint('[WsService] message cache write failed: $error');
           }),
         );

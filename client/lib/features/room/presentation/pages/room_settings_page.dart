@@ -102,7 +102,7 @@ class _RoomSettingsPageState extends ConsumerState<RoomSettingsPage> {
         ),
         TextButton(
           onPressed: () => Navigator.pop(context, true),
-          style: TextButton.styleFrom(foregroundColor: AppColors.error),
+          style: TextButton.styleFrom(foregroundColor: context.colors.error),
           child: const Text('删除'),
         ),
       ],
@@ -140,7 +140,7 @@ class _RoomSettingsPageState extends ConsumerState<RoomSettingsPage> {
         ),
         TextButton(
           onPressed: () => Navigator.pop(context, true),
-          style: TextButton.styleFrom(foregroundColor: AppColors.error),
+          style: TextButton.styleFrom(foregroundColor: context.colors.error),
           child: const Text('退出'),
         ),
       ],
@@ -173,7 +173,7 @@ class _RoomSettingsPageState extends ConsumerState<RoomSettingsPage> {
         ),
         TextButton(
           onPressed: () => Navigator.pop(context, true),
-          style: TextButton.styleFrom(foregroundColor: AppColors.error),
+          style: TextButton.styleFrom(foregroundColor: context.colors.error),
           child: const Text('解散'),
         ),
       ],
@@ -220,7 +220,7 @@ class _RoomSettingsPageState extends ConsumerState<RoomSettingsPage> {
                 visualDensity: VisualDensity.compact,
               ),
               const SizedBox(width: 8),
-              Text('房间设置', style: AppTypography.h1),
+              Text('房间设置', style: AppTypography.h1(context)),
             ],
           ),
           const SizedBox(height: 24),
@@ -247,7 +247,7 @@ class _RoomSettingsPageState extends ConsumerState<RoomSettingsPage> {
           // ─── Ingress section ─────────────────────────────
           Row(
             children: [
-              Expanded(child: Text('推流管理', style: AppTypography.h3)),
+              Expanded(child: Text('推流管理', style: AppTypography.h3(context))),
               ElevatedButton.icon(
                 onPressed: _createIngress,
                 icon: const Icon(Icons.add, size: 16),
@@ -261,8 +261,8 @@ class _RoomSettingsPageState extends ConsumerState<RoomSettingsPage> {
             GlassContainer(
               padding: const EdgeInsets.all(24),
               child: Center(
-                child:
-                    Text('暂无推流入口，点击上方按钮创建', style: AppTypography.bodySecondary),
+                child: Text('暂无推流入口，点击上方按钮创建',
+                    style: AppTypography.bodySecondary(context)),
               ),
             )
           else
@@ -284,7 +284,7 @@ class _RoomSettingsPageState extends ConsumerState<RoomSettingsPage> {
 
           // ─── Danger zone ────────────────────────────────
           const SizedBox(height: 24),
-          Divider(height: 1, color: AppColors.border),
+          Divider(height: 1, color: context.colors.border),
           const SizedBox(height: 16),
 
           if (!isOwner)
@@ -292,12 +292,13 @@ class _RoomSettingsPageState extends ConsumerState<RoomSettingsPage> {
               width: double.infinity,
               child: OutlinedButton.icon(
                 onPressed: _leaveRoom,
-                icon: const Icon(Icons.exit_to_app,
-                    size: 16, color: AppColors.error),
-                label: const Text('退出房间',
-                    style: TextStyle(color: AppColors.error)),
+                icon: Icon(Icons.exit_to_app,
+                    size: 16, color: context.colors.error),
+                label:
+                    Text('退出房间', style: TextStyle(color: context.colors.error)),
                 style: OutlinedButton.styleFrom(
-                  side: BorderSide(color: AppColors.error.withOpacity(0.5)),
+                  side:
+                      BorderSide(color: context.colors.error.withOpacity(0.5)),
                   padding: const EdgeInsets.symmetric(vertical: 12),
                 ),
               ),
@@ -311,7 +312,7 @@ class _RoomSettingsPageState extends ConsumerState<RoomSettingsPage> {
                 icon: const Icon(Icons.delete_forever, size: 16),
                 label: const Text('解散房间'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.error,
+                  backgroundColor: context.colors.error,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 12),
                 ),
@@ -364,12 +365,13 @@ class _IngressCard extends ConsumerWidget {
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: ingress.isActive
-                      ? AppColors.success
-                      : AppColors.textMuted,
+                      ? context.colors.success
+                      : context.colors.textMuted,
                 ),
               ),
               const SizedBox(width: 8),
-              Expanded(child: Text(ingress.label, style: AppTypography.h3)),
+              Expanded(
+                  child: Text(ingress.label, style: AppTypography.h3(context))),
               // Screen capture button
               Tooltip(
                 message: isThisCapturing ? '正在屏幕捕获推流' : '屏幕捕获推流',
@@ -379,16 +381,17 @@ class _IngressCard extends ConsumerWidget {
                         ? Icons.stop_screen_share
                         : Icons.screen_share,
                     size: 18,
-                    color:
-                        isThisCapturing ? AppColors.error : AppColors.primary,
+                    color: isThisCapturing
+                        ? context.colors.error
+                        : context.colors.primary,
                   ),
                   onPressed: () => _openCaptureDialog(context),
                   visualDensity: VisualDensity.compact,
                 ),
               ),
               IconButton(
-                icon: const Icon(Icons.delete_outline,
-                    size: 18, color: AppColors.error),
+                icon: Icon(Icons.delete_outline,
+                    size: 18, color: context.colors.error),
                 onPressed: onDelete,
                 visualDensity: VisualDensity.compact,
               ),
@@ -476,7 +479,7 @@ class _CopyableFieldState extends State<_CopyableField> {
         curve: Curves.easeOutCubic,
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
-          color: _hovered ? AppColors.hoverOverlay : Colors.transparent,
+          color: _hovered ? context.colors.hoverOverlay : Colors.transparent,
           borderRadius: BorderRadius.circular(6),
         ),
         child: Row(
@@ -488,25 +491,26 @@ class _CopyableFieldState extends State<_CopyableField> {
                   Text(widget.label,
                       style: TextStyle(
                           fontSize: AppTypography.sizeCaption,
-                          color: AppColors.textMuted)),
+                          color: context.colors.textMuted)),
                   const SizedBox(height: 2),
                   Text(displayValue,
                       style: TextStyle(
                           fontFamily: 'monospace',
                           fontSize: AppTypography.sizeBody,
-                          color: AppColors.textPrimary)),
+                          color: context.colors.textPrimary)),
                 ],
               ),
             ),
             if (widget.obscure)
               IconButton(
                 icon: Icon(_revealed ? Icons.visibility_off : Icons.visibility,
-                    size: 16, color: AppColors.textSecondary),
+                    size: 16, color: context.colors.textSecondary),
                 onPressed: () => setState(() => _revealed = !_revealed),
                 visualDensity: VisualDensity.compact,
               ),
             IconButton(
-              icon: Icon(Icons.copy, size: 16, color: AppColors.textSecondary),
+              icon: Icon(Icons.copy,
+                  size: 16, color: context.colors.textSecondary),
               onPressed: widget.onCopy,
               visualDensity: VisualDensity.compact,
             ),

@@ -14,6 +14,7 @@ class SettingsRepository {
   static const _avatarUrlKey = 'avatar_url';
   static const _audioInputDeviceIdKey = 'audio_input_device_id';
   static const _audioOutputDeviceIdKey = 'audio_output_device_id';
+  static const _colorModeKey = 'color_mode';
 
   Future<String?> getServerUrl() => _dao.getValue(_serverUrlKey);
   Future<String?> getToken() => _dao.getValue(_tokenKey);
@@ -26,6 +27,7 @@ class SettingsRepository {
       _dao.getValue(_audioInputDeviceIdKey);
   Future<String?> getAudioOutputDeviceId() =>
       _dao.getValue(_audioOutputDeviceIdKey);
+  Future<String?> getColorMode() => _dao.getValue(_colorModeKey);
 
   Future<void> setServerUrl(String value) =>
       _dao.setValue(_serverUrlKey, value);
@@ -41,6 +43,8 @@ class SettingsRepository {
       _dao.setValue(_audioInputDeviceIdKey, value);
   Future<void> setAudioOutputDeviceId(String value) =>
       _dao.setValue(_audioOutputDeviceIdKey, value);
+  Future<void> setColorMode(String value) =>
+      _dao.setValue(_colorModeKey, value);
 
   Future<void> clearAuth() async {
     await _dao.remove(_tokenKey);

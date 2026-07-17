@@ -5,6 +5,7 @@ import 'package:window_manager/window_manager.dart';
 
 import 'app/router/app_router.dart';
 import 'app/theme/app_theme.dart';
+import 'core/models/app_settings.dart';
 import 'core/providers/app_providers.dart';
 
 void main() async {
@@ -63,13 +64,19 @@ class _NexusRoomAppState extends ConsumerState<NexusRoomApp> {
   @override
   Widget build(BuildContext context) {
     final router = ref.watch(appRouterProvider);
+    final colorMode = ref.watch(appSettingsProvider).valueOrNull?.colorMode ??
+        AppColorMode.dark;
+    final brightness =
+        colorMode == AppColorMode.dark ? Brightness.dark : Brightness.light;
+    final theme = AppTheme.forBrightness(brightness);
 
     return MaterialApp.router(
       title: 'NexusRoom',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
-      themeMode: ThemeMode.dark,
+      theme: theme,
+      themeMode: ThemeMode.light,
+      themeAnimationDuration: const Duration(milliseconds: 180),
+      themeAnimationCurve: Curves.easeOutCubic,
       routerConfig: router,
       scrollBehavior: const _DesktopScrollBehavior(),
     );

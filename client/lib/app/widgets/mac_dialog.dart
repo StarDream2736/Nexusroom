@@ -42,11 +42,11 @@ class _MacDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      backgroundColor: AppColors.sidebar,
+      backgroundColor: context.colors.sidebar,
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: AppTheme.radiusStandard,
-        side: AppTheme.subtleBorder,
+        side: AppTheme.subtleBorder(context.colors),
       ),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 400, minWidth: 280),
@@ -62,7 +62,7 @@ class _MacDialog extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
-                  color: AppColors.textPrimary,
+                  color: context.colors.textPrimary,
                 ),
               ),
               if (content != null) ...[
@@ -70,7 +70,7 @@ class _MacDialog extends StatelessWidget {
                 Text(content!,
                     style: TextStyle(
                       fontSize: 13,
-                      color: AppColors.textSecondary,
+                      color: context.colors.textSecondary,
                     )),
               ],
               if (contentWidget != null) ...[

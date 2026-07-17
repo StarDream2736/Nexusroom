@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -76,10 +75,16 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
     // 房间 join/leave 由 AppShell 统一管理，此处不再冗余 join
     final serverUrl =
         ref.read(appSettingsProvider).valueOrNull?.serverUrl ?? '';
+    final accountUserId =
+        ref.read(appSettingsProvider).valueOrNull?.userId ?? 0;
     unawaited(
       ref
           .read(messageRepositoryProvider)
-          .syncLatest(_roomId, serverUrl: serverUrl)
+          .syncLatest(
+            _roomId,
+            serverUrl: serverUrl,
+            accountUserId: accountUserId,
+          )
           .catchError((Object error) {
         debugPrint('[RoomDetail] message sync failed: $error');
       }),
@@ -137,6 +142,7 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
   }
 
   Future<void> _connectRTC() async {
+    final targetRoomId = _roomId;
     // 无论是否复用连接，都必须设置监听器（旧页面 dispose 已 cancel 了旧 subscription）
     await _connectionStateSub?.cancel();
     await _errorSub?.cancel();
@@ -159,7 +165,8 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
       }
     });
 
-    if (_rtcService!.connectedRoomId == _roomId && _rtcService!.isConnected) {
+    if (_rtcService!.connectedRoomId == targetRoomId &&
+        _rtcService!.isConnected) {
       debugPrint(
           '[RTC] Already connected to room $_roomId, reusing connection');
       setState(() {
@@ -169,33 +176,28 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
       return;
     }
 
-    if (mounted) setState(() => _isTogglingMic = true);
     try {
-      await _rtcService!.connect(roomId: _roomId);
-      if (!mounted) return;
+      await _rtcService!.connect(roomId: targetRoomId);
+      if (!mounted || targetRoomId != _roomId) return;
 
-      // 默认静音
-      await _rtcService!.setMicrophoneEnabled(false);
-      if (mounted) {
-        setState(() {
-          _rtcConnected = true;
-          _isMuted = true;
-          _rtcError = null;
-        });
-      }
+      setState(() {
+        _rtcConnected = true;
+        _isMuted = !_rtcService!.isMicrophoneEnabled;
+        _rtcError = null;
+      });
     } catch (e) {
       // RTC 连接失败不阻塞聊天，但在 UI 上显示
       debugPrint('[RTC] Connection failed: $e');
       // 连接失败时主动断开，避免残留旧连接
-      await _rtcService?.disconnect();
-      if (mounted) {
+      if (_rtcService?.connectedRoomId == targetRoomId) {
+        await _rtcService?.disconnect();
+      }
+      if (mounted && targetRoomId == _roomId) {
         setState(() {
           _rtcConnected = false;
           _rtcError = '$e';
         });
       }
-    } finally {
-      if (mounted) setState(() => _isTogglingMic = false);
     }
   }
 
@@ -332,8 +334,13 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
   Widget build(BuildContext context) {
     final roomAsync = ref.watch(roomDetailProvider(_roomId));
     final serverUrl = ref.watch(appSettingsProvider).value?.serverUrl ?? '';
+    final accountUserId = ref.watch(appSettingsProvider).value?.userId ?? 0;
     final messagesAsync = ref.watch(messagesStreamProvider(
-      (roomId: _roomId, serverUrl: serverUrl),
+      (
+        roomId: _roomId,
+        serverUrl: serverUrl,
+        accountUserId: accountUserId,
+      ),
     ));
     final baseUrl = ref.watch(appSettingsProvider).value?.serverUrl;
     final authToken = ref.watch(appSettingsProvider).value?.token;
@@ -358,7 +365,7 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
           decoration: BoxDecoration(
             border: Border(
-              bottom: BorderSide(color: AppColors.border, width: 1),
+              bottom: BorderSide(color: context.colors.border, width: 1),
             ),
           ),
           child: Row(
@@ -371,7 +378,7 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
               const SizedBox(width: 8),
               Text(
                 roomAsync.value?.name ?? '房间',
-                style: AppTypography.h3,
+                style: AppTypography.h3(context),
               ),
               const Spacer(),
               _MiniControl(
@@ -399,10 +406,10 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
                           aspectRatio: 16 / 9,
                           child: Container(
                             decoration: BoxDecoration(
-                              color: AppColors.cardActive,
+                              color: context.colors.cardActive,
                               borderRadius: AppTheme.radiusStandard,
-                              border:
-                                  Border.all(color: AppColors.border, width: 1),
+                              border: Border.all(
+                                  color: context.colors.border, width: 1),
                             ),
                             child: ClipRRect(
                               borderRadius: AppTheme.radiusStandard,
@@ -430,7 +437,8 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
                             if (messages.isEmpty) {
                               return Center(
                                 child: Text('暂无消息',
-                                    style: AppTypography.bodySecondary),
+                                    style:
+                                        AppTypography.bodySecondary(context)),
                               );
                             }
                             return ListView.builder(
@@ -484,7 +492,7 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
                               const Center(child: CircularProgressIndicator()),
                           error: (error, _) => Center(
                               child: Text('消息加载失败: $error',
-                                  style: AppTypography.bodySecondary)),
+                                  style: AppTypography.bodySecondary(context))),
                         ),
                       ),
 
@@ -493,7 +501,8 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
                           border: Border(
-                            top: BorderSide(color: AppColors.border, width: 1),
+                            top: BorderSide(
+                                color: context.colors.border, width: 1),
                           ),
                         ),
                         child: Row(
@@ -517,11 +526,12 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
                               child: TextField(
                                 controller: _messageController,
                                 style: TextStyle(
-                                    fontSize: 13, color: AppColors.textPrimary),
+                                    fontSize: 13,
+                                    color: context.colors.textPrimary),
                                 decoration: InputDecoration(
                                   hintText: '输入消息...',
                                   filled: true,
-                                  fillColor: AppColors.background,
+                                  fillColor: context.colors.background,
                                   contentPadding: const EdgeInsets.symmetric(
                                       horizontal: 14, vertical: 8),
                                   border: OutlineInputBorder(
@@ -531,12 +541,13 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
                                   enabledBorder: OutlineInputBorder(
                                     borderRadius: AppTheme.radiusBubble,
                                     borderSide: BorderSide(
-                                        color: AppColors.border, width: 1),
+                                        color: context.colors.border, width: 1),
                                   ),
                                   focusedBorder: OutlineInputBorder(
                                     borderRadius: AppTheme.radiusBubble,
-                                    borderSide: const BorderSide(
-                                        color: AppColors.primary, width: 1),
+                                    borderSide: BorderSide(
+                                        color: context.colors.primary,
+                                        width: 1),
                                   ),
                                 ),
                                 onSubmitted: (_) => _sendMessage(),
@@ -556,7 +567,7 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
                               icon: Icons.send,
                               tooltip: _isSendingMessage ? '正在发送' : '发送',
                               onTap: _sendMessage,
-                              color: AppColors.primary,
+                              color: context.colors.primary,
                             ),
                           ],
                         ),
@@ -599,16 +610,16 @@ class _RoomDetailPageState extends ConsumerState<RoomDetailPage> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             if (_streamStatus != StreamPlayerStatus.error)
-              const SizedBox(
+              SizedBox(
                 width: 24,
                 height: 24,
                 child: CircularProgressIndicator(
-                    strokeWidth: 2, color: AppColors.primary),
+                    strokeWidth: 2, color: context.colors.primary),
               ),
             if (_streamStatus == StreamPlayerStatus.error)
-              const Icon(Icons.error_outline, size: 40, color: AppColors.error),
+              Icon(Icons.error_outline, size: 40, color: context.colors.error),
             const SizedBox(height: 10),
-            Text(statusText, style: AppTypography.bodySecondary),
+            Text(statusText, style: AppTypography.bodySecondary(context)),
             const SizedBox(height: 8),
             TextButton(
               onPressed: () =>
@@ -803,13 +814,14 @@ class _MiniControlState extends State<_MiniControl> {
             width: 30,
             height: 30,
             decoration: BoxDecoration(
-              color: _hovered ? AppColors.hoverOverlay : Colors.transparent,
+              color:
+                  _hovered ? context.colors.hoverOverlay : Colors.transparent,
               borderRadius: AppTheme.radiusSmall,
             ),
             child: Icon(
               widget.icon,
               size: 16,
-              color: widget.color ?? AppColors.textSecondary,
+              color: widget.color ?? context.colors.textSecondary,
             ),
           ),
         ),
@@ -847,9 +859,9 @@ class _VoiceControlButton extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
-              color: AppColors.cardActive,
+              color: context.colors.cardActive,
               borderRadius: AppTheme.radiusSmall,
-              border: Border.all(color: AppColors.border, width: 1),
+              border: Border.all(color: context.colors.border, width: 1),
             ),
             child: isBusy
                 ? SizedBox(
@@ -857,15 +869,17 @@ class _VoiceControlButton extends StatelessWidget {
                     height: 14,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      color: AppColors.textSecondary,
+                      color: context.colors.textSecondary,
                     ),
                   )
                 : Icon(
                     isMuted ? Icons.mic_off : Icons.mic,
                     size: 14,
                     color: error != null
-                        ? AppColors.error
-                        : (isMuted ? AppColors.error : AppColors.success),
+                        ? context.colors.error
+                        : (isMuted
+                            ? context.colors.error
+                            : context.colors.success),
                   ),
           ),
         ),
@@ -897,18 +911,18 @@ class _ChatBubble extends StatelessWidget {
         children: [
           CircleAvatar(
             radius: 12,
-            backgroundColor: AppColors.primary.withOpacity(0.15),
+            backgroundColor: context.colors.primary.withOpacity(0.15),
             backgroundImage:
                 senderAvatarUrl != null && senderAvatarUrl!.isNotEmpty
-                    ? CachedNetworkImageProvider(senderAvatarUrl!)
+                    ? NetworkImage(senderAvatarUrl!)
                     : null,
             child: senderAvatarUrl == null || senderAvatarUrl!.isEmpty
                 ? Text(
                     sender.isNotEmpty ? sender[0] : '?',
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w600,
-                        color: AppColors.primary),
+                        color: context.colors.primary),
                   )
                 : null,
           ),
@@ -921,7 +935,7 @@ class _ChatBubble extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w500,
-                      color: AppColors.textSecondary,
+                      color: context.colors.textSecondary,
                     )),
                 const SizedBox(height: 2),
                 if (content != null)
@@ -929,13 +943,13 @@ class _ChatBubble extends StatelessWidget {
                     padding:
                         const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     decoration: BoxDecoration(
-                      color: AppColors.cardHover,
+                      color: context.colors.cardHover,
                       borderRadius: AppTheme.radiusBubble,
                     ),
                     child: Text(content!,
                         style: TextStyle(
                           fontSize: 13,
-                          color: AppColors.textPrimary,
+                          color: context.colors.textPrimary,
                         )),
                   ),
                 if (imageUrl != null)
@@ -946,21 +960,27 @@ class _ChatBubble extends StatelessWidget {
                     ),
                     child: ClipRRect(
                       borderRadius: AppTheme.radiusStandard,
-                      child: CachedNetworkImage(
-                        imageUrl: imageUrl!,
+                      child: Image.network(
+                        imageUrl!,
                         fit: BoxFit.contain,
-                        placeholder: (context, url) => const SizedBox(
-                          width: 120,
-                          height: 80,
-                          child: Center(
-                              child: CircularProgressIndicator(strokeWidth: 2)),
-                        ),
-                        errorWidget: (context, url, error) => SizedBox(
+                        loadingBuilder: (context, child, progress) =>
+                            progress == null
+                                ? child
+                                : const SizedBox(
+                                    width: 120,
+                                    height: 80,
+                                    child: Center(
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    ),
+                                  ),
+                        errorBuilder: (context, error, stackTrace) => SizedBox(
                           width: 120,
                           height: 80,
                           child: Center(
                               child: Icon(Icons.broken_image,
-                                  color: AppColors.textSecondary)),
+                                  color: context.colors.textSecondary)),
                         ),
                       ),
                     ),

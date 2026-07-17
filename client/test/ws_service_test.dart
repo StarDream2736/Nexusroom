@@ -25,7 +25,11 @@ void main() {
 
   test('waits for room join and server echo before confirming a message',
       () async {
-    service.connect('http://localhost:8080', 'token');
+    service.connect(
+      'http://localhost:8080',
+      'token',
+      accountUserId: 42,
+    );
     channel.receive({
       'event': 'connected',
       'payload': {
@@ -72,14 +76,18 @@ void main() {
     await send;
     await _waitFor(() async {
       final messages = await database.messagesDao
-          .watchByRoom(7, 'http://localhost:8080')
+          .watchByRoom(7, 'http://localhost:8080', 42)
           .first;
       return messages.length == 1;
     });
   });
 
   test('surfaces a server chat rejection to the caller', () async {
-    service.connect('http://localhost:8080', 'token');
+    service.connect(
+      'http://localhost:8080',
+      'token',
+      accountUserId: 42,
+    );
     channel.receive({
       'event': 'connected',
       'payload': {

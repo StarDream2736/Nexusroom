@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -30,17 +29,17 @@ class RightPanel extends ConsumerWidget {
     final baseUrl = ref.watch(appSettingsProvider).value?.serverUrl;
     final ingressesAsync = ref.watch(roomIngressesProvider(_roomIdInt));
     final selectedIngress = ref.watch(selectedIngressProvider);
-    final speakingUsers = ref.watch(speakingUsersProvider).valueOrNull ?? {};
-    final onlineUsers = ref.watch(onlineUsersProvider).valueOrNull ?? {};
-    // 当前用户自己也算在线
-    final myUserId = ref.watch(appSettingsProvider).valueOrNull?.userId;
+    final speakingUsers =
+        ref.watch(speakingUsersProvider(_roomIdInt)).valueOrNull ?? {};
+    final onlineUsers =
+        ref.watch(onlineUsersProvider(_roomIdInt)).valueOrNull ?? {};
 
     return Container(
-      width: 200,
+      width: 232,
       decoration: BoxDecoration(
-        color: AppColors.sidebar,
+        color: context.colors.sidebar,
         border: Border(
-          left: BorderSide(color: AppColors.border, width: 1),
+          left: BorderSide(color: context.colors.border, width: 1),
         ),
       ),
       child: Column(
@@ -53,27 +52,27 @@ class RightPanel extends ConsumerWidget {
               data: (room) {
                 final totalCount = room.members.length;
                 final onlineCount = room.members
-                    .where((m) =>
-                        onlineUsers.contains(m.userId) || m.userId == myUserId)
+                    .where((m) => onlineUsers.contains(m.userId))
                     .length;
                 return Row(
                   children: [
-                    Text('成员列表', style: AppTypography.sectionHeader),
+                    Text('成员列表', style: AppTypography.sectionHeader(context)),
                     const Spacer(),
                     Text(
                       '$onlineCount/$totalCount',
                       style: TextStyle(
                         fontSize: 11,
-                        color: AppColors.textMuted,
+                        color: context.colors.textMuted,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                   ],
                 );
               },
-              loading: () => Text('成员列表', style: AppTypography.sectionHeader),
+              loading: () =>
+                  Text('成员列表', style: AppTypography.sectionHeader(context)),
               error: (_, __) =>
-                  Text('成员列表', style: AppTypography.sectionHeader),
+                  Text('成员列表', style: AppTypography.sectionHeader(context)),
             ),
           ),
 
@@ -84,16 +83,15 @@ class RightPanel extends ConsumerWidget {
                 if (room.members.isEmpty) {
                   return Padding(
                     padding: const EdgeInsets.all(16),
-                    child: Text('暂无成员', style: AppTypography.bodySecondary),
+                    child: Text('暂无成员',
+                        style: AppTypography.bodySecondary(context)),
                   );
                 }
                 // 按在线状态排序：在线成员在前，离线在后
                 final sorted = [...room.members];
                 sorted.sort((a, b) {
-                  final aOnline =
-                      onlineUsers.contains(a.userId) || a.userId == myUserId;
-                  final bOnline =
-                      onlineUsers.contains(b.userId) || b.userId == myUserId;
+                  final aOnline = onlineUsers.contains(a.userId);
+                  final bOnline = onlineUsers.contains(b.userId);
                   if (aOnline && !bOnline) return -1;
                   if (!aOnline && bOnline) return 1;
                   // 同组内按 owner 优先
@@ -108,9 +106,9 @@ class RightPanel extends ConsumerWidget {
                   itemBuilder: (context, index) {
                     final member = sorted[index];
                     final avatarUrl = _resolveUrl(baseUrl, member.avatarUrl);
-                    final isOnline = onlineUsers.contains(member.userId) ||
-                        member.userId == myUserId;
-                    final isSpeaking = speakingUsers.contains(member.userId);
+                    final isOnline = onlineUsers.contains(member.userId);
+                    final isSpeaking =
+                        isOnline && speakingUsers.contains(member.userId);
                     return _MemberTile(
                       nickname: member.nickname,
                       avatarUrl: avatarUrl,
@@ -129,20 +127,21 @@ class RightPanel extends ConsumerWidget {
               ),
               error: (e, _) => Padding(
                 padding: const EdgeInsets.all(16),
-                child: Text('加载失败', style: AppTypography.bodySecondary),
+                child:
+                    Text('加载失败', style: AppTypography.bodySecondary(context)),
               ),
             ),
           ),
 
           // ─── Divider ──────────────────────────────────
-          Divider(height: 1, color: AppColors.border),
+          Divider(height: 1, color: context.colors.border),
 
           // ─── Stream list ──────────────────────────────
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 10, 8, 4),
             child: Row(
               children: [
-                Text('直播列表', style: AppTypography.sectionHeader),
+                Text('直播列表', style: AppTypography.sectionHeader(context)),
                 const Spacer(),
                 _RefreshButton(
                   onTap: () =>
@@ -160,7 +159,7 @@ class RightPanel extends ConsumerWidget {
                     child: Text('暂无直播',
                         style: TextStyle(
                             fontSize: AppTypography.sizeCaption,
-                            color: AppColors.textMuted)),
+                            color: context.colors.textMuted)),
                   );
                 }
                 return ListView.builder(
@@ -199,13 +198,13 @@ class RightPanel extends ConsumerWidget {
                 child: Text('加载失败',
                     style: TextStyle(
                         fontSize: AppTypography.sizeCaption,
-                        color: AppColors.textMuted)),
+                        color: context.colors.textMuted)),
               ),
             ),
           ),
 
           // ─── Divider ──────────────────────────────────
-          Divider(height: 1, color: AppColors.border),
+          Divider(height: 1, color: context.colors.border),
 
           // ─── VLAN Panel ───────────────────────────────
           Padding(
@@ -253,10 +252,10 @@ class _RefreshButtonState extends State<_RefreshButton> {
           width: 22,
           height: 22,
           decoration: BoxDecoration(
-            color: _hovered ? AppColors.hoverOverlay : Colors.transparent,
+            color: _hovered ? context.colors.hoverOverlay : Colors.transparent,
             borderRadius: BorderRadius.circular(5),
           ),
-          child: Icon(Icons.refresh, size: 13, color: AppColors.textMuted),
+          child: Icon(Icons.refresh, size: 13, color: context.colors.textMuted),
         ),
       ),
     );
@@ -299,14 +298,14 @@ class _StreamTileState extends State<_StreamTile> {
           margin: const EdgeInsets.symmetric(vertical: 1),
           decoration: BoxDecoration(
             color: widget.isSelected
-                ? AppColors.primary.withOpacity(0.15)
+                ? context.colors.primary.withOpacity(0.15)
                 : _hovered
-                    ? AppColors.hoverOverlay
+                    ? context.colors.hoverOverlay
                     : Colors.transparent,
             borderRadius: BorderRadius.circular(6),
             border: widget.isSelected
                 ? Border.all(
-                    color: AppColors.primary.withOpacity(0.4), width: 1)
+                    color: context.colors.primary.withOpacity(0.4), width: 1)
                 : null,
           ),
           child: Row(
@@ -314,7 +313,9 @@ class _StreamTileState extends State<_StreamTile> {
               Icon(
                 Icons.videocam,
                 size: 13,
-                color: widget.isActive ? AppColors.success : AppColors.error,
+                color: widget.isActive
+                    ? context.colors.success
+                    : context.colors.error,
               ),
               const SizedBox(width: 6),
               Expanded(
@@ -323,8 +324,8 @@ class _StreamTileState extends State<_StreamTile> {
                   style: TextStyle(
                     fontSize: 12,
                     color: widget.isSelected
-                        ? AppColors.primary
-                        : AppColors.textPrimary,
+                        ? context.colors.primary
+                        : context.colors.textPrimary,
                     fontWeight:
                         widget.isSelected ? FontWeight.w500 : FontWeight.w400,
                   ),
@@ -332,7 +333,7 @@ class _StreamTileState extends State<_StreamTile> {
                 ),
               ),
               if (widget.isSelected)
-                Icon(Icons.close, size: 12, color: AppColors.textMuted),
+                Icon(Icons.close, size: 12, color: context.colors.textMuted),
             ],
           ),
         ),
@@ -360,41 +361,8 @@ class _MemberTile extends StatefulWidget {
   State<_MemberTile> createState() => _MemberTileState();
 }
 
-class _MemberTileState extends State<_MemberTile>
-    with SingleTickerProviderStateMixin {
+class _MemberTileState extends State<_MemberTile> {
   bool _hovered = false;
-  late final AnimationController _glowCtrl;
-  late final Animation<double> _glowAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _glowCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1000),
-    );
-    _glowAnimation = Tween(begin: 0.3, end: 0.9).animate(
-      CurvedAnimation(parent: _glowCtrl, curve: Curves.easeInOutSine),
-    );
-    if (widget.isSpeaking) _glowCtrl.repeat(reverse: true);
-  }
-
-  @override
-  void didUpdateWidget(covariant _MemberTile old) {
-    super.didUpdateWidget(old);
-    if (widget.isSpeaking && !old.isSpeaking) {
-      _glowCtrl.repeat(reverse: true);
-    } else if (!widget.isSpeaking && old.isSpeaking) {
-      _glowCtrl.stop();
-      _glowCtrl.reset();
-    }
-  }
-
-  @override
-  void dispose() {
-    _glowCtrl.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -409,51 +377,29 @@ class _MemberTileState extends State<_MemberTile>
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
         margin: const EdgeInsets.symmetric(vertical: 1),
         decoration: BoxDecoration(
-          color: _hovered ? AppColors.hoverOverlay : Colors.transparent,
+          color: _hovered ? context.colors.hoverOverlay : Colors.transparent,
           borderRadius: BorderRadius.circular(6),
         ),
         child: Opacity(
           opacity: opacity,
           child: Row(
             children: [
-              // 头像，说话时带绿色发光边框
-              AnimatedBuilder(
-                animation: _glowCtrl,
-                builder: (context, child) {
-                  return Container(
-                    decoration: widget.isSpeaking
-                        ? BoxDecoration(
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: AppColors.success
-                                    .withOpacity(_glowAnimation.value),
-                                blurRadius: 8,
-                                spreadRadius: 1,
-                              ),
-                            ],
-                          )
+              CircleAvatar(
+                radius: 12,
+                backgroundColor: context.colors.cardActive,
+                backgroundImage:
+                    widget.avatarUrl != null && widget.avatarUrl!.isNotEmpty
+                        ? NetworkImage(widget.avatarUrl!)
                         : null,
-                    child: child,
-                  );
-                },
-                child: CircleAvatar(
-                  radius: 12,
-                  backgroundColor: AppColors.cardActive,
-                  backgroundImage:
-                      widget.avatarUrl != null && widget.avatarUrl!.isNotEmpty
-                          ? CachedNetworkImageProvider(widget.avatarUrl!)
-                          : null,
-                  child: widget.avatarUrl == null || widget.avatarUrl!.isEmpty
-                      ? Text(
-                          widget.nickname.isNotEmpty ? widget.nickname[0] : '?',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: AppColors.textSecondary,
-                          ),
-                        )
-                      : null,
-                ),
+                child: widget.avatarUrl == null || widget.avatarUrl!.isEmpty
+                    ? Text(
+                        widget.nickname.isNotEmpty ? widget.nickname[0] : '?',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: context.colors.textSecondary,
+                        ),
+                      )
+                    : null,
               ),
               const SizedBox(width: 8),
               Expanded(
@@ -461,7 +407,7 @@ class _MemberTileState extends State<_MemberTile>
                   widget.nickname,
                   style: TextStyle(
                     fontSize: 12,
-                    color: AppColors.textPrimary,
+                    color: context.colors.textPrimary,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -495,31 +441,32 @@ class _StatusIndicator extends StatefulWidget {
 class _StatusIndicatorState extends State<_StatusIndicator>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
-  late final Animation<double> _opacity;
-  late final Animation<double> _scale;
+  late final Animation<double> _pulse;
 
   @override
   void initState() {
     super.initState();
     _ctrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1200),
+      duration: const Duration(milliseconds: 1000),
     );
-    _opacity = Tween(begin: 0.35, end: 1.0).animate(
+    _pulse = Tween(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _ctrl, curve: Curves.easeInOutSine),
     );
-    _scale = Tween(begin: 0.85, end: 1.15).animate(
-      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOutSine),
-    );
-    if (widget.isSpeaking) _ctrl.repeat(reverse: true);
+    if (_shouldPulse(widget)) _ctrl.repeat(reverse: true);
   }
+
+  bool _shouldPulse(_StatusIndicator value) =>
+      value.isOnline && value.isSpeaking;
 
   @override
   void didUpdateWidget(covariant _StatusIndicator old) {
     super.didUpdateWidget(old);
-    if (widget.isSpeaking && !old.isSpeaking) {
+    final wasPulsing = _shouldPulse(old);
+    final isPulsing = _shouldPulse(widget);
+    if (isPulsing && !wasPulsing) {
       _ctrl.repeat(reverse: true);
-    } else if (!widget.isSpeaking && old.isSpeaking) {
+    } else if (!isPulsing && wasPulsing) {
       _ctrl.stop();
       _ctrl.reset();
     }
@@ -540,31 +487,48 @@ class _StatusIndicatorState extends State<_StatusIndicator>
         height: 8,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: AppColors.textMuted.withOpacity(0.3),
+          color: context.colors.textMuted.withOpacity(0.3),
         ),
       );
     }
 
     // 在线 + 说话：绿色呼吸灯动画
     if (widget.isSpeaking) {
-      return AnimatedBuilder(
-        animation: _ctrl,
-        builder: (context, child) {
-          return Transform.scale(
-            scale: _scale.value,
-            child: Opacity(
-              opacity: _opacity.value,
-              child: Container(
-                width: 8,
-                height: 8,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: AppColors.success,
+      return RepaintBoundary(
+        child: SizedBox(
+          width: 14,
+          height: 14,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              AnimatedBuilder(
+                animation: _ctrl,
+                builder: (context, child) => Transform.scale(
+                  scale: 0.8 + (_pulse.value * 0.65),
+                  child: Opacity(
+                    opacity: 0.28 * (1 - _pulse.value),
+                    child: Container(
+                      width: 12,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: context.colors.success,
+                      ),
+                    ),
+                  ),
                 ),
               ),
-            ),
-          );
-        },
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: context.colors.success,
+                ),
+              ),
+            ],
+          ),
+        ),
       );
     }
 
@@ -572,9 +536,9 @@ class _StatusIndicatorState extends State<_StatusIndicator>
     return Container(
       width: 8,
       height: 8,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: AppColors.success,
+        color: context.colors.success,
       ),
     );
   }

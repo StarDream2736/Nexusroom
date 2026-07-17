@@ -10,19 +10,30 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
     with _$MessagesDaoMixin {
   MessagesDao(super.db);
 
-  Stream<List<Message>> watchByRoom(int roomId, String serverUrl) {
+  Stream<List<Message>> watchByRoom(
+    int roomId,
+    String serverUrl,
+    int accountUserId,
+  ) {
     return (select(messages)
           ..where((tbl) =>
-              tbl.roomId.equals(roomId) & tbl.serverUrl.equals(serverUrl))
+              tbl.roomId.equals(roomId) &
+              tbl.serverUrl.equals(serverUrl) &
+              tbl.accountUserId.equals(accountUserId))
           ..orderBy([(tbl) => OrderingTerm(expression: tbl.id)]))
         .watch();
   }
 
-  Future<int?> getLatestMessageId(int roomId, String serverUrl) async {
+  Future<int?> getLatestMessageId(
+    int roomId,
+    String serverUrl,
+    int accountUserId,
+  ) async {
     final row = await (selectOnly(messages)
           ..addColumns([messages.id.max()])
           ..where(messages.roomId.equals(roomId) &
-              messages.serverUrl.equals(serverUrl)))
+              messages.serverUrl.equals(serverUrl) &
+              messages.accountUserId.equals(accountUserId)))
         .getSingleOrNull();
     return row?.read(messages.id.max());
   }
@@ -34,16 +45,25 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
     });
   }
 
-  Future<void> clearRoom(int roomId, String serverUrl) async {
+  Future<void> clearRoom(
+    int roomId,
+    String serverUrl,
+    int accountUserId,
+  ) async {
     await (delete(messages)
           ..where((tbl) =>
-              tbl.roomId.equals(roomId) & tbl.serverUrl.equals(serverUrl)))
+              tbl.roomId.equals(roomId) &
+              tbl.serverUrl.equals(serverUrl) &
+              tbl.accountUserId.equals(accountUserId)))
         .go();
   }
 
   /// 清除某个服务器下的所有消息缓存（登出时调用）
-  Future<void> clearByServerUrl(String serverUrl) async {
-    await (delete(messages)..where((tbl) => tbl.serverUrl.equals(serverUrl)))
+  Future<void> clearAccount(String serverUrl, int accountUserId) async {
+    await (delete(messages)
+          ..where((tbl) =>
+              tbl.serverUrl.equals(serverUrl) &
+              tbl.accountUserId.equals(accountUserId)))
         .go();
   }
 

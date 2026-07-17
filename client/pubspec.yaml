@@ -3,7 +3,7 @@ description: NexusRoom - 私有化自托管通讯平台客户端
 
 publish_to: 'none'
 
-version: 2.0.0+1
+version: 2.1.0+2
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -38,8 +38,6 @@ dependencies:
   
   # 图片处理
   image_picker: ^1.0.7
-  cached_network_image: ^3.3.1
-  flutter_cache_manager: ^3.3.1
   
   # 窗口管理
   window_manager: ^0.3.7
@@ -60,6 +58,7 @@ dev_dependencies:
   flutter_lints: ^3.0.1
   build_runner: ^2.4.8
   drift_dev: ^2.14.0
+  sqlite3: ^2.9.4
   freezed: ^2.4.6
   json_serializable: ^6.7.1
   riverpod_generator: ^2.3.9

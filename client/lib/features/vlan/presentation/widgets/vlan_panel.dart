@@ -186,13 +186,13 @@ class _VlanPanelState extends ConsumerState<VlanPanel> {
         // ─── VLAN toggle row ──────────────────────────────
         Row(
           children: [
-            Icon(Icons.lan, size: 14, color: AppColors.textSecondary),
+            Icon(Icons.lan, size: 14, color: context.colors.textSecondary),
             const SizedBox(width: 4),
             Text('VLAN',
                 style: TextStyle(
                     fontSize: AppTypography.sizeBody,
                     fontWeight: FontWeight.w600,
-                    color: AppColors.textPrimary)),
+                    color: context.colors.textPrimary)),
             const Spacer(),
             if (_isLoading)
               const SizedBox(
@@ -203,7 +203,7 @@ class _VlanPanelState extends ConsumerState<VlanPanel> {
             else
               CupertinoSwitch(
                 value: _isEnabled,
-                activeColor: AppColors.accent,
+                activeColor: context.colors.accent,
                 onChanged: (_) => _toggleVlan(),
               ),
           ],
@@ -221,9 +221,9 @@ class _VlanPanelState extends ConsumerState<VlanPanel> {
             },
             child: Text(
               '虚拟 IP: ${_assignedIP!.split('/').first}',
-              style: const TextStyle(
+              style: TextStyle(
                   fontSize: AppTypography.sizeCaption,
-                  color: AppColors.success),
+                  color: context.colors.success),
             ),
           ),
           const SizedBox(height: 8),
@@ -234,7 +234,7 @@ class _VlanPanelState extends ConsumerState<VlanPanel> {
                 style: TextStyle(
                     fontSize: AppTypography.sizeMini,
                     fontWeight: FontWeight.w500,
-                    color: AppColors.textMuted)),
+                    color: context.colors.textMuted)),
             const SizedBox(height: 4),
             ..._peers.map((p) {
               final ip = (p['assigned_ip'] as String? ?? '').split('/').first;
@@ -269,19 +269,19 @@ class _PeerRowState extends State<_PeerRow> {
         curve: Curves.easeOutCubic,
         padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 4),
         decoration: BoxDecoration(
-          color: _hovered ? AppColors.hoverOverlay : Colors.transparent,
+          color: _hovered ? context.colors.hoverOverlay : Colors.transparent,
           borderRadius: BorderRadius.circular(4),
         ),
         child: Row(
           children: [
-            Icon(Icons.computer, size: 12, color: AppColors.textMuted),
+            Icon(Icons.computer, size: 12, color: context.colors.textMuted),
             const SizedBox(width: 4),
             Expanded(
               child: Text(
                 '${widget.nickname} (${widget.ip})',
                 style: TextStyle(
                     fontSize: AppTypography.sizeMini,
-                    color: AppColors.textSecondary),
+                    color: context.colors.textSecondary),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
