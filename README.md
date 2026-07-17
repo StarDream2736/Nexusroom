@@ -1,8 +1,9 @@
 # NexusRoom
 
-NexusRoom 是面向小型私有社群的自托管通信平台，包含即时消息、多人语音、RTMP 直播、网页播放、文件共享和 WireGuard 虚拟局域网。
+[![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)](https://github.com/StarDream2736/Nexusroom)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-当前版本：`2.1.0`。
+NexusRoom 是面向小型私有社群的自托管通信平台，包含即时消息、多人语音、RTMP 直播、网页播放、文件共享和 WireGuard 虚拟局域网。
 
 当前服务端采用单体架构：一个 Go 进程同时提供 REST API、WebSocket 信令、SQLite 持久化、Opus 语音 SFU、RTMP 接入、HTTP-FLV/WebRTC 播放、STUN/TURN、静态网页和 WireGuard 协调。部署不再依赖 PostgreSQL、Redis、LiveKit Server、SRS 或 nginx。
 
@@ -23,8 +24,7 @@ Nexusroom/
 ├── client/       Flutter 桌面客户端及客户端专用原生依赖
 ├── server/       Go 服务端、媒体核心和内嵌网页
 ├── deployment/   Docker、systemd、安装脚本和配置模板
-├── docs/         统一技术规范、开发部署指南和构建文档
-└── docx/         项目日志归档
+└── docs/         统一技术规范、开发部署指南和构建文档
 ```
 
 ## 快速开始
@@ -74,17 +74,7 @@ go run ./cmd/server
 | 51000-51100 | UDP | TURN 中继 |
 | 51820 | UDP | WireGuard |
 
-全部公开技术文档统一由 [文档中心](docs/README.md) 导航。详细配置见 [安装与部署指南](docs/guides/deployment.md) 和 [技术规范](docs/NexusRoom.md)；编译发布步骤见 [客户端编译文档](docs/build/client-build.md) 与 [服务端编译打包文档](docs/build/server-build.md)。本地开发日志位于 `docs/development/`，不会提交到 Git。
-
-## 开源组件边界
-
-NexusRoom 使用 Pion WebRTC/TURN、gortmplib、flutter_webrtc、SQLite/GORM 等开源库实现协议能力，但这些库是项目源码依赖，不作为独立第三方服务运行。媒体房间、鉴权、状态、信令和生命周期均由 NexusRoom 自己管理。
-
-## 界面兼容约定
-
-客户端 2.x 保留标题栏、左侧导航、中央内容区和房间右侧信息栏的基本分区，内部组件、排版、间距、交互状态和明暗主题已统一重构。界面与文档使用文字和矢量图标表达状态，不使用 emoji。
-
-`2.1.0` 在 2026-07-17 完成客户端视觉系统重构、同步明暗主题、账号级消息缓存隔离、可执行文件同级 data 目录迁移和稳定的语音呼吸灯。完整变更见 [CHANGELOG](CHANGELOG.md)。
+全部公开技术文档统一由 [文档中心](docs/README.md) 导航。详细配置见 [安装与部署指南](docs/guides/deployment.md) 和 [技术规范](docs/NexusRoom.md)；编译发布步骤见 [客户端编译文档](docs/build/client-build.md) 与 [服务端编译打包文档](docs/build/server-build.md)。
 
 ## 参与和安全
 

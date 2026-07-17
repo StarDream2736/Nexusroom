@@ -187,8 +187,6 @@ flutter build windows --release -v
 
 检查服务端公网 IP、3478/UDP、RTC 端口 50000-50050/UDP 和 TURN Relay 端口 51000-51100/UDP。再检查 WebSocket 的 connected 事件是否包含 `rtc.ice_servers`。
 
-### 旧版数据库在哪里
-
-`2.1.0` 首次启动会优先把 `%LOCALAPPDATA%\NexusRoom\data` 中的数据库迁移到 `Nexusroom.exe` 同级的 `data` 目录，也会兼容系统“文档”目录中的旧数据库。SQLite 主文件、WAL 和 SHM 会一起迁移。迁移完成前不要同时运行两个客户端实例。
+### data 目录无法创建
 
 客户端需要对自身所在目录具有写权限。不要把便携版放入普通用户不可写的 `Program Files` 等受保护目录；建议解压到用户可写目录后运行。

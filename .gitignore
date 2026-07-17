@@ -20,6 +20,11 @@ coverage.out
 *.test
 .cache/
 docs/development/
+docx/
+
+# Local project memory
+/AGENTS.md
+/.agents/
 
 # Local configuration, secrets, and runtime state
 .env

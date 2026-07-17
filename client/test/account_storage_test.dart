@@ -86,49 +86,6 @@ void main() {
     );
   });
 
-  test('legacy database and WAL are moved into the data directory', () async {
-    final root = await Directory.systemTemp.createTemp('nexusroom-storage-');
-    addTearDown(() => root.delete(recursive: true));
-    final legacy = File('${root.path}/documents/nexusroom.sqlite');
-    final target = File('${root.path}/local/NexusRoom/data/nexusroom.sqlite');
-    await legacy.parent.create(recursive: true);
-    await legacy.writeAsString('database');
-    await File('${legacy.path}-wal').writeAsString('wal');
-
-    final migrated = await AppDataPaths.migrateLegacyDatabase(
-      target: target,
-      legacy: legacy,
-    );
-
-    expect(migrated.path, target.path);
-    expect(await target.readAsString(), 'database');
-    expect(await File('${target.path}-wal').readAsString(), 'wal');
-    expect(await legacy.exists(), isFalse);
-  });
-
-  test('the newest application-data location is migrated before Documents',
-      () async {
-    final root = await Directory.systemTemp.createTemp('nexusroom-sources-');
-    addTearDown(() => root.delete(recursive: true));
-    final target = File('${root.path}/portable/data/nexusroom.sqlite');
-    final applicationData =
-        File('${root.path}/app-data/NexusRoom/data/nexusroom.sqlite');
-    final documents = File('${root.path}/documents/nexusroom.sqlite');
-    await applicationData.parent.create(recursive: true);
-    await documents.parent.create(recursive: true);
-    await applicationData.writeAsString('application-data');
-    await documents.writeAsString('documents');
-
-    await AppDataPaths.migrateFirstAvailableDatabase(
-      target: target,
-      legacyCandidates: [applicationData, documents],
-    );
-
-    expect(await target.readAsString(), 'application-data');
-    expect(await applicationData.exists(), isFalse);
-    expect(await documents.readAsString(), 'documents');
-  });
-
   test('schema v2 rows migrate to the current account scope', () async {
     final root = await Directory.systemTemp.createTemp('nexusroom-schema-');
     addTearDown(() => root.delete(recursive: true));
