@@ -408,6 +408,23 @@ export class NexusRoomClient {
     return session;
   }
 
+  restoreSession(accountId: number, accessToken: string, userDisplayId?: string): AuthSession {
+    const userId = readId(accountId, 'user id');
+    const token = readString(accessToken, 'access token');
+    const displayId = userDisplayId === undefined
+      ? String(userId)
+      : readString(userDisplayId, 'user display id');
+    const session: AuthSession = {
+      userId,
+      userDisplayId: displayId,
+      token,
+      scope: { serverUrl: this.serverUrl, accountId: userId },
+    };
+    this.rest.setToken(token);
+    this.sessionValue = session;
+    return session;
+  }
+
   connect(): void {
     const session = this.requireSession();
     this.socket.connect(this.serverUrl, session.token);
