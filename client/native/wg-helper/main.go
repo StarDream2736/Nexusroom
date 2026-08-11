@@ -9,7 +9,7 @@
 //   - stdin/stdout (default) — when launched directly
 //   - TCP 127.0.0.1          — when launched elevated via --port <N>
 //
-// The Flutter parent launches this binary elevated (UAC) via PowerShell
+// The Electron parent launches this binary elevated (UAC) via PowerShell
 // Start-Process -Verb RunAs, passing --port so both sides communicate
 // over a localhost TCP socket (stdin/stdout cannot cross elevation boundaries).
 package main

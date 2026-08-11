@@ -20,4 +20,4 @@ if errorlevel 1 (
 
 echo [3/3] Done! Output: nexusroom-wg.exe
 echo.
-echo Copy nexusroom-wg.exe and wintun.dll to the Flutter build output directory.
+echo Copy nexusroom-wg.exe and wintun.dll to the Electron build output directory.

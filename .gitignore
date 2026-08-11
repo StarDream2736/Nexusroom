@@ -52,18 +52,14 @@ server/server
 server/server.exe
 server/tmp/
 
-# Flutter and Dart generated files
-client/.dart_tool/
-client/.packages
-client/.pub-cache/
-client/build/
-client/.flutter-plugins
-client/.flutter-plugins-dependencies
-client/windows/flutter/ephemeral/
+# Electron and Node client generated files
+client/node_modules/
+client/dist/
+client/dist-electron/
+client/release/
+client/data/
+client/coverage/
 client/*.log
-
-# Local client binary dependencies
-client/tools/*.exe
 
 # Optional web administration build outputs
 web-admin/node_modules/
