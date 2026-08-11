@@ -1,35 +1,52 @@
 # NexusRoom
 
-[![Version](https://img.shields.io/badge/version-2.3.0-blue.svg)](https://github.com/StarDream2736/Nexusroom)
+[![Version](https://img.shields.io/badge/version-3.0.0-blue.svg)](https://github.com/StarDream2736/Nexusroom)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-NexusRoom 是面向小型私有社群的自托管通信平台，包含即时消息、多人语音、RTMP 直播、网页播放、文件共享和 WireGuard 虚拟局域网。
+NexusRoom 是面向小型私有社群的自托管通信平台。桌面端使用 Electron、React、TypeScript 和 Chromium，服务端保持 Go 单体架构。
 
-当前服务端采用单体架构：一个 NexusRoom 服务同时提供 REST API、WebSocket 信令、SQLite 持久化、Opus 语音 SFU、RTMP 接入、HTTP-FLV/WebRTC 播放、STUN/TURN、静态网页和 WireGuard 协调。AAC 到 Opus 的音频转码由服务内部按活动源流启动共享 FFmpeg 工作进程；Docker 构建会把只包含所需音频与 RTP 能力的 FFmpeg 运行时编入同一个镜像，不需要额外容器。部署不依赖 PostgreSQL、Redis、LiveKit Server、SRS 或 nginx。
+## 当前能力
 
-## 主要功能
+桌面端支持填写服务器地址后使用账号密码登录，并在本机恢复登录会话。登录后可以查看、创建、通过邀请码加入、切换和退出房间；房间内可以加载历史文字、接收实时文字并发送图片。图片先上传到服务端，客户端再用当前会话鉴权获取 Blob 后显示。
 
-- 房间消息、图片和文件传输，支持本地离线缓存、房间加入确认和发送结果确认。
-- NexusRoom 内建 WebRTC 语音频道、开关麦、音频设备选择和说话状态同步。
-- OBS 或客户端 FFmpeg 通过 RTMP 推送 H.264/AAC；H.264 原样转发，AAC 在服务端按源流实时转为 Opus。
-- 可选接收未绑定房间的临时 RTMP 流，并仅在网页直播大厅按活动生命周期展示。
-- 桌面端使用 HTTP-FLV 播放；浏览器默认有声并优先使用 H.264/Opus WebRTC，协商或媒体失败后锁定 HTTP-FLV，FLV 断线不会反复切回 WebRTC。
-- 服务端可以自动发现并刷新动态公网 IPv4，也允许配置固定 IPv4 覆盖；地址变化后新 WebRTC 连接无需重启服务。
-- 房间级 WireGuard 虚拟局域网。
-- SQLite 嵌入式持久化，无外部数据库和数据迁移步骤。
-- Docker 单容器部署和直接 Linux/systemd 部署。
+语音使用服务端 WebRTC 信令和内建语音引擎。桌面端可以加入房间语音、静音，并显示成员在线和说话状态。房间直播入口可以创建和管理，播放器优先协商 WebRTC；协商或媒体检查失败后锁定 HTTP-FLV，只有刷新播放才会重新尝试 WebRTC。房间还可以启用 WireGuard VLAN，Windows 客户端通过同级 Helper 和 Wintun 建立隧道。
 
-## 仓库结构
+服务端同时提供 REST API、WebSocket、SQLite、WebRTC 语音、RTMP 接入、HTTP-FLV 和浏览器 WebRTC 播放、STUN/TURN、内嵌直播网页以及 WireGuard 协调。
+
+## 架构和目录
 
 ```text
 Nexusroom/
-├── client/       Flutter 桌面客户端及客户端专用原生依赖
-├── server/       Go 服务端、媒体核心和内嵌网页
+├── client/       Electron + React + TypeScript 桌面端
+├── server/       Go 单体服务端、媒体模块和内嵌网页
 ├── deployment/   Docker、systemd、安装脚本和配置模板
-└── docs/         统一技术规范、开发部署指南和构建文档
+└── docs/         技术规范、开发部署指南和构建文档
 ```
 
+Electron 主进程负责窗口、SQLite 和受控原生进程；预加载脚本只暴露窄 IPC；React 渲染进程运行在 Chromium 隔离环境。客户端持久化数据库位于 `NexusRoom.exe` 同级的 `data\nexusroom.sqlite`，按服务器地址和账号隔离。发布 ZIP 不预置 `data` 目录，首次运行时自动创建。
+
 ## 快速开始
+
+### Windows 客户端
+
+需要 Windows x64、Node.js 和 npm。在 `client` 目录执行：
+
+```powershell
+cd client
+npm ci
+npm run dev
+```
+
+构建和打包：
+
+```powershell
+npm run build
+npm run package:win
+```
+
+`npm run package:win` 生成 `client\release\NexusRoom-3.0.0-windows-x64.zip`。把 ZIP 解压到可写目录后运行；发布目录根部包含 `NexusRoom.exe`、`nexusroom-wg.exe` 和 `wintun.dll`，不包含业务 `data` 目录。
+
+### 服务端
 
 Docker 部署：
 
@@ -39,7 +56,7 @@ chmod +x scripts/*.sh
 ./scripts/install.sh
 ```
 
-直接 Linux 部署：
+Linux 直接部署：
 
 ```bash
 cd deployment
@@ -47,40 +64,26 @@ chmod +x scripts/*.sh
 sudo ./scripts/install-direct.sh
 ```
 
-客户端开发：
-
-```bash
-cd client
-flutter pub get
-flutter run -d windows
-```
-
-服务端开发：
+本地开发：
 
 ```bash
 cd server
 cp ../deployment/templates/server.yaml.template config.yaml
-# 将模板占位符替换为本地值
 go test ./...
 go run ./cmd/server
 ```
 
+客户端输入服务端 Origin，例如 `http://127.0.0.1:8080`，不要附加 `/api/v1`。
+
 ## 网络端口
 
-| 端口 | 协议 | 用途 |
-| --- | --- | --- |
-| 8080 | TCP | API、WebSocket、网页、HTTP-FLV |
-| 1935 | TCP | RTMP 推流 |
-| 3478 | UDP | STUN/TURN |
-| 50000-50050 | UDP | WebRTC 直连媒体 |
-| 51000-51100 | UDP | TURN 中继 |
-| 51820 | UDP | WireGuard |
+服务端默认使用 8080/TCP（API、WebSocket、网页和 HTTP-FLV）、1935/TCP（RTMP）、3478/UDP（STUN/TURN）、50000-50050/UDP（WebRTC 直连）、51000-51100/UDP（TURN 中继）和 51820/UDP（WireGuard VLAN）。外部部署时只开放实际启用的端口，并为 HTTP 和 WebSocket 配置 TLS 入口。
 
-全部公开技术文档统一由 [文档中心](docs/README.md) 导航。详细配置见 [安装与部署指南](docs/guides/deployment.md) 和 [技术规范](docs/NexusRoom.md)；编译发布步骤见 [客户端编译文档](docs/build/client-build.md) 与 [服务端编译打包文档](docs/build/server-build.md)。
+## 文档和贡献
 
-## 参与和安全
+完整架构、协议、数据边界和发布门禁见 [文档中心](docs/README.md) 与 [技术规范](docs/NexusRoom.md)。客户端命令见 [客户端开发指南](docs/guides/client.md) 和 [客户端构建文档](docs/build/client-build.md)，服务端部署见 [安装与部署指南](docs/guides/deployment.md)。
 
-- 开发流程与提交规范：[CONTRIBUTING.md](CONTRIBUTING.md)
+- 开发流程：[CONTRIBUTING.md](CONTRIBUTING.md)
 - 行为准则：[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 - 安全问题报告：[SECURITY.md](SECURITY.md)
 - 版本历史：[CHANGELOG.md](CHANGELOG.md)

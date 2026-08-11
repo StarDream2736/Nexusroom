@@ -2,6 +2,25 @@
 
 本项目遵循语义版本。日期使用 `YYYY-MM-DD`。
 
+## 3.0.0 - 2026-08-11
+
+### 变更
+
+- 用 Electron、Chromium、React 和 TypeScript 桌面端完整替换原 Flutter 客户端，服务端继续保持 Go 单体架构。
+- Windows x64 发布改为 ZIP。压缩包根目录包含 `NexusRoom.exe`、`nexusroom-wg.exe` 和 `wintun.dll`；`data` 不随发布包分发，首次运行在 exe 同级创建。
+- Electron 主进程、预加载脚本和 React 渲染进程保持隔离，启用 `contextIsolation`、关闭 `nodeIntegration`，渲染进程只通过窄 IPC 使用本地 SQLite 和 WireGuard Helper。
+
+### 功能
+
+- 桌面端支持服务器地址和账号密码登录、会话恢复、房间列表、创建、邀请码加入、退出和切换。
+- 房间文字消息支持历史加载和实时同步；图片通过鉴权上传与 Blob 显示。
+- 房间语音支持 WebRTC、静音、成员在线状态和说话状态；直播播放器优先 WebRTC，失败后锁定 HTTP-FLV，刷新后才重新尝试 WebRTC。
+- 房间 VLAN 使用 WireGuard Helper 和 Wintun 建立 Windows 隧道。
+
+### 验证
+
+- 客户端通过 `npm ci`、`npm run build` 和 `npm run package:win` 验证，`npm audit --audit-level=moderate` 报告 0 个漏洞；服务端通过 `go test ./...` 验证。
+
 ## 2.3.0 - 2026-08-11
 
 ### 新增

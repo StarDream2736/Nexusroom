@@ -1,6 +1,6 @@
 # NexusRoom 文档中心
 
-`docs/` 是 NexusRoom 公开技术文档的统一维护位置。实现、协议、数据模型、配置和开发标准以 [NexusRoom 技术规范与开发标准](NexusRoom.md) 为基线。
+`docs/` 是 NexusRoom 3.0.0 公开技术文档的统一维护位置。实现、协议、数据模型、配置和开发标准以 [NexusRoom 技术规范与开发标准](NexusRoom.md) 为基线。
 
 ## 核心规范
 
@@ -8,13 +8,13 @@
 
 ## 开发与部署指南
 
-- [客户端开发指南](guides/client.md)
+- [Electron 客户端开发指南](guides/client.md)
 - [服务端开发指南](guides/server.md)
 - [安装与部署指南](guides/deployment.md)
 
 ## 构建文档
 
-- [客户端编译与打包](build/client-build.md)
+- [Electron 客户端编译与 Windows x64 打包](build/client-build.md)
 - [服务端编译、Docker 构建与打包](build/server-build.md)
 
 ## 开源治理

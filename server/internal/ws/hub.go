@@ -98,7 +98,7 @@ func (h *Hub) Run() {
 			// 发送连接成功事件
 			client.SendEvent(EventConnected, ConnectedPayload{
 				UserID:        client.UserID,
-				ServerVersion: "2.3.0",
+				ServerVersion: "3.0.0",
 				RTC:           h.currentRTCClientConfig(),
 			})
 

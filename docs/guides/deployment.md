@@ -1,6 +1,6 @@
 # 安装与部署指南
 
-NexusRoom `2.3.0` 服务端采用单服务、单容器架构。完整配置、端口和运行规范见 [NexusRoom 技术规范](../NexusRoom.md)，镜像与二进制构建见 [服务端编译与打包](../build/server-build.md)。
+NexusRoom `3.0.0` 服务端采用单服务、单容器架构。完整配置、端口和运行规范见 [NexusRoom 技术规范](../NexusRoom.md)，镜像与二进制构建见 [服务端编译与打包](../build/server-build.md)。桌面客户端通过 [Windows x64 Electron ZIP](../build/client-build.md) 连接服务端。
 
 ## Docker 部署
 

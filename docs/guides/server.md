@@ -1,6 +1,6 @@
 # 服务端开发指南
 
-本文档说明 NexusRoom `2.3.0` 单体服务端。完整系统设计见 [NexusRoom 技术规范](../NexusRoom.md)，构建发布见 [服务端编译与打包](../build/server-build.md)。
+本文档说明 NexusRoom `3.0.0` 单体服务端。完整系统设计见 [NexusRoom 技术规范](../NexusRoom.md)，构建发布见 [服务端编译与打包](../build/server-build.md)。桌面客户端为 Electron + React + TypeScript，开发和打包命令见 [客户端开发指南](client.md)。
 
 ## 运行边界
 

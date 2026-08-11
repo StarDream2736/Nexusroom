@@ -8,26 +8,26 @@ tags:
   - architecture
   - development
   - self-hosted
-version: 2.3.0
+version: 3.0.0
 status: current
 updated: 2026-08-11
 ---
 
 # NexusRoom 技术规范与开发标准
 
-本文档是 NexusRoom `2.3.0` 的架构、协议、数据、开发、部署和质量标准基线。实现事实以当前仓库源码为准；修改对外协议、持久化结构、部署方式或本文标记为“必须”的规则时，代码、测试和文档必须在同一变更中更新。
+本文档是 NexusRoom `3.0.0` 的架构、协议、数据、开发、部署和质量标准基线。实现事实以当前仓库源码为准；修改对外协议、持久化结构、部署方式或本文标记为“必须”的规则时，代码、测试和文档必须在同一变更中更新。
 
 文档中的“必须”“不得”“应当”和“可以”用于区分强制约束、禁止事项、推荐实践和可选实现。旧版 `1.x` 文档中关于 PostgreSQL、Redis、LiveKit Server、SRS、nginx 多容器编排的内容已经失效，不得作为当前实现依据。
 
 ## 1. 项目定位
 
-NexusRoom 是面向小型私有社群的自托管通信平台，目标是使用一套客户端和一个可独立部署的服务端提供：
+NexusRoom 是面向小型私有社群的自托管通信平台，目标是使用 Windows Electron 桌面端和一个可独立部署的 Go 服务端提供：
 
-- 账号注册、登录、资料和好友关系。
+- 服务端账号注册、登录、资料和好友关系 API；当前桌面 UI 使用登录和会话恢复。
 - 房间创建、加入、成员管理和在线状态。
-- 房间文字、图片和文件消息。
+- 房间文字、图片和文件消息 API；当前桌面 UI 发送文字和图片。
 - 多人 WebRTC 语音。
-- OBS 或客户端 FFmpeg 的 RTMP 推流与直播播放。
+- OBS 等外部推流器的 RTMP 推流与直播播放。
 - 浏览器直播列表和播放器。
 - 房间级 WireGuard 虚拟局域网。
 - Docker 单容器和 Linux 直接部署。
@@ -47,18 +47,23 @@ NexusRoom 是面向小型私有社群的自托管通信平台，目标是使用�
 ### 1.2 当前非目标
 
 - 不提供跨服务端联邦通信。
-- 不承诺移动端已经可用；当前主要客户端目标是 Windows 桌面端。
+- 不承诺移动端已经可用；当前桌面客户端目标是 Windows x64 Electron。
 - 不在应用进程内部实现 TLS 证书自动签发；生产 TLS 由部署入口负责。
-- 不把客户端本地缓存视为服务端权威数据。
+- 不把客户端本地缓存视为服务端权威数据；客户端只缓存当前设备所需的设置、会话和消息。
 - 不做 H.264 视频转码；推流编码必须满足浏览器支持范围。
 
 ## 2. 系统总览
 
 ```mermaid
 flowchart TB
-    Desktop["Flutter Windows 客户端"]
+    subgraph Desktop["Electron Windows 客户端"]
+        Main["主进程\n窗口 / SQLite / Helper"]
+        Preload["预加载\ncontextBridge / 窄 IPC"]
+        Renderer["React 渲染进程\nChromium"]
+        Main --> Preload --> Renderer
+    end
     Browser["浏览器直播页"]
-    Publisher["OBS / FFmpeg"]
+    Publisher["OBS / 外部 RTMP 推流器"]
     Server["NexusRoom 单体服务"]
     API["REST API 与内嵌网页"]
     WS["WebSocket 房间事件与 RTC 信令"]
@@ -66,10 +71,12 @@ flowchart TB
     Live["RTMP / AAC-Opus 转码 / HTTP-FLV / RTC 播放"]
     Turn["STUN / TURN"]
     WG["WireGuard 协调"]
-    DB[("SQLite")]
+    DB[("服务端 SQLite")]
+    ClientDB[("exe 同级 data/nexusroom.sqlite")]
     Files["上传文件目录"]
 
-    Desktop -->|HTTP / WebSocket / WebRTC| Server
+    Renderer -->|HTTP / WebSocket / WebRTC| Server
+    Main -->|窄 IPC| ClientDB
     Browser -->|HTTP / WebRTC / HTTP-FLV| Server
     Publisher -->|RTMP| Server
     Server --> API
@@ -87,20 +94,20 @@ flowchart TB
 
 | 客户端 | 服务端入口 | 协议 | 主要用途 |
 | --- | --- | --- | --- |
-| Flutter | `/api/v1/*` | HTTP/JSON | 认证、房间、用户、文件、好友、推流和 VLAN |
-| Flutter | `/ws?token=...` | WebSocket/JSON | 房间事件、消息、状态和 WebRTC 信令 |
-| Flutter | ICE 下发地址 | WebRTC/Opus | 多人语音 |
-| Flutter | `/api/v1/stream/:streamKey` | HTTP-FLV | 直播播放 |
+| Electron 渲染进程 | `/api/v1/*` | HTTP/JSON | 登录、房间、消息、图片、推流入口和 VLAN |
+| Electron 渲染进程 | `/ws?token=...` | WebSocket/JSON | 房间事件、文字确认、状态和 WebRTC 信令 |
+| Electron 渲染进程 | ICE 下发地址 | WebRTC/Opus | 多人语音 |
+| Electron 渲染进程 | `/api/v1/stream/:streamKey` | HTTP-FLV | WebRTC 失败后的锁定回退 |
 | 浏览器 | `/`、`/player.html` | HTTP | 内嵌直播页面 |
 | 浏览器 | `/api/v1/web/rtc/play` | HTTP/SDP | H.264/Opus WebRTC 播放协商 |
-| OBS/FFmpeg | `/live/{streamKey}` | RTMP | H.264 和可选 AAC 发布 |
-| Windows 客户端 | WireGuard 端点 | UDP | 房间虚拟局域网 |
+| OBS 或其他推流器 | `/live/{streamKey}` | RTMP | H.264 和可选 AAC 发布 |
+| Windows WireGuard Helper | WireGuard 端点 | UDP | 房间虚拟局域网 |
 
 ## 3. 仓库与文档结构
 
 ```text
 Nexusroom/
-├── client/                      Flutter 客户端源码
+├── client/                      Electron + React + TypeScript 客户端源码
 ├── server/                      Go 单体服务端源码
 ├── deployment/                  Docker、systemd、脚本和配置模板
 ├── docs/
@@ -204,7 +211,7 @@ Nexusroom/
 目标路径固定为：
 
 ```text
-Nexusroom.exe
+NexusRoom.exe
 data/
 ├── nexusroom.sqlite
 ├── nexusroom.sqlite-wal    运行期间可能存在
@@ -215,14 +222,15 @@ data/
 
 | 表 | 主键 | 主要内容 |
 | --- | --- | --- |
-| `settings` | key | 服务器 URL、令牌、账号 ID、资料、音频设备、主题 |
-| `messages` | server_url + account_user_id + id | 房间消息离线缓存和发送回显 |
+| `settings` | key | 服务器 URL、账号 ID、展示 ID 和主题 |
+| `account_sessions` | server_url + account_id | 按服务器和账号隔离的登录令牌 |
+| `messages` | server_url + account_id + id | 房间消息离线缓存和发送回显 |
 
 本地消息必须同时按服务器 URL 和账号 ID 隔离。任何消息查询、增量锚点、房间清理或 WebSocket 写入遗漏账号 ID，均视为数据隔离缺陷。
 
 客户端只读取可执行文件同级的 `data` 目录，不扫描或导入其他系统目录中的数据库。复制本地状态时应先关闭客户端，并把 SQLite 主文件、WAL 和 SHM 作为一个整体处理。
 
-“清除本地数据”必须在全局数据库连接保持打开时事务性清空设置表和消息表，随后执行数据库压缩。不得递归删除 `data` 目录、不得关闭仍被 Provider 引用的数据库、不得使用强制退出掩盖生命周期错误。
+“清除本地数据”必须在全局数据库连接保持打开时事务性清空设置、会话和消息表，随后执行数据库压缩。不得递归删除 `data` 目录、不得关闭仍被渲染进程引用的数据库、不得使用强制退出掩盖生命周期错误。当前没有旧数据库迁移逻辑；无法识别的 SQLite `user_version` 会安全失败并要求建立新数据库。
 
 ### 5.4 数据权威性
 
@@ -269,7 +277,7 @@ data/
 
 | 方法 | 路径 | 权限 | 用途 |
 | --- | --- | --- | --- |
-| GET | `/ping` | 公开 | 健康检查和版本 |
+| GET | `/ping` | 公开 | 健康检查和版本，当前返回 `3.0.0` |
 | POST | `/api/v1/auth/register` | 公开 | 注册；可带 admin_token 创建超管 |
 | POST | `/api/v1/auth/login` | 公开 | 登录并签发 JWT |
 | GET | `/api/v1/users/me` | 登录 | 当前用户资料 |
@@ -309,6 +317,8 @@ data/
 | GET | `/api/v1/stream/:streamKey` | 公开 | HTTP-FLV 输出 |
 | GET | `/api/v1/web/rooms/live` | 公开 | 浏览器活跃直播列表 |
 | POST | `/api/v1/web/rtc/play` | 公开 | 浏览器播放 SDP 协商 |
+
+这张表是服务端完整 API 清单。当前 Electron UI 只调用登录、房间、消息、图片、直播入口和 VLAN 相关路径；注册、好友、任意文件、资料、管理员和 Webhook 仍是服务端或集成者接口。
 
 ### 6.3 关键请求
 
@@ -364,7 +374,7 @@ wss://SERVER/ws?token=JWT
 }
 ```
 
-连接成功后服务端发送 `connected`，其中包含 user_id、server_version 和 RTC ICE Server 列表。客户端必须在收到该事件后再恢复房间订阅。
+连接成功后服务端发送 `connected`，其中包含 user_id、`server_version: "3.0.0"` 和 RTC ICE Server 列表。客户端必须在收到该事件后再恢复房间订阅。
 
 ### 7.2 客户端事件
 
@@ -440,7 +450,7 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant C as Flutter Client
+    participant C as Electron Renderer
     participant W as App WebSocket
     participant V as Voice SFU
     C->>W: room.join
@@ -459,8 +469,8 @@ sequenceDiagram
 - 开麦按钮只有在实际连接可用时才能进入成功状态。
 - 连接断开时点击开麦，应触发重连；重连失败必须显示错误并恢复按钮。
 - 切换房间时立即停止旧房间媒体并重置静音状态，不能等待长超时后才更新 UI。
-- 设备选择应在建立本地轨道前恢复。
-- 窗口关闭时媒体释放必须有上限，不能无限等待原生插件。
+- 当前 UI 不提供音频设备选择；浏览器权限允许后使用默认输入设备建立本地轨道。
+- 窗口关闭时媒体释放必须有上限，不能无限等待原生进程或浏览器对象。
 
 ### 9.3 在线和语音活动指示
 
@@ -485,19 +495,19 @@ rtmp://SERVER:1935/live/STREAM_KEY
 
 - `rtmp_url`：规范化服务器地址，例如 `rtmp://example.com:1935/live`。
 - `stream_key`：随机推流密钥。
-- `publish_url`：可直接交给 OBS 或 FFmpeg 的完整地址。
+- `publish_url`：可直接交给 OBS 或其他外部 RTMP 推流器的完整地址。
 
 地址推导优先级为 `server.domain`、`media.public_ip`、`X-Forwarded-Host`、请求 Host，最终回退 `127.0.0.1`。实现必须去除 HTTP scheme、重复端口、方括号和多余路径后再生成 RTMP URL。
 
 ### 10.2 媒体链路
 
 ```text
-OBS / FFmpeg
+OBS / 外部 RTMP 推流器
   -> 内建 RTMP Server
   -> Stream Key 校验
   -> 活跃流 Registry
-     -> HTTP-FLV -> Flutter media_kit
-     -> HTTP-FLV -> 浏览器回退
+     -> WebRTC -> Electron 播放器优先
+     -> HTTP-FLV -> Electron/浏览器回退
      -> H.264 原样转发 + AAC 到 Opus 共享转码
         -> WebRTC -> 浏览器优先播放
 ```
@@ -509,24 +519,24 @@ OBS / FFmpeg
 ### 10.3 编码和播放约束
 
 - RTMP 视频使用 H.264。
-- RTMP 可携带 AAC；Flutter HTTP-FLV 可以播放相应音视频。
-- 浏览器必须优先使用 WebRTC 同时播放 H.264 视频和 Opus 音频。只有协商、连接、视频首帧或预期音频轨道失败时才回退 HTTP-FLV。
+- RTMP 可携带 AAC；Electron 和浏览器的 HTTP-FLV 播放器可以播放相应音视频。
+- Electron 和浏览器都必须优先使用 WebRTC 同时播放 H.264 视频和 Opus 音频。只有协商、连接、视频首帧或预期音频轨道失败时才回退 HTTP-FLV。
 - HTTP-FLV 接管当前页面播放会话后必须保持回退锁。FLV 中断只允许重建 FLV 播放器并使用有上限的退避重试，不得自动重新尝试 WebRTC，也不得在两种协议之间无限循环。
 - 网页默认不静音。浏览器阻止有声自动播放时必须保留 WebRTC 会话并等待用户交互，不能把自动播放策略误判为媒体失败。
 - 每路带 AAC 的活动源只允许启动一个服务端 FFmpeg 转码工作进程。所有观看者共享输出的 Opus RTP，不得按观看者重复转码。
 - 音频转码使用 48 kHz Opus、20 ms 帧和低延迟模式。H.264 视频不得转码，避免额外的视频编码负载和帧级延迟。
 - WebRTC 播放必须根据源流 SPS 匹配常见 H.264 Baseline、Main 和 High Profile，不能把所有源流固定声明为同一 Profile。
-- 客户端屏幕捕获当前为纯视频 FFmpeg 推流。
+- 当前 Electron UI 不提供屏幕采集或客户端 FFmpeg 推流；OBS 等外部推流器仍可使用标准 RTMP 地址。
 - 删除推流入口前必须确认对应流不活跃。
 
 ## 11. VLAN 与 WireGuard
 
-服务端协调房间 Peer、公钥、虚拟 IP 和 WireGuard 接口；Windows 客户端通过 `nexusroom-wg.exe` 与 Wintun 建立本地隧道。
+服务端协调房间 Peer、公钥、虚拟 IP 和 WireGuard 接口；Windows Electron 客户端通过与 `NexusRoom.exe` 同级的 `nexusroom-wg.exe` 和 `wintun.dll` 建立本地隧道，Helper 启动可能触发 UAC。
 
 加入流程：
 
 1. 客户端 Helper 生成或加载密钥对。
-2. 客户端向 `/rooms/:roomId/vlan/join` 提交公钥。
+2. 客户端向 `/api/v1/rooms/:roomId/vlan/join` 提交公钥。
 3. 服务端验证房间成员并分配子网内地址。
 4. 服务端返回自身公钥、端点、DNS 和其他 Peer。
 5. 客户端应用配置，服务端广播 `vlan.peer_update`。
@@ -542,25 +552,32 @@ WireGuard 初始化失败时服务端会保留数据库协调能力并记录降�
 
 | 能力 | 实现 |
 | --- | --- |
-| UI | Flutter Desktop / Material |
-| 路由 | go_router |
-| 状态 | Riverpod 2.x |
-| HTTP | Dio |
-| WebSocket | web_socket_channel |
-| 本地数据库 | Drift + SQLite |
-| 语音 | flutter_webrtc |
-| 直播 | media_kit |
-| 屏幕推流 | FFmpeg 子进程 |
+| 桌面容器 | Electron 39 / Chromium |
+| UI | React 19 |
+| 语言 | TypeScript 5 |
+| 渲染构建 | Vite 6 |
+| 测试 | Vitest 3 |
+| 代码检查 | ESLint 9 + typescript-eslint |
+| HTTP | Fetch 封装的 REST client |
+| WebSocket | 项目内 JSON WebSocket client |
+| 本地数据库 | Electron Node SQLite API + SQLite |
+| 语音 | 浏览器 WebRTC API + 服务端信令 |
+| 直播 | WebRTC 优先，mpegts.js HTTP-FLV 回退 |
+| 屏幕推流 | 当前 UI 不提供 |
 | VLAN | WireGuard Helper + Wintun |
-| 窗口 | window_manager |
+| 窗口 | Electron BrowserWindow |
 
 ### 12.2 分层
 
-- `app/`：应用 Shell、主题、排版和共享组件。
-- `core/`：数据库、网络、配置状态、原生进程和公共仓库。
-- `features/`：auth、room、user、vlan 等功能模块。
-- Presentation 通过 Provider 读取仓库或服务；不得在 Widget 中直接拼接裸 HTTP 请求。
-- 跨页面状态必须使用 Provider；短生命周期表单和动画状态可以使用局部 State。
+- `src/main.ts` 与 `src/main/` 中的 IPC、controller、database 模块：主进程窗口生命周期、SQLite、权限和 WireGuard Helper 控制；同目录的 `rest-client.ts`、`ws-client.ts` 是浏览器安全网络模块，由 Vite 打入 renderer，不在主进程执行。
+- `src/preload.ts`：通过 `contextBridge` 暴露固定的存储和 WireGuard IPC，不暴露 Node 或任意 `ipcRenderer`。
+- `src/renderer/`：React `App`、房间与消息页面、语音、直播和 VLAN 交互；网络请求通过 `NexusRoomClient` 完成。
+- `src/shared/`：预加载 API、IPC channel、账号 scope、消息缓存和 WireGuard 配置类型。
+- `tests/`：Vitest 单元、集成和 React 组件测试。
+- 跨页面状态使用 React hooks 和客户端事件订阅；短生命周期表单和动画状态使用组件局部 state。
+- 渲染进程不得导入 `node:*` 或直接拼接裸 HTTP 请求；本地文件、数据库和 Helper 操作必须经过预加载窄 IPC。
+
+当前 Electron UI 的实现范围是：填写服务器地址和账号密码登录、恢复会话；查看房间列表、创建、邀请码加入、退出和切换；加载历史与实时文字；上传图片并使用会话鉴权的 Blob 显示；加入 WebRTC 语音、静音并显示成员在线和说话状态；管理直播入口并优先 WebRTC 播放，失败后锁定 HTTP-FLV 直到刷新；启用 WireGuard VLAN。服务端虽然有注册、好友、任意文件和管理 API，桌面 UI 当前没有这些页面，也没有屏幕采集、音频设备选择或客户端 FFmpeg 推流功能。
 
 ### 12.3 UI 结构
 
@@ -571,17 +588,16 @@ WireGuard 初始化失败时服务端会保留数据库协调能力并记录降�
 3. 中央工作内容。
 4. 房间右侧成员和状态面板。
 
-界面组件、排版、间距、动画和交互状态由统一主题与共享组件实现。
+界面组件、排版、间距、动画和交互状态由 React 组件和共享 CSS token 实现。当前 UI 只声明登录、房间、消息、语音、直播和 VLAN 的已实现状态。
 
 ### 12.4 主题标准
 
 - 暗色主题以黑和中性灰为背景，亮色主题以白和中性灰为背景。
-- 颜色必须来自 `NexusColors extends ThemeExtension<NexusColors>` 或标准 ThemeData。
-- Widget 必须通过 `context.colors` 建立 InheritedTheme 依赖。
+- 颜色必须来自 `.app-shell` 的 CSS custom properties，并由 `data-theme="dark|light"` 统一切换。
 - 禁止新增可变静态主题色或在业务页面硬编码大面积背景颜色。
 - 切换主题时按钮、弹窗、菜单、输入框、滚动条、窗口控制和已挂载页面必须同步过渡。
 - 状态色只用于状态语义，不作为大面积品牌装饰。
-- 图标使用 Material 或项目矢量资源。
+- 图标使用现有矢量资源或文字标签，不使用装饰性 emoji。
 
 ### 12.5 可用性标准
 
@@ -761,15 +777,16 @@ Docker 和直接部署必须使用相同配置语义、数据库格式和端口�
 - 配置通过结构体传递，业务模块不得随意读取环境变量。
 - 关键改动至少执行 `go test ./...`、`go vet ./...` 和 `go build ./cmd/server`。
 
-### 16.3 Dart/Flutter 规范
+### 16.3 Electron、React 和 TypeScript 规范
 
-- 使用 `dart format` 和项目 lint。
-- 页面按 Feature-First 组织，网络和数据库通过 Repository/Service 封装。
-- Riverpod Provider 管理跨页面状态和长生命周期服务。
-- Widget 不得直接持有全局数据库、WebSocket 或 RTC 的替代实例。
-- 所有异步操作在 Widget 销毁后访问 Context 前必须检查 mounted。
-- Drift 表结构变更必须提升 schemaVersion、实现迁移、重新生成代码并增加迁移测试。
-- 关键改动至少执行 `flutter analyze`、`flutter test` 和目标平台 Release 构建。
+- 使用项目 TypeScript 配置、ESLint 和 Prettier-compatible 格式；提交前运行 `npm run typecheck`、`npm run lint` 和 `npm test`。
+- React 页面按登录、房间、消息、语音、直播和 VLAN 能力组织，REST、WebSocket 和 SQLite 通过客户端模块封装。
+- 主进程只负责窗口、数据库和受控原生进程；预加载只暴露固定的 `contextBridge` API；渲染进程不能导入 `node:*` 或直接调用 `ipcRenderer`。
+- React 组件不得持有全局数据库、原生子进程或第二套 WebSocket；跨组件状态通过客户端事件订阅和明确的 React state 传递。
+- 所有异步 effect、事件监听和媒体回调在组件卸载或客户端切换后必须取消或检查 generation，不能更新已销毁的页面。
+- 本地 SQLite 表结构变更必须评估 `user_version` 和现有数据库兼容性；当前没有旧数据库迁移逻辑，无法识别的版本应安全失败。
+- 窗口关闭、WireGuard Helper、SQLite 和 WebRTC 资源必须幂等释放，并设置有限超时。
+- 关键改动至少执行 `npm run build`、Windows x64 `npm run package:win` 和相关 Vitest 测试。
 
 ### 16.4 API 和协议规范
 
@@ -818,13 +835,13 @@ docs: centralize technical documentation
 - MINOR：向后兼容的新功能或显著架构能力。
 - PATCH：向后兼容的缺陷、安全或文档修复。
 
-Flutter 构建号使用 `MAJOR.MINOR.PATCH+BUILD`。发布时必须同步：
+Electron 发布使用 `MAJOR.MINOR.PATCH`，发布时必须同步：
 
-- `client/pubspec.yaml`。
+- `client/package.json` 和 `client/package-lock.json` 根包版本。
 - `/ping` 服务端版本。
 - WebSocket `server_version`。
 - README、CHANGELOG 和本技术文档。
-- Docker 标签和发布产物名称。
+- Docker 标签、Windows ZIP 产物名称和服务端构建示例。
 
 ### 17.3 发布门禁
 
@@ -832,9 +849,10 @@ Flutter 构建号使用 `MAJOR.MINOR.PATCH+BUILD`。发布时必须同步：
 
 ```powershell
 cd client
-flutter analyze
-flutter test
-flutter build windows --release
+npm ci
+npm run build
+npm run package:win
+npm audit --audit-level=moderate
 
 cd ..\server
 go test ./...
@@ -854,12 +872,14 @@ docker compose config --quiet
 | 语音 | 双向开麦、静音、短暂停顿、切房和重连 |
 | 在线灯 | 在房常亮、不在房暗下、说话仅外围呼吸 |
 | OBS | 完整 publish_url 可直接推流，开始/结束状态同步 |
-| Flutter 播放 | HTTP-FLV 视频和可选音频 |
-| 浏览器播放 | WebRTC 优先及 FLV 回退 |
+| Electron 播放 | WebRTC 优先、视频首帧/音频检查、失败后锁定 HTTP-FLV |
+| 浏览器播放 | WebRTC 优先及 FLV 回退锁定 |
 | TURN | 强制中继环境可以建立语音 |
 | VLAN | Peer 分配、握手、互通、离房清理 |
 | 持久化 | 重启后 SQLite、上传文件和私钥保持 |
 | 清除数据 | data 目录保留，应用返回设置页且可继续写数据库 |
+| Windows ZIP | 产物名含 3.0.0，根含 NexusRoom.exe、nexusroom-wg.exe、wintun.dll，不含 data |
+| Electron 安全 | contextIsolation 开启、nodeIntegration 关闭、仅窄 IPC |
 
 ## 18. 运维、备份与恢复
 
@@ -877,7 +897,7 @@ docker compose config --quiet
 
 ### 18.2 客户端备份
 
-关闭客户端后复制 `Nexusroom.exe` 同级整个 `data` 目录。恢复时把 data 放回目标客户端同级目录。由于其中包含登录令牌，备份必须按敏感数据保护。
+关闭客户端后复制 `NexusRoom.exe` 同级整个 `data` 目录。恢复时把 data 放回目标客户端同级目录。由于其中包含登录令牌，备份必须按敏感数据保护。
 
 ### 18.3 健康检查
 
@@ -893,7 +913,7 @@ curl http://127.0.0.1:8080/ping
   "message": "ok",
   "data": {
     "status": "ok",
-    "version": "2.3.0"
+    "version": "3.0.0"
   }
 }
 ```
@@ -916,7 +936,7 @@ curl http://127.0.0.1:8080/ping
 
 ### 19.3 无法开麦
 
-- 检查麦克风系统权限和所选设备。
+- 检查 Windows 麦克风权限和浏览器媒体权限；当前 UI 使用默认输入设备。
 - 检查 50000-50050/UDP、3478/UDP 和 TURN Relay 范围。
 - 检查 `connected.rtc.ice_servers`、`rtc.error` 和 ICE State。
 - 对称 NAT 环境必须验证 TURN 用户名、密码和公网 IP。
@@ -932,8 +952,8 @@ curl http://127.0.0.1:8080/ping
 
 ### 19.5 呼吸灯错误
 
-- 确认 Provider 使用当前 room_id，不复用其他房间 Stream。
-- 在线状态以加入房间连接和 REST 回退共同判断。
+- 确认 React 客户端和 voice snapshot 使用当前 room_id，不复用其他房间状态。
+- 在线状态以 WebSocket 房间成员事件和当前房间 REST 状态共同判断。
 - 说话状态只控制外层光晕，中心点不得随动画透明度变化。
 - 检查音量字段、能量增量和静音保持计数。
 
@@ -941,7 +961,7 @@ curl http://127.0.0.1:8080/ping
 
 - 服务端应返回 `rtmp://host:1935/live`，完整地址为其后追加一个 Stream Key。
 - 检查 `server.domain` 和 `media.public_ip` 是否包含错误 scheme、端口或路径。
-- 客户端启动 FFmpeg 前必须解析并拒绝非 RTMP、缺 host、缺 `/live/KEY` 的地址。
+- 客户端播放器和直播入口必须解析并拒绝非 RTMP、缺 host、缺 `/live/KEY` 的地址；Electron UI 不负责启动 FFmpeg 推流。
 
 ### 19.7 本地数据重置
 
@@ -951,8 +971,8 @@ curl http://127.0.0.1:8080/ping
 
 ### 19.8 服务关闭卡顿
 
-- 检查 RTC、FFmpeg、WireGuard Helper、播放器和数据库释放是否串行等待。
-- 所有外部进程和原生插件关闭应设置短超时和幂等保护。
+- 检查 RTC、WireGuard Helper、播放器和数据库释放是否串行等待。
+- 所有外部进程、浏览器媒体对象和 IPC 关闭应设置短超时和幂等保护。
 - UI 窗口先停止接收交互，再并行释放独立资源，超时后记录而不是无限阻塞。
 
 ## 20. 当前限制与后续决策点
@@ -996,15 +1016,15 @@ curl http://127.0.0.1:8080/ping
 
 | 依赖 | 用途 |
 | --- | --- |
-| Flutter / Material | 桌面 UI |
-| Riverpod | 状态管理和依赖注入 |
-| go_router | 路由 |
-| Dio | REST API |
-| web_socket_channel | WebSocket |
-| Drift | 客户端 SQLite |
-| flutter_webrtc | 语音 WebRTC |
-| media_kit | HTTP-FLV 播放 |
-| window_manager | 桌面窗口生命周期 |
+| Electron | Windows 桌面容器、BrowserWindow 和生命周期 |
+| React / React DOM | 桌面 UI |
+| TypeScript | 主进程、预加载和渲染进程类型 |
+| Vite | Chromium 渲染构建 |
+| Vitest | 单元、集成和组件测试 |
+| ESLint / typescript-eslint | 静态检查 |
+| mpegts.js | HTTP-FLV 回退播放 |
+| Node SQLite API | exe 同级 SQLite 存储 |
+| WireGuard Helper / Wintun | Windows VLAN 隧道 |
 
 ## 附录 B：关联文档
 
@@ -1020,7 +1040,7 @@ curl http://127.0.0.1:8080/ping
 
 ---
 
-NexusRoom Technical Specification `2.3.0`
+NexusRoom Technical Specification `3.0.0`
 
 最后更新：2026-08-11
 

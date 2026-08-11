@@ -1,43 +1,98 @@
 # 客户端编译与打包
 
-本文说明如何在 Windows 上编译和打包 NexusRoom Flutter 桌面客户端。客户端通过 REST API 和应用 WebSocket 直接连接 NexusRoom 服务端，语音使用内置 RTC 信令，直播播放使用服务端输出的 HTTP-FLV。
-
-本文适用于 `2.3.0`。客户端把账号设置、登录状态和房间缓存写入 `Nexusroom.exe` 同级的 `data` 目录。发布空白客户端时不要包含开发机生成的 data 目录；备份或迁移现有客户端时则应将整个 data 目录与 Release 文件一起复制。
+NexusRoom 3.0.0 客户端是 Electron + React + TypeScript 应用，使用 Electron Builder 生成 Windows x64 ZIP。客户端的本地 SQLite 固定在 `NexusRoom.exe` 同级 `data` 目录；发布包不携带这个目录。
 
 ## 1. 构建环境
 
-需要安装：
+在 Windows x64 安装：
 
-- Windows 10 或 Windows 11 x64
-- Flutter Stable，附带 Dart 3.x
-- Visual Studio 2022，并安装“使用 C++ 的桌面开发”工作负载
-- Windows 10/11 SDK、MSVC、CMake 和 Ninja
-- Git
-- Go 1.22 或更高版本，仅在重新构建 WireGuard Helper 时需要
+- Windows 10 或 Windows 11。
+- Node.js 和 npm。
+- Git。
 
-检查环境：
+检查版本：
 
 ```powershell
-flutter doctor -v
-flutter devices
-go version
+node --version
+npm --version
 ```
 
-`flutter doctor -v` 中的 Windows toolchain 必须通过，`flutter devices` 应列出 `windows`。
+不需要额外的桌面 UI 框架或客户端媒体转码程序。只有重新编译 `native/wg-helper` 时才需要 Go 和 `go-winres`。
 
-## 2. 本地二进制依赖
+## 2. 安装依赖和开发运行
 
-Windows 发布目录需要以下文件：
+```powershell
+cd client
+npm ci
+npm run dev
+```
 
-| 文件 | 源位置 | 用途 |
-| --- | --- | --- |
-| `nexusroom-wg.exe` | `client/native/wg-helper/` | WireGuard 隧道辅助进程 |
-| `wintun.dll` | `client/native/wg-helper/` | Wintun 驱动运行库 |
-| `ffmpeg.exe` | `client/tools/` | 屏幕捕获和 RTMP 推流 |
+`npm ci` 按 `package-lock.json` 安装 Electron、React、Vite、TypeScript、Vitest、ESLint、mpegts.js 和 Electron Builder。`npm run dev` 启动 Vite，并让 Electron 加载开发渲染页面。
 
-顶层 CMake 配置会在这些文件存在时，把它们复制到 `Nexusroom.exe` 所在目录。`client/tools/ffmpeg.exe` 是本地依赖，已被 Git 忽略。
+## 3. 构建检查
 
-重新构建 WireGuard Helper：
+```powershell
+cd client
+npm run build
+```
+
+构建脚本依次执行：
+
+1. `typecheck`：检查 React 渲染进程和 Electron 主进程 TypeScript。
+2. `lint`：运行 ESLint 且不允许警告。
+3. `test`：运行 Vitest。
+4. `build:renderer`：使用 Vite 构建 Chromium 页面。
+5. `build:electron`：编译主进程和预加载脚本。
+
+## 4. Windows x64 ZIP
+
+```powershell
+cd client
+npm run package:win
+```
+
+产物路径和名称：
+
+```text
+client/release/NexusRoom-3.0.0-windows-x64.zip
+```
+
+Electron Builder 配置使用 `asar: true`，并把 `dist/` 和 `dist-electron/` 放入归档。源映射文件不进入 asar；它们只在构建目录中用于调试。WireGuard 文件通过 `extraFiles` 放在 exe 同级，不放进 asar：
+
+```text
+NexusRoom.exe
+nexusroom-wg.exe
+wintun.dll
+```
+
+ZIP 不含 `data`、SQLite、日志或开发机缓存。解压后必须放入用户具有写权限的目录；不要直接放到 `Program Files` 等受保护位置。启动时主进程在 exe 同级创建 `data\nexusroom.sqlite`，运行期间可能产生 `-wal` 和 `-shm` 文件。
+
+可以用以下检查确认 ZIP 内容：
+
+```powershell
+$zip = 'release\NexusRoom-3.0.0-windows-x64.zip'
+$temp = Join-Path $env:TEMP 'nexusroom-3.0.0-check'
+Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
+Expand-Archive -LiteralPath $zip -DestinationPath $temp
+Test-Path (Join-Path $temp 'NexusRoom.exe')
+Test-Path (Join-Path $temp 'nexusroom-wg.exe')
+Test-Path (Join-Path $temp 'wintun.dll')
+Test-Path (Join-Path $temp 'data')
+```
+
+前三个检查应为 `True`，最后一个应为 `False`。发布目录和 `data` 目录必须可分开备份；复制本地状态前先退出客户端。
+
+## 5. 本地数据库和清理
+
+开发运行的数据库位于 `client\data\nexusroom.sqlite`，打包运行的路径由 exe 所在目录决定。数据库表保存设置、账号会话和消息缓存；查询必须同时带规范化服务器 URL 与账号 ID。客户端不读取旧路径，也没有历史数据库迁移逻辑。
+
+清除本地数据会在现有连接上以事务删除设置、会话和消息，再执行压缩。它不会删除 `data` 目录、数据库文件或 schema，也不会关闭仍被渲染进程使用的连接。
+
+## 6. WireGuard Helper
+
+`nexusroom-wg.exe` 和 `wintun.dll` 必须与 `NexusRoom.exe` 同级。主进程通过受控 IPC 启动 Helper；启动隧道时 Windows 可能显示 UAC 提示，停止隧道通过现有 Helper 连接完成。用户拒绝 UAC、Helper 缺失或 Wintun 加载失败时，VLAN 会报告不可用，不会阻止消息和直播功能。
+
+需要重建 WireGuard Helper 时，`build.bat` 使用 Go 和 `go-winres`，并以 `CGO_ENABLED=0` 构建：
 
 ```powershell
 go install github.com/tc-hib/go-winres@latest
@@ -45,148 +100,29 @@ cd client\native\wg-helper
 .\build.bat
 ```
 
-构建前确认三个文件存在：
+## 7. 服务端联调
 
-```powershell
-Test-Path client\native\wg-helper\nexusroom-wg.exe
-Test-Path client\native\wg-helper\wintun.dll
-Test-Path client\tools\ffmpeg.exe
-```
+客户端连接服务端 Origin，例如 `http://127.0.0.1:8080`。关键接口包括：
 
-缺少 FFmpeg 不影响聊天和语音功能，但屏幕捕获推流不可用。缺少 WireGuard Helper 或 Wintun 时，客户端 VLAN 功能不可用。
-
-## 3. 获取依赖和质量检查
-
-在仓库根目录执行：
-
-```powershell
-cd client
-flutter pub get
-flutter analyze
-flutter test
-```
-
-`pubspec.lock` 应提交到 Git，以固定应用依赖版本。`.dart_tool/`、`build/`、插件元数据和 Windows ephemeral 目录属于生成内容，不提交。
-
-如果修改了 Drift、Riverpod 或 JSON 生成模型，再执行：
-
-```powershell
-dart run build_runner build --delete-conflicting-outputs
-```
-
-## 4. 开发运行
-
-```powershell
-cd client
-flutter run -d windows
-```
-
-客户端首次启动时填写服务端地址，例如：
-
-```text
-http://192.0.2.10:8080
-```
-
-不要在地址末尾填写 `/api/v1`。客户端会自行拼接 REST、WebSocket 和媒体路径。
-
-## 5. Release 编译
-
-```powershell
-cd client
-flutter build windows --release
-```
-
-典型输出目录：
-
-```text
-client/build/windows/x64/runner/Release/
-```
-
-发布时必须整体分发 Release 目录，不能只复制 `Nexusroom.exe`。至少检查：
-
-```powershell
-$release = 'build\windows\x64\runner\Release'
-Test-Path "$release\Nexusroom.exe"
-Test-Path "$release\data\flutter_assets"
-Test-Path "$release\nexusroom-wg.exe"
-Test-Path "$release\wintun.dll"
-Test-Path "$release\ffmpeg.exe"
-```
-
-压缩发布目录：
-
-```powershell
-Compress-Archive `
-  -Path build\windows\x64\runner\Release\* `
-  -DestinationPath NexusRoom-windows-x64.zip `
-  -Force
-```
-
-## 6. 服务端接口适配检查
-
-当前客户端与统一服务端使用以下契约：
-
-| 功能 | 客户端请求 | 服务端入口 |
+| 功能 | 客户端入口 | 服务端 API/事件 |
 | --- | --- | --- |
-| 健康检查 | `GET /ping` | Gin HTTP 服务 |
-| 登录注册 | `/api/v1/auth/*` | 内置认证模块 |
-| 房间和消息 | `/api/v1/rooms/*` | 内置房间和 SQLite 消息模块 |
-| 应用事件 | `/ws?token=...` | 内置 WebSocket Hub |
-| 语音 | `rtc.offer`、`rtc.answer`、`rtc.ice` | 内置 Pion SFU |
-| ICE 配置 | `connected.payload.rtc.ice_servers` | 内置 STUN/TURN 配置 |
-| 推流入口 | 房间 ingress 的 `rtmp_url` 和 `stream_key` | 内置 RTMP 服务 |
-| 直播播放 | `GET /api/v1/stream/{streamKey}` | 内置 HTTP-FLV 输出 |
-| VLAN | `/api/v1/rooms/{id}/vlan/*` | WireGuard 协调模块 |
+| 登录和会话 | 账号密码表单 | `POST /api/v1/auth/login`、本地 SQLite |
+| 房间和消息 | 房间面板 | `/api/v1/rooms/*`、`/ws?token=...` |
+| 图片 | 图片选择 | `POST /api/v1/files/upload`、受保护下载 |
+| 语音 | 房间语音按钮 | `rtc.offer`、`rtc.answer`、`rtc.ice` |
+| 直播 | 直播入口和播放器 | `GET /api/v1/stream/:streamKey`、`POST /api/v1/web/rtc/play` |
+| VLAN | 房间 VLAN 开关 | `/api/v1/rooms/:id/vlan/*`、WireGuard Helper |
 
-客户端会等待 WebSocket 进入 connected 状态，并保证 `room.join` 先于 `rtc.offer` 发送。房间加入操作是幂等的，断线重连后会自动恢复加入状态和 RTC 协商。
+服务端 `/ping` 和 WebSocket `connected.server_version` 当前均返回 `3.0.0`。房间消息必须先收到 `room.joined`，直播回退后刷新才重新尝试 WebRTC。
 
-最小联调步骤：
-
-1. 浏览器或 PowerShell 请求 `http://SERVER:8080/ping`，确认业务码为 `20000`。
-2. 客户端完成注册或登录，确认 WebSocket 进入 connected。
-3. 两个客户端加入同一房间，测试静音、说话状态和双向语音。
-4. 创建 ingress，用 FFmpeg 或 OBS 推流，确认房间内 HTTP-FLV 播放正常。
-5. 在不同 NAT 网络下测试语音；直连失败时确认 TURN 3478/UDP 和 51000-51100/UDP 可达。
-
-## 7. 清理构建产物
+## 8. 发布前检查
 
 ```powershell
 cd client
-flutter clean
+npm ci
+npm run build
+npm run package:win
+npm audit --audit-level=moderate
 ```
 
-如果 Flutter 工具进程异常退出，可在确认没有正在运行的构建后删除以下可再生目录：
-
-```text
-client/.dart_tool/
-client/build/
-client/windows/flutter/ephemeral/
-```
-
-不要删除 `client/tools/ffmpeg.exe`、WireGuard Helper 或 Wintun，除非准备重新获取这些打包依赖。
-
-## 8. 常见问题
-
-### Windows toolchain 不可用
-
-重新运行 Visual Studio Installer，安装“使用 C++ 的桌面开发”、MSVC、CMake 和 Windows SDK，然后执行 `flutter doctor -v`。
-
-### media_kit 原生依赖校验或下载失败
-
-先确认代理和缓存目录可写，然后执行：
-
-```powershell
-flutter clean
-flutter pub get
-flutter build windows --release -v
-```
-
-若仍失败，保留详细日志并检查失败的是依赖下载还是 CMake 编译，不要直接删除源码目录中的原生依赖。
-
-### 客户端能登录但语音无法连接
-
-检查服务端公网 IP、3478/UDP、RTC 端口 50000-50050/UDP 和 TURN Relay 端口 51000-51100/UDP。再检查 WebSocket 的 connected 事件是否包含 `rtc.ice_servers`。
-
-### data 目录无法创建
-
-客户端需要对自身所在目录具有写权限。不要把便携版放入普通用户不可写的 `Program Files` 等受保护目录；建议解压到用户可写目录后运行。
+人工检查至少覆盖：ZIP 根部三个运行文件、没有 `data`、可写目录首次启动、账号/服务器缓存隔离、历史和实时文字、图片鉴权显示、静音和成员说话状态、直播 WebRTC 到 FLV 的锁定回退，以及 UAC 允许或拒绝时的 VLAN 提示。

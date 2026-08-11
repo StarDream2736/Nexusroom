@@ -2,7 +2,7 @@
 
 NexusRoom 服务端是单一应用。SQLite、REST、WebSocket、语音 SFU、RTMP、HTTP-FLV、WebRTC 播放、TURN、网页资源和 WireGuard 协调模块由同一个 Go 主程序提供；AAC 到 Opus 转码由主程序管理同一镜像内的 FFmpeg 工作进程。
 
-本文适用于 `2.3.0`。
+本文适用于 `3.0.0`。
 
 ## 1. 构建要求
 
@@ -199,7 +199,7 @@ docker buildx build \
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
   --push \
-  -t REGISTRY/NAMESPACE/nexusroom-server:2.3.0 \
+  -t REGISTRY/NAMESPACE/nexusroom-server:3.0.0 \
   ./server
 ```
 
