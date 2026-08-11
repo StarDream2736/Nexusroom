@@ -8,6 +8,9 @@ import {
   type WsMessage,
   type WsMessageListener,
 } from '../main/ws-client';
+import {
+  assertValidStreamKey,
+} from './stream-url';
 import type {
   AccountScope,
   MessageCacheEntry,
@@ -93,11 +96,12 @@ export interface RoomMember {
 
 export interface RoomIngress {
   readonly id: number;
-  readonly ingressId?: string;
-  readonly rtmpUrl?: string;
-  readonly streamKey?: string;
-  readonly label?: string;
-  readonly isActive?: boolean;
+  readonly ingressId: string;
+  readonly rtmpUrl: string;
+  readonly streamKey: string;
+  readonly publishUrl: string;
+  readonly label: string;
+  readonly isActive: boolean;
 }
 
 export interface RoomDetail extends RoomSummary {
@@ -147,6 +151,11 @@ export interface RoomKickedEvent {
 
 export interface RoomDisbandedEvent {
   readonly roomId: number;
+}
+
+export interface RoomIngressUpdateEvent {
+  readonly roomId: number;
+  readonly action: string;
 }
 
 export class NexusRoomClientError extends Error {
@@ -244,6 +253,65 @@ function readOptionalMeta(value: unknown): unknown {
   return value;
 }
 
+function readRtmpUrl(value: unknown, label: string): string {
+  const raw = readString(value, label);
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new NexusRoomClientError(`${label} must be a valid RTMP URL`);
+  }
+  if (
+    (url.protocol !== 'rtmp:' && url.protocol !== 'rtmps:') ||
+    url.hostname.length === 0 ||
+    url.username.length > 0 ||
+    url.password.length > 0 ||
+    url.search.length > 0 ||
+    url.hash.length > 0 ||
+    url.pathname.replace(/\/+$/gu, '') !== '/live'
+  ) {
+    throw new NexusRoomClientError(`${label} must use rtmp/rtmps and end at /live`);
+  }
+  return url.toString().replace(/\/+$/u, '');
+}
+
+function readPublishUrl(
+  value: unknown,
+  label: string,
+  rtmpUrl: string,
+  streamKey: string,
+): string {
+  const raw = readString(value, label);
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new NexusRoomClientError(`${label} must be a valid RTMP URL`);
+  }
+  const base = new URL(rtmpUrl);
+  if (
+    (url.protocol !== 'rtmp:' && url.protocol !== 'rtmps:') ||
+    url.hostname.length === 0 ||
+    url.username.length > 0 ||
+    url.password.length > 0 ||
+    url.search.length > 0 ||
+    url.hash.length > 0 ||
+    url.protocol !== base.protocol ||
+    url.hostname !== base.hostname ||
+    url.port !== base.port ||
+    url.pathname !== `/live/${streamKey}`
+  ) {
+    throw new NexusRoomClientError(
+      `${label} must use rtmp/rtmps and end at /live/{stream_key}`,
+    );
+  }
+  return url.toString();
+}
+
+function buildIngressPublishUrl(rtmpUrl: string, streamKey: string): string {
+  return `${rtmpUrl.replace(/\/+$/u, '')}/${streamKey}`;
+}
+
 function readList(value: unknown, label: string): readonly unknown[] {
   if (Array.isArray(value)) return value;
   if (isRecord(value) && Array.isArray(value.items)) return value.items;
@@ -290,27 +358,34 @@ function readMember(value: unknown): RoomMember {
   };
 }
 
-function readIngress(value: unknown): RoomIngress {
+function readIngress(value: unknown, requirePublishUrl: boolean): RoomIngress {
   const record = readRecord(value, 'room ingress');
+  const rtmpUrl = readRtmpUrl(record.rtmp_url, 'ingress RTMP URL');
+  const streamKey = readString(record.stream_key, 'ingress stream key');
+  try {
+    assertValidStreamKey(streamKey, 'ingress stream key');
+  } catch (error) {
+    throw new NexusRoomClientError(error instanceof Error ? error.message : 'ingress stream key is invalid');
+  }
+  const publishValue = record.publish_url;
+  if (requirePublishUrl && typeof publishValue !== 'string') {
+    throw new NexusRoomClientError('ingress publish URL must be a non-empty string');
+  }
+  const publishUrl = publishValue === undefined || publishValue === null
+    ? buildIngressPublishUrl(rtmpUrl, streamKey)
+    : readPublishUrl(publishValue, 'ingress publish URL', rtmpUrl, streamKey);
   const active = record.is_active;
   if (active !== undefined && typeof active !== 'boolean') {
     throw new NexusRoomClientError('ingress active flag must be a boolean');
   }
   return {
     id: readId(record.id, 'ingress id'),
-    ...(readOptionalString(record.ingress_id, 'ingress id') === undefined
-      ? {}
-      : { ingressId: readOptionalString(record.ingress_id, 'ingress id') }),
-    ...(readOptionalString(record.rtmp_url, 'ingress RTMP URL') === undefined
-      ? {}
-      : { rtmpUrl: readOptionalString(record.rtmp_url, 'ingress RTMP URL') }),
-    ...(readOptionalString(record.stream_key, 'ingress stream key') === undefined
-      ? {}
-      : { streamKey: readOptionalString(record.stream_key, 'ingress stream key') }),
-    ...(readOptionalString(record.label, 'ingress label') === undefined
-      ? {}
-      : { label: readOptionalString(record.label, 'ingress label') }),
-    ...(active === undefined ? {} : { isActive: active }),
+    ingressId: readString(record.ingress_id, 'ingress id'),
+    rtmpUrl,
+    streamKey,
+    publishUrl,
+    label: readString(record.label, 'ingress label'),
+    isActive: active ?? false,
   };
 }
 
@@ -406,6 +481,14 @@ function readKickedEvent(message: WsMessage): RoomKickedEvent {
 function readDisbandedEvent(message: WsMessage): RoomDisbandedEvent {
   const record = mergeWsPayload(message);
   return { roomId: readId(record.room_id, 'disbanded room id') };
+}
+
+function readIngressUpdateEvent(message: WsMessage): RoomIngressUpdateEvent {
+  const record = mergeWsPayload(message);
+  return {
+    roomId: readId(record.room_id, 'ingress update room id'),
+    action: readString(record.action, 'ingress update action'),
+  };
 }
 
 export class NexusRoomClient {
@@ -534,8 +617,36 @@ export class NexusRoomClient {
       : readList(record.members, 'room members').map(readMember);
     const ingresses = record.ingresses === undefined
       ? []
-      : readList(record.ingresses, 'room ingresses').map(readIngress);
+      : readList(record.ingresses, 'room ingresses').map((value) => readIngress(value, false));
     return { ...summary, members, ingresses };
+  }
+
+  async listRoomIngresses(roomId: number): Promise<readonly RoomIngress[]> {
+    this.requireSession();
+    const id = readId(roomId, 'room id');
+    const raw = await this.rest.get<unknown>(`/api/v1/rooms/${id}/ingresses`);
+    return readList(raw, 'room ingress list').map((value) => readIngress(value, true));
+  }
+
+  async createRoomIngress(roomId: number, label: string): Promise<RoomIngress> {
+    this.requireSession();
+    const id = readId(roomId, 'room id');
+    const trimmedLabel = label.trim();
+    if (trimmedLabel.length === 0 || trimmedLabel.length > 64) {
+      throw new NexusRoomClientError('ingress label must be between 1 and 64 characters', 'configuration');
+    }
+    const raw = await this.rest.post<unknown>(
+      `/api/v1/rooms/${id}/ingresses`,
+      { label: trimmedLabel },
+    );
+    return readIngress(raw, true);
+  }
+
+  async deleteRoomIngress(roomId: number, ingressId: number): Promise<void> {
+    this.requireSession();
+    const room = readId(roomId, 'room id');
+    const ingress = readId(ingressId, 'ingress id');
+    await this.rest.delete(`/api/v1/rooms/${room}/ingresses/${ingress}`);
   }
 
   async createRoom(name: string): Promise<RoomSummary> {
@@ -761,6 +872,18 @@ export class NexusRoomClient {
 
   onDisbanded(listener: (event: RoomDisbandedEvent) => void): () => void {
     return this.subscribe('room.disbanded', readDisbandedEvent, listener);
+  }
+
+  onIngressUpdate(listener: (event: RoomIngressUpdateEvent) => void): () => void {
+    return this.socket.on('room.ingress_update', (message) => {
+      try {
+        const event = readIngressUpdateEvent(message);
+        if (this.activeRoomId !== event.roomId) return;
+        listener(event);
+      } catch {
+        // Ignore malformed external events; the socket remains usable.
+      }
+    });
   }
 
   private subscribe<T>(

@@ -5,6 +5,7 @@ import { App } from '../src/renderer/App';
 
 const appSource = readFileSync(new URL('../src/renderer/App.tsx', import.meta.url), 'utf8');
 const stylesSource = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+const playerSource = readFileSync(new URL('../src/renderer/live-player.ts', import.meta.url), 'utf8');
 
 describe('renderer shell', () => {
   it('renders the title, navigation, workspace, and room information regions', () => {
@@ -63,5 +64,24 @@ describe('renderer shell', () => {
     expect(stylesSource).toContain('.member-presence--speaking');
     expect(stylesSource).toContain('@keyframes voice-presence-breathe');
     expect(stylesSource).toContain('prefers-reduced-motion');
+  });
+
+  it('keeps stream ingress management in the room side panel', () => {
+    expect(appSource).toContain('listRoomIngresses');
+    expect(appSource).toContain('createRoomIngress');
+    expect(appSource).toContain('deleteRoomIngress');
+    expect(appSource).toContain('aria-label="推流入口"');
+    expect(appSource).toContain('publishUrl');
+  });
+
+  it('shows an independent default-audible player with protocol controls', () => {
+    expect(appSource).toContain('直播静音');
+    expect(appSource).toContain('刷新播放');
+    expect(appSource).toContain('关闭播放');
+    expect(appSource).toContain('点击恢复播放');
+    expect(playerSource).toContain('this.video.muted = false');
+    expect(playerSource).toContain("protocol: 'webrtc'");
+    expect(playerSource).toContain("protocol: 'flv'");
+    expect(playerSource).toContain('FLV_RETRY_DELAYS_MS');
   });
 });

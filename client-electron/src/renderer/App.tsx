@@ -20,8 +20,13 @@ import {
   type AuthSession,
   type ChatMessage,
   type RoomDetail,
+  type RoomIngress,
   type RoomSummary,
 } from './nexusroom-client';
+import {
+  LivePlayer,
+  type LivePlayerSnapshot,
+} from './live-player';
 import {
   WebRtcVoiceClient,
   type VoiceConnectionState,
@@ -136,6 +141,124 @@ function findVoiceParticipant(
   return participants.find((participant) => participant.userId === userId);
 }
 
+const emptyLiveSnapshot: LivePlayerSnapshot = {
+  mode: 'idle',
+  protocol: null,
+  muted: false,
+  sourceHasAudio: null,
+  flvRetryCount: 0,
+  error: null,
+};
+
+function liveStatusLabel(snapshot: LivePlayerSnapshot): string {
+  if (snapshot.mode === 'connecting') return '连接中';
+  if (snapshot.mode === 'autoplay-blocked') return '等待点击恢复';
+  if (snapshot.mode === 'error') return '播放异常';
+  if (snapshot.protocol === 'flv') return 'FLV 回退';
+  if (snapshot.protocol === 'webrtc') return 'WebRTC';
+  if (snapshot.mode === 'closed') return '已关闭';
+  return '未播放';
+}
+
+interface LivePlaybackPanelProps {
+  readonly serverUrl: string;
+  readonly ingress: RoomIngress;
+  readonly onClose: () => void;
+}
+
+function LivePlaybackPanel({
+  serverUrl,
+  ingress,
+  onClose,
+}: LivePlaybackPanelProps): ReactElement {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const playerRef = useRef<LivePlayer | null>(null);
+  const [snapshot, setSnapshot] = useState<LivePlayerSnapshot>(emptyLiveSnapshot);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video === null) return undefined;
+    const player = new LivePlayer({
+      serverUrl,
+      streamKey: ingress.streamKey,
+      video,
+    });
+    playerRef.current = player;
+    setSnapshot(player.snapshot);
+    const unsubscribe = player.onChange(setSnapshot);
+    void player.start().catch((error: unknown) => {
+      setSnapshot((current) => ({
+        ...current,
+        mode: 'error',
+        error: errorMessage(error),
+      }));
+    });
+    return () => {
+      unsubscribe();
+      player.dispose();
+      if (playerRef.current === player) playerRef.current = null;
+    };
+  }, [ingress.id, ingress.streamKey, serverUrl]);
+
+  const handleRefresh = (): void => {
+    void playerRef.current?.refresh().catch((error: unknown) => {
+      setSnapshot((current) => ({ ...current, mode: 'error', error: errorMessage(error) }));
+    });
+  };
+
+  const handleResume = (): void => {
+    void playerRef.current?.resume().catch((error: unknown) => {
+      setSnapshot((current) => ({ ...current, mode: 'error', error: errorMessage(error) }));
+    });
+  };
+
+  const handleToggleMute = (): void => {
+    playerRef.current?.toggleMuted();
+  };
+
+  return (
+    <section className="live-player-panel" aria-label="直播播放器">
+      <div className="live-player-panel__header">
+        <div>
+          <p className="eyebrow">直播播放</p>
+          <h3>{ingress.label}</h3>
+        </div>
+        <span
+          className="live-player-panel__status"
+          data-live-protocol={snapshot.protocol ?? 'none'}
+          aria-live="polite"
+        >
+          {liveStatusLabel(snapshot)}
+        </span>
+      </div>
+      <div className="live-player-panel__video-wrap">
+        <video
+          ref={videoRef}
+          className="live-player-panel__video"
+          aria-label={`${ingress.label} 直播画面`}
+          playsInline
+          autoPlay
+        />
+        {snapshot.mode === 'connecting' ? <span className="live-player-panel__overlay">正在连接直播</span> : null}
+        {snapshot.mode === 'autoplay-blocked' ? (
+          <button className="live-player-panel__overlay live-player-panel__overlay--button" type="button" onClick={handleResume}>
+            点击恢复播放
+          </button>
+        ) : null}
+      </div>
+      {snapshot.error !== null ? <p className="live-player-panel__error" role="status">{snapshot.error}</p> : null}
+      <div className="live-player-panel__controls">
+        <span className="muted-copy">协议：{snapshot.protocol === 'flv' ? 'FLV' : snapshot.protocol === 'webrtc' ? 'WebRTC' : '等待中'}</span>
+        <button className="voice-button" type="button" onClick={handleToggleMute} aria-pressed={snapshot.muted}>
+          {snapshot.muted ? '取消直播静音' : '直播静音'}
+        </button>
+        <button className="voice-button" type="button" onClick={handleRefresh}>刷新播放</button>
+        <button className="text-button" type="button" onClick={onClose}>关闭播放</button>
+      </div>
+    </section>
+  );
+}
+
 export function App(): ReactElement {
   const storage = useMemo(getRendererStorage, []);
   const [theme, setTheme] = useState<Theme>('dark');
@@ -155,6 +278,10 @@ export function App(): ReactElement {
   const [rooms, setRooms] = useState<readonly RoomSummary[]>([]);
   const [selectedRoomId, setSelectedRoomId] = useState<number | null>(null);
   const [roomDetail, setRoomDetail] = useState<RoomDetail | null>(null);
+  const [ingresses, setIngresses] = useState<readonly RoomIngress[]>([]);
+  const [selectedIngressId, setSelectedIngressId] = useState<number | null>(null);
+  const [ingressLabelDraft, setIngressLabelDraft] = useState('');
+  const [ingressActionBusy, setIngressActionBusy] = useState(false);
   const [messages, setMessages] = useState<readonly ChatMessage[]>([]);
   const [messageDraft, setMessageDraft] = useState('');
   const [sendingMessage, setSendingMessage] = useState(false);
@@ -169,6 +296,7 @@ export function App(): ReactElement {
   const [imageSources, setImageSources] = useState<Record<number, string>>({});
   const imageUrls = useRef(new Map<number, string>());
   const selectedRoomIdRef = useRef<number | null>(null);
+  const ingressRequestGeneration = useRef(0);
 
   useEffect(() => {
     selectedRoomIdRef.current = selectedRoomId;
@@ -263,6 +391,21 @@ export function App(): ReactElement {
     return loadedRooms;
   }, [client]);
 
+  const loadIngresses = useCallback(async (roomId: number, targetClient: NexusRoomClient = client): Promise<readonly RoomIngress[]> => {
+    const requestGeneration = ++ingressRequestGeneration.current;
+    const loadedIngresses = await targetClient.listRoomIngresses(roomId);
+    if (requestGeneration !== ingressRequestGeneration.current || selectedRoomIdRef.current !== roomId) {
+      return loadedIngresses;
+    }
+    setIngresses(loadedIngresses);
+    setSelectedIngressId((current) => (
+      current !== null && loadedIngresses.some((ingress) => ingress.id === current)
+        ? current
+        : null
+    ));
+    return loadedIngresses;
+  }, [client]);
+
   const handleLogin = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
     if (loginBusy) return;
@@ -285,6 +428,8 @@ export function App(): ReactElement {
       setServerUrlDraft(activeClient.serverUrl);
       setClient(activeClient);
       setSession(nextSession);
+      setIngresses([]);
+      setSelectedIngressId(null);
       setPassword('');
     } catch (loginError) {
       activeClient.disconnect();
@@ -308,6 +453,8 @@ export function App(): ReactElement {
         setError(event.reason || '你已被移出房间');
         setSelectedRoomId(null);
         setRoomDetail(null);
+        setIngresses([]);
+        setSelectedIngressId(null);
       }
     });
     const unsubscribeDisbanded = client.onDisbanded((event) => {
@@ -315,7 +462,15 @@ export function App(): ReactElement {
       setError('房间已解散');
       setSelectedRoomId(null);
       setRoomDetail(null);
+      setIngresses([]);
+      setSelectedIngressId(null);
       void loadRooms().catch(() => undefined);
+    });
+    const unsubscribeIngress = client.onIngressUpdate((event) => {
+      if (!active || event.roomId !== selectedRoomIdRef.current) return;
+      void loadIngresses(event.roomId).catch((ingressError) => {
+        if (active) setError(errorMessage(ingressError));
+      });
     });
     client.connect();
     void loadRooms().catch((loadError) => {
@@ -326,10 +481,14 @@ export function App(): ReactElement {
       unsubscribeChat();
       unsubscribeKicked();
       unsubscribeDisbanded();
+      unsubscribeIngress();
     };
-  }, [client, loadRooms, session]);
+  }, [client, loadIngresses, loadRooms, session]);
 
   useEffect(() => {
+    ingressRequestGeneration.current += 1;
+    setIngresses([]);
+    setSelectedIngressId(null);
     if (session === null || selectedRoomId === null) {
       void voice.setRoom(null).catch(() => undefined);
       setRoomDetail(null);
@@ -346,10 +505,12 @@ export function App(): ReactElement {
     client.switchRoom(roomId);
     void Promise.all([
       client.getRoomDetail(roomId),
+      client.listRoomIngresses(roomId),
       storage.getMessages(session.scope, roomId),
-    ]).then(async ([detail, cached]) => {
+    ]).then(async ([detail, loadedIngresses, cached]) => {
       if (!active) return;
       setRoomDetail(detail);
+      setIngresses(loadedIngresses);
       setMessages(cached.map(toChatMessage));
       const fresh = await client.syncMessages(roomId);
       if (active) setMessages((current) => mergeMessages(current, fresh));
@@ -482,6 +643,40 @@ export function App(): ReactElement {
     }
   };
 
+  const handleCreateIngress = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault();
+    const roomId = selectedRoomId;
+    const label = ingressLabelDraft.trim();
+    if (roomId === null || ingressActionBusy || label.length === 0) return;
+    setIngressActionBusy(true);
+    setError(null);
+    try {
+      await client.createRoomIngress(roomId, label);
+      setIngressLabelDraft('');
+      await loadIngresses(roomId);
+    } catch (ingressError) {
+      setError(errorMessage(ingressError));
+    } finally {
+      setIngressActionBusy(false);
+    }
+  };
+
+  const handleDeleteIngress = async (ingress: RoomIngress): Promise<void> => {
+    const roomId = selectedRoomId;
+    if (roomId === null || ingressActionBusy) return;
+    setIngressActionBusy(true);
+    setError(null);
+    try {
+      await client.deleteRoomIngress(roomId, ingress.id);
+      if (selectedIngressId === ingress.id) setSelectedIngressId(null);
+      await loadIngresses(roomId);
+    } catch (ingressError) {
+      setError(errorMessage(ingressError));
+    } finally {
+      setIngressActionBusy(false);
+    }
+  };
+
   const handleLeaveRoom = async (): Promise<void> => {
     const roomId = selectedRoomId;
     if (roomId === null || leavingRoom) return;
@@ -492,6 +687,8 @@ export function App(): ReactElement {
       await client.leaveRoom(roomId);
       setSelectedRoomId(null);
       setRoomDetail(null);
+      setIngresses([]);
+      setSelectedIngressId(null);
       setMessages([]);
       await loadRooms();
     } catch (leaveError) {
@@ -512,6 +709,8 @@ export function App(): ReactElement {
       setRooms([]);
       setSelectedRoomId(null);
       setRoomDetail(null);
+      setIngresses([]);
+      setSelectedIngressId(null);
       setMessages([]);
       setError(null);
     } catch (logoutError) {
@@ -536,6 +735,8 @@ export function App(): ReactElement {
       setRooms([]);
       setSelectedRoomId(null);
       setRoomDetail(null);
+      setIngresses([]);
+      setSelectedIngressId(null);
       setMessages([]);
       setError(null);
     } catch (clearError) {
@@ -553,6 +754,7 @@ export function App(): ReactElement {
   };
 
   const selectedRoom = rooms.find((room) => room.id === selectedRoomId);
+  const selectedIngress = ingresses.find((ingress) => ingress.id === selectedIngressId);
   const displayName = session?.userDisplayId ?? '未登录';
 
   return (
@@ -727,6 +929,14 @@ export function App(): ReactElement {
                   <span className="status-chip">{connectionLabel(connectionState)}</span>
                 </div>
               </div>
+              {selectedIngress !== undefined ? (
+                <LivePlaybackPanel
+                  key={`${selectedIngress.id}-${selectedIngress.streamKey}`}
+                  serverUrl={client.serverUrl}
+                  ingress={selectedIngress}
+                  onClose={() => setSelectedIngressId(null)}
+                />
+              ) : null}
               <section className="message-panel" aria-label="聊天消息">
                 {selectedRoomId === null ? (
                   <div className="empty-state">
@@ -831,6 +1041,62 @@ export function App(): ReactElement {
               ))}
             </div>
           )}
+          {roomDetail !== null ? (
+            <section className="stream-section" aria-label="推流入口">
+              <div className="section-heading">
+                <span>推流入口</span>
+                <span>{ingresses.length}</span>
+              </div>
+              {ingresses.length === 0 ? (
+                <p className="muted-copy stream-section__empty">还没有推流入口</p>
+              ) : (
+                <div className="stream-list">
+                  {ingresses.map((ingress) => (
+                    <div className={`stream-item${selectedIngressId === ingress.id ? ' stream-item--active' : ''}`} key={ingress.id}>
+                      <button
+                        className="stream-item__select"
+                        type="button"
+                        onClick={() => setSelectedIngressId(ingress.id)}
+                        aria-pressed={selectedIngressId === ingress.id}
+                      >
+                        <span className="stream-item__name">{ingress.label}</span>
+                        <span className="stream-item__status">{ingress.isActive ? '直播中' : '未推流'}</span>
+                      </button>
+                      <button
+                        className="stream-item__delete"
+                        type="button"
+                        onClick={() => void handleDeleteIngress(ingress)}
+                        disabled={ingressActionBusy || ingress.isActive}
+                      >
+                        删除
+                      </button>
+                      {selectedIngressId === ingress.id ? (
+                        <div className="stream-item__details">
+                          <span>RTMP：{ingress.rtmpUrl}</span>
+                          <span>Key：{ingress.streamKey}</span>
+                          <span>发布地址：{ingress.publishUrl}</span>
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <form className="stream-create-form" onSubmit={handleCreateIngress}>
+                <label htmlFor="create-ingress-label">新建入口</label>
+                <div className="inline-form">
+                  <input
+                    id="create-ingress-label"
+                    value={ingressLabelDraft}
+                    onChange={(event) => setIngressLabelDraft(event.target.value)}
+                    placeholder="入口名称"
+                    maxLength={64}
+                    disabled={ingressActionBusy}
+                  />
+                  <button type="submit" disabled={ingressActionBusy || ingressLabelDraft.trim().length === 0}>创建</button>
+                </div>
+              </form>
+            </section>
+          ) : null}
           <div className="room-info__footer">
             <span className="muted-copy">{serverUrl}</span>
           </div>

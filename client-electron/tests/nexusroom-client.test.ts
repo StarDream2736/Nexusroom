@@ -21,6 +21,9 @@ import type {
 
 class FakeRest implements RestTransport {
   readonly getPaths: string[] = [];
+  readonly postPaths: string[] = [];
+  readonly postBodies: unknown[] = [];
+  readonly deletePaths: string[] = [];
   readonly formBodies: FormData[] = [];
   private readonly getValues: unknown[] = [];
   private readonly postValues: unknown[] = [];
@@ -56,9 +59,9 @@ class FakeRest implements RestTransport {
     return this.getValues.shift() as T;
   }
 
-  async post<T>(_path: string, _body?: unknown): Promise<T> {
-    void _path;
-    void _body;
+  async post<T>(path: string, body?: unknown): Promise<T> {
+    this.postPaths.push(path);
+    this.postBodies.push(body);
     return (this.postValues.shift() ?? {}) as T;
   }
 
@@ -67,8 +70,8 @@ class FakeRest implements RestTransport {
     return this.formValue as T;
   }
 
-  async delete<T>(_path: string): Promise<T> {
-    void _path;
+  async delete<T>(path: string): Promise<T> {
+    this.deletePaths.push(path);
     return undefined as T;
   }
 }
@@ -195,6 +198,115 @@ describe('NexusRoomClient', () => {
       roomId: 3,
       payload: { speaking: false },
     });
+  });
+
+  it('lists, creates, and deletes strictly validated room ingresses', async () => {
+    const storage = createStorage();
+    const rest = new FakeRest();
+    rest.queuePost({ user_id: 11, user_display_id: 'A11', token: 'token-a' });
+    rest.queueGet([
+      {
+        id: 9,
+        ingress_id: 'ingress-9',
+        rtmp_url: 'rtmps://stream.example:1935/live',
+        stream_key: 'stream-key-9',
+        publish_url: 'rtmps://stream.example:1935/live/stream-key-9',
+        label: 'Desk',
+        is_active: true,
+      },
+    ]);
+    rest.queuePost({
+      id: 10,
+      ingress_id: 'ingress-10',
+      rtmp_url: 'rtmp://stream.example:1935/live',
+      stream_key: 'stream-key-10',
+      publish_url: 'rtmp://stream.example:1935/live/stream-key-10',
+      label: 'Camera',
+    });
+    const client = new NexusRoomClient({
+      serverUrl: 'https://chat.test',
+      storage,
+      restClient: rest,
+      wsClient: new FakeSocket(),
+    });
+    await client.login('alice', 'password');
+
+    await expect(client.listRoomIngresses(7)).resolves.toEqual([
+      {
+        id: 9,
+        ingressId: 'ingress-9',
+        rtmpUrl: 'rtmps://stream.example:1935/live',
+        streamKey: 'stream-key-9',
+        publishUrl: 'rtmps://stream.example:1935/live/stream-key-9',
+        label: 'Desk',
+        isActive: true,
+      },
+    ]);
+    await expect(client.createRoomIngress(7, ' Camera ')).resolves.toMatchObject({
+      id: 10,
+      publishUrl: 'rtmp://stream.example:1935/live/stream-key-10',
+      isActive: false,
+    });
+    await client.deleteRoomIngress(7, 10);
+
+    expect(rest.getPaths).toEqual(['/api/v1/rooms/7/ingresses']);
+    expect(rest.postPaths).toEqual(['/api/v1/auth/login', '/api/v1/rooms/7/ingresses']);
+    expect(rest.postBodies[1]).toEqual({ label: 'Camera' });
+    expect(rest.deletePaths).toEqual(['/api/v1/rooms/7/ingresses/10']);
+  });
+
+  it('rejects unsafe ingress publish addresses and stream keys', async () => {
+    const storage = createStorage();
+    const rest = new FakeRest();
+    rest.queuePost({ user_id: 11, user_display_id: 'A11', token: 'token-a' });
+    rest.queueGet(
+      [{
+        id: 1,
+        ingress_id: 'ingress-1',
+        rtmp_url: 'rtmp://stream.example/live',
+        stream_key: 'stream-key-1',
+        publish_url: 'https://stream.example/live/stream-key-1',
+        label: 'Bad scheme',
+      }],
+      [{
+        id: 2,
+        ingress_id: 'ingress-2',
+        rtmp_url: 'rtmp://stream.example/live',
+        stream_key: 'bad/key',
+        publish_url: 'rtmp://stream.example/live/bad/key',
+        label: 'Bad key',
+      }],
+    );
+    const client = new NexusRoomClient({
+      serverUrl: 'https://chat.test',
+      storage,
+      restClient: rest,
+      wsClient: new FakeSocket(),
+    });
+    await client.login('alice', 'password');
+    await expect(client.listRoomIngresses(1)).rejects.toThrow('rtmp/rtmps');
+    await expect(client.listRoomIngresses(1)).rejects.toThrow('stream key');
+  });
+
+  it('only forwards ingress updates for the current room', async () => {
+    const storage = createStorage();
+    const rest = new FakeRest();
+    rest.queuePost({ user_id: 11, user_display_id: 'A11', token: 'token-a' });
+    const socket = new FakeSocket();
+    const client = new NexusRoomClient({
+      serverUrl: 'https://chat.test',
+      storage,
+      restClient: rest,
+      wsClient: socket,
+    });
+    await client.login('alice', 'password');
+    client.connect();
+    client.switchRoom(7);
+    const updates: number[] = [];
+    client.onIngressUpdate((event) => updates.push(event.roomId));
+    socket.emit('room.ingress_update', { room_id: 8, action: 'created' }, 8);
+    socket.emit('room.ingress_update', { room_id: 7, action: 'status_changed' }, 7);
+    expect(updates).toEqual([7]);
   });
 
   it('stores login sessions by normalized server origin and account id', async () => {
