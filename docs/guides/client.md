@@ -1,6 +1,6 @@
 # 客户端开发指南
 
-本文档说明 NexusRoom `2.1.0` Flutter 桌面客户端的职责、目录、运行方式和本地数据约定。完整系统设计见 [NexusRoom 技术规范](../NexusRoom.md)，发布构建见 [客户端编译与打包](../build/client-build.md)。
+本文档说明 NexusRoom `2.3.0` Flutter 桌面客户端的职责、目录、运行方式和本地数据约定。完整系统设计见 [NexusRoom 技术规范](../NexusRoom.md)，发布构建见 [客户端编译与打包](../build/client-build.md)。
 
 ## 客户端职责
 

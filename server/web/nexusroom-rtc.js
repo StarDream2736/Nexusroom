@@ -6,6 +6,7 @@ function NexusRoomRtcPlayer() {
     const self = {
         pc: new RTCPeerConnection(),
         stream: new MediaStream(),
+        sourceHasAudio: false,
     };
 
     self.pc.ontrack = function (event) {
@@ -16,6 +17,7 @@ function NexusRoomRtcPlayer() {
 
     self.play = async function (streamUrl) {
         self.pc.addTransceiver('video', {direction: 'recvonly'});
+        self.pc.addTransceiver('audio', {direction: 'recvonly'});
         const offer = await self.pc.createOffer();
         await self.pc.setLocalDescription(offer);
         await waitForIceGathering(self.pc);
@@ -33,11 +35,14 @@ function NexusRoomRtcPlayer() {
             throw new Error(session.message || 'WebRTC playback negotiation failed');
         }
         await self.pc.setRemoteDescription({type: 'answer', sdp: session.sdp});
+        self.sourceHasAudio = session.source_has_audio === true;
         return session;
     };
 
     self.close = function () {
         if (self.pc) {
+            self.pc.onconnectionstatechange = null;
+            self.pc.oniceconnectionstatechange = null;
             self.pc.close();
             self.pc = null;
         }

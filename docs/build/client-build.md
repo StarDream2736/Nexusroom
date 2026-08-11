@@ -2,7 +2,7 @@
 
 本文说明如何在 Windows 上编译和打包 NexusRoom Flutter 桌面客户端。客户端通过 REST API 和应用 WebSocket 直接连接 NexusRoom 服务端，语音使用内置 RTC 信令，直播播放使用服务端输出的 HTTP-FLV。
 
-本文适用于 `2.1.0`。客户端把账号设置、登录状态和房间缓存写入 `Nexusroom.exe` 同级的 `data` 目录。发布空白客户端时不要包含开发机生成的 data 目录；备份或迁移现有客户端时则应将整个 data 目录与 Release 文件一起复制。
+本文适用于 `2.3.0`。客户端把账号设置、登录状态和房间缓存写入 `Nexusroom.exe` 同级的 `data` 目录。发布空白客户端时不要包含开发机生成的 data 目录；备份或迁移现有客户端时则应将整个 data 目录与 Release 文件一起复制。
 
 ## 1. 构建环境
 

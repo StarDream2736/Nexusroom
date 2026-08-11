@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"strings"
 	"sync"
 
 	"github.com/pion/interceptor"
@@ -22,11 +24,12 @@ const (
 type SignalFunc func(userID, roomID uint64, event string, payload any)
 
 type Options struct {
-	PublicIP   string
-	UDPMin     uint16
-	UDPMax     uint16
-	ICEServers []webrtc.ICEServer
-	Signal     SignalFunc
+	PublicIP         string
+	PublicIPProvider func() string
+	UDPMin           uint16
+	UDPMax           uint16
+	ICEServers       []webrtc.ICEServer
+	Signal           SignalFunc
 }
 
 type Description struct {
@@ -47,11 +50,15 @@ type Participant struct {
 }
 
 type Engine struct {
-	mu     sync.RWMutex
-	api    *webrtc.API
-	config webrtc.Configuration
-	signal SignalFunc
-	rooms  map[uint64]*room
+	mu               sync.RWMutex
+	mediaEngine      *webrtc.MediaEngine
+	interceptors     *interceptor.Registry
+	publicIPProvider func() string
+	udpMin           uint16
+	udpMax           uint16
+	config           webrtc.Configuration
+	signal           SignalFunc
+	rooms            map[uint64]*room
 }
 
 type room struct {
@@ -98,19 +105,21 @@ func New(options Options) (*Engine, error) {
 			return nil, fmt.Errorf("configure RTC UDP port range: %w", err)
 		}
 	}
-	if options.PublicIP != "" {
-		settingEngine.SetNAT1To1IPs([]string{options.PublicIP}, webrtc.ICECandidateTypeHost)
+	publicIPProvider := options.PublicIPProvider
+	if publicIPProvider == nil {
+		publicIP := options.PublicIP
+		publicIPProvider = func() string { return publicIP }
 	}
 
 	return &Engine{
-		api: webrtc.NewAPI(
-			webrtc.WithMediaEngine(mediaEngine),
-			webrtc.WithInterceptorRegistry(registry),
-			webrtc.WithSettingEngine(settingEngine),
-		),
-		config: webrtc.Configuration{ICEServers: options.ICEServers},
-		signal: options.Signal,
-		rooms:  make(map[uint64]*room),
+		mediaEngine:      mediaEngine,
+		interceptors:     registry,
+		publicIPProvider: publicIPProvider,
+		udpMin:           options.UDPMin,
+		udpMax:           options.UDPMax,
+		config:           webrtc.Configuration{ICEServers: options.ICEServers},
+		signal:           options.Signal,
+		rooms:            make(map[uint64]*room),
 	}, nil
 }
 
@@ -299,7 +308,7 @@ func (e *Engine) ensurePeer(roomID, userID uint64) (*peer, bool, error) {
 	if existing := e.findPeer(roomID, userID); existing != nil {
 		return existing, false, nil
 	}
-	pc, err := e.api.NewPeerConnection(e.config)
+	pc, err := e.newPeerConnection()
 	if err != nil {
 		return nil, false, fmt.Errorf("create RTC peer: %w", err)
 	}
@@ -341,6 +350,36 @@ func (e *Engine) ensurePeer(roomID, userID uint64) (*peer, bool, error) {
 	r.peers[userID] = p
 	e.mu.Unlock()
 	return p, true, nil
+}
+
+func (e *Engine) newPeerConnection() (*webrtc.PeerConnection, error) {
+	settings := webrtc.SettingEngine{}
+	settings.SetNetworkTypes([]webrtc.NetworkType{webrtc.NetworkTypeUDP4})
+	if e.udpMin != 0 && e.udpMax >= e.udpMin {
+		if err := settings.SetEphemeralUDPPortRange(e.udpMin, e.udpMax); err != nil {
+			return nil, fmt.Errorf("configure RTC UDP port range: %w", err)
+		}
+	}
+	if publicIP := currentIPv4(e.publicIPProvider); publicIP != "" {
+		settings.SetNAT1To1IPs([]string{publicIP}, webrtc.ICECandidateTypeSrflx)
+	}
+	api := webrtc.NewAPI(
+		webrtc.WithMediaEngine(e.mediaEngine),
+		webrtc.WithInterceptorRegistry(e.interceptors),
+		webrtc.WithSettingEngine(settings),
+	)
+	return api.NewPeerConnection(e.config)
+}
+
+func currentIPv4(provider func() string) string {
+	if provider == nil {
+		return ""
+	}
+	ip := net.ParseIP(strings.TrimSpace(provider()))
+	if ip == nil || ip.To4() == nil {
+		return ""
+	}
+	return ip.To4().String()
 }
 
 func (e *Engine) forwardAudio(publisher *peer, remote *webrtc.TrackRemote) {

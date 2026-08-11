@@ -55,6 +55,11 @@ func (h *WebPublicHandler) ListLiveRooms(c *gin.Context) {
 		util.Error(c, 50001, "查询房间映射失败: "+err.Error())
 		return
 	}
+	rooms := buildWebLiveRooms(liveStreams, refs)
+	util.Success(c, gin.H{"rooms": rooms, "total": len(rooms), "generated_at": time.Now().UTC()})
+}
+
+func buildWebLiveRooms(liveStreams []mediastream.Info, refs []repository.StreamRoomRef) []webLiveRoom {
 	refByKey := make(map[string]repository.StreamRoomRef, len(refs))
 	for _, ref := range refs {
 		refByKey[ref.StreamKey] = ref
@@ -95,7 +100,7 @@ func (h *WebPublicHandler) ListLiveRooms(c *gin.Context) {
 		}
 		return rooms[i].Name < rooms[j].Name
 	})
-	util.Success(c, gin.H{"rooms": rooms, "total": len(rooms), "generated_at": time.Now().UTC()})
+	return rooms
 }
 
 func toWebStream(info mediastream.Info, label string) webLiveStream {
@@ -121,6 +126,11 @@ func (h *WebPublicHandler) RTCPlay(c *gin.Context) {
 		util.Error(c, 40001, err.Error())
 		return
 	}
+	streamInfo, ok := h.streams.Get(streamKey)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"code": 40001, "message": mediastream.ErrNotFound.Error()})
+		return
+	}
 	answer, err := h.rtc.Answer(c.Request.Context(), streamKey, request.SDP)
 	if err != nil {
 		status := http.StatusBadRequest
@@ -130,7 +140,10 @@ func (h *WebPublicHandler) RTCPlay(c *gin.Context) {
 		c.JSON(status, gin.H{"code": 40001, "message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "server": "nexusroom", "sdp": answer, "sessionid": streamKey})
+	c.JSON(http.StatusOK, gin.H{
+		"code": 0, "server": "nexusroom", "sdp": answer, "sessionid": streamKey,
+		"source_has_audio": streamInfo.HasAudio,
+	})
 }
 
 func streamKeyFromURL(raw string) (string, error) {

@@ -13,6 +13,7 @@ import (
 	"github.com/bluenviron/gortmplib"
 	"github.com/bluenviron/gortmplib/pkg/codecs"
 
+	"nexusroom-server/internal/media/audiotranscode"
 	"nexusroom-server/internal/media/stream"
 )
 
@@ -20,18 +21,19 @@ type AuthorizeFunc func(streamKey string) bool
 type StateFunc func(streamKey string, active bool)
 
 type Server struct {
-	address   string
-	registry  *stream.Registry
-	authorize AuthorizeFunc
-	onState   StateFunc
+	address    string
+	registry   *stream.Registry
+	ffmpegPath string
+	authorize  AuthorizeFunc
+	onState    StateFunc
 
 	mu       sync.Mutex
 	listener net.Listener
 	closed   bool
 }
 
-func New(address string, registry *stream.Registry, authorize AuthorizeFunc, onState StateFunc) *Server {
-	return &Server{address: address, registry: registry, authorize: authorize, onState: onState}
+func New(address string, registry *stream.Registry, ffmpegPath string, authorize AuthorizeFunc, onState StateFunc) *Server {
+	return &Server{address: address, registry: registry, ffmpegPath: ffmpegPath, authorize: authorize, onState: onState}
 }
 
 func (s *Server) Run(ctx context.Context) error {
@@ -100,6 +102,9 @@ func (s *Server) handleInner(conn net.Conn) error {
 		return errors.New("RTMP publish path must be /live/{streamKey}")
 	}
 	streamKey := parts[1]
+	if !validStreamKey(streamKey) {
+		return errors.New("invalid RTMP stream key")
+	}
 	if s.authorize != nil && !s.authorize(streamKey) {
 		return errors.New("unknown or unauthorized stream key")
 	}
@@ -134,10 +139,38 @@ func (s *Server) handleInner(conn net.Conn) error {
 	}
 
 	s.registry.Start(streamKey, h264Codec.SPS, h264Codec.PPS, audioConfig)
+	var audioTranscoder *audiotranscode.AACToOpus
+	if len(audioConfig) != 0 {
+		transcoder, transcodeErr := audiotranscode.StartAACToOpus(
+			s.ffmpegPath,
+			audioConfig,
+			func(packet audiotranscode.OpusPacket) {
+				_ = s.registry.PublishOpus(streamKey, stream.OpusFrame{
+					SequenceNumber: packet.SequenceNumber,
+					Timestamp:      packet.Timestamp,
+					Marker:         packet.Marker,
+					Payload:        packet.Payload,
+				})
+			},
+			func(failure error) {
+				_ = s.registry.SetOpusAvailable(streamKey, false)
+				log.Printf("[RTMP] audio transcoding stopped for %s: %v", streamKey, failure)
+			},
+		)
+		if transcodeErr != nil {
+			log.Printf("[RTMP] WebRTC audio unavailable for %s: %v", streamKey, transcodeErr)
+		} else {
+			audioTranscoder = transcoder
+			_ = s.registry.SetOpusAvailable(streamKey, true)
+		}
+	}
 	if s.onState != nil {
 		s.onState(streamKey, true)
 	}
 	defer func() {
+		if audioTranscoder != nil {
+			audioTranscoder.Close()
+		}
 		s.registry.Stop(streamKey)
 		if s.onState != nil {
 			s.onState(streamKey, false)
@@ -152,6 +185,11 @@ func (s *Server) handleInner(conn net.Conn) error {
 	if audioTrack != nil {
 		reader.OnDataMPEG4Audio(audioTrack, func(pts time.Duration, accessUnit []byte) {
 			_ = s.registry.PublishAudio(streamKey, stream.AudioFrame{PTS: pts, Data: accessUnit})
+			if audioTranscoder != nil {
+				if writeErr := audioTranscoder.Write(accessUnit); writeErr != nil {
+					_ = s.registry.SetOpusAvailable(streamKey, false)
+				}
+			}
 		})
 	}
 	_ = conn.SetDeadline(time.Time{})
@@ -160,6 +198,20 @@ func (s *Server) handleInner(conn net.Conn) error {
 			return err
 		}
 	}
+}
+
+func validStreamKey(streamKey string) bool {
+	if len(streamKey) < 8 || len(streamKey) > 128 {
+		return false
+	}
+	for _, char := range streamKey {
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') ||
+			(char >= '0' && char <= '9') || char == '-' || char == '_' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func isKeyFrame(accessUnit [][]byte) bool {

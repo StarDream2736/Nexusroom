@@ -52,6 +52,12 @@ func (r *IngressRepository) FindByStreamKey(streamKey string) (*model.RoomIngres
 	return &ingress, nil
 }
 
+func (r *IngressRepository) ExistsByStreamKey(streamKey string) (bool, error) {
+	var count int64
+	err := r.db.Model(&model.RoomIngress{}).Where("stream_key = ?", streamKey).Count(&count).Error
+	return count > 0, err
+}
+
 func (r *IngressRepository) ListByRoom(roomID uint64) ([]model.RoomIngress, error) {
 	var ingresses []model.RoomIngress
 	err := r.db.Where("room_id = ?", roomID).Find(&ingresses).Error

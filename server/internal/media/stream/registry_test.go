@@ -8,6 +8,9 @@ import (
 func TestRegistryLifecycle(t *testing.T) {
 	registry := NewRegistry()
 	registry.Start("camera", []byte{1, 2, 3, 4}, []byte{5, 6}, []byte{0x12, 0x10})
+	if err := registry.SetOpusAvailable("camera", true); err != nil {
+		t.Fatal(err)
+	}
 	subscription, err := registry.Subscribe("camera")
 	if err != nil {
 		t.Fatal(err)
@@ -37,9 +40,20 @@ func TestRegistryLifecycle(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("subscriber did not receive audio")
 	}
+	if err := registry.PublishOpus("camera", OpusFrame{SequenceNumber: 7, Timestamp: 960, Payload: []byte{9, 10}}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case received := <-subscription.Opus:
+		if received.SequenceNumber != 7 || len(received.Payload) != 2 || !subscription.HasOpus {
+			t.Fatalf("unexpected Opus frame/state: %#v %v", received, subscription.HasOpus)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("subscriber did not receive Opus")
+	}
 
 	info, ok := registry.Get("camera")
-	if !ok || info.Viewers != 1 || !info.Active {
+	if !ok || info.Viewers != 1 || !info.Active || !info.HasAudio || !info.HasOpus {
 		t.Fatalf("unexpected stream info: %#v", info)
 	}
 	registry.Stop("camera")

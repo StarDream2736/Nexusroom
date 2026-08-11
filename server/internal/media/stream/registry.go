@@ -20,21 +20,32 @@ type AudioFrame struct {
 	Data []byte
 }
 
+type OpusFrame struct {
+	SequenceNumber uint16
+	Timestamp      uint32
+	Marker         bool
+	Payload        []byte
+}
+
 type Info struct {
 	Key         string    `json:"key"`
 	Active      bool      `json:"active"`
+	HasAudio    bool      `json:"has_audio"`
+	HasOpus     bool      `json:"has_opus"`
 	Viewers     int       `json:"viewers"`
 	BitrateKbps float64   `json:"bitrate_kbps"`
 	StartedAt   time.Time `json:"started_at"`
 }
 
 type Subscription struct {
-	Frames <-chan Frame
-	Audio  <-chan AudioFrame
-	SPS    []byte
-	PPS    []byte
-	AAC    []byte
-	close  func()
+	Frames  <-chan Frame
+	Audio   <-chan AudioFrame
+	Opus    <-chan OpusFrame
+	SPS     []byte
+	PPS     []byte
+	AAC     []byte
+	HasOpus bool
+	close   func()
 }
 
 func (s *Subscription) Close() {
@@ -57,6 +68,7 @@ type entry struct {
 	startedAt   time.Time
 	totalBytes  uint64
 	aac         []byte
+	hasOpus     bool
 	subscribers map[uint64]subscriber
 	nextID      uint64
 	closed      bool
@@ -69,6 +81,7 @@ func NewRegistry() *Registry {
 type subscriber struct {
 	video chan Frame
 	audio chan AudioFrame
+	opus  chan OpusFrame
 }
 
 func (r *Registry) Start(key string, sps, pps []byte, aac ...[]byte) {
@@ -101,6 +114,29 @@ func (r *Registry) PublishAudio(key string, frame AudioFrame) error {
 		return ErrNotFound
 	}
 	return e.publishAudio(frame)
+}
+
+func (r *Registry) SetOpusAvailable(key string, available bool) error {
+	r.mu.RLock()
+	e := r.streams[key]
+	r.mu.RUnlock()
+	if e == nil {
+		return ErrNotFound
+	}
+	e.mu.Lock()
+	e.hasOpus = available
+	e.mu.Unlock()
+	return nil
+}
+
+func (r *Registry) PublishOpus(key string, frame OpusFrame) error {
+	r.mu.RLock()
+	e := r.streams[key]
+	r.mu.RUnlock()
+	if e == nil {
+		return ErrNotFound
+	}
+	return e.publishOpus(frame)
 }
 
 func (r *Registry) Stop(key string) {
@@ -198,6 +234,22 @@ func (e *entry) publishAudio(frame AudioFrame) error {
 	return nil
 }
 
+func (e *entry) publishOpus(frame OpusFrame) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.closed {
+		return ErrNotFound
+	}
+	frame.Payload = append([]byte(nil), frame.Payload...)
+	for _, subscriber := range e.subscribers {
+		select {
+		case subscriber.opus <- frame:
+		default:
+		}
+	}
+	return nil
+}
+
 func (e *entry) subscribe() (*Subscription, error) {
 	e.mu.Lock()
 	if e.closed {
@@ -208,19 +260,23 @@ func (e *entry) subscribe() (*Subscription, error) {
 	e.nextID++
 	frames := make(chan Frame, 256)
 	audio := make(chan AudioFrame, 512)
-	e.subscribers[id] = subscriber{video: frames, audio: audio}
+	opus := make(chan OpusFrame, 256)
+	e.subscribers[id] = subscriber{video: frames, audio: audio, opus: opus}
 	sps := append([]byte(nil), e.sps...)
 	pps := append([]byte(nil), e.pps...)
 	aac := append([]byte(nil), e.aac...)
+	hasOpus := e.hasOpus
 	e.mu.Unlock()
 
 	var once sync.Once
 	return &Subscription{
-		Frames: frames,
-		Audio:  audio,
-		SPS:    sps,
-		PPS:    pps,
-		AAC:    aac,
+		Frames:  frames,
+		Audio:   audio,
+		Opus:    opus,
+		SPS:     sps,
+		PPS:     pps,
+		AAC:     aac,
+		HasOpus: hasOpus,
 		close: func() {
 			once.Do(func() {
 				e.mu.Lock()
@@ -228,6 +284,7 @@ func (e *entry) subscribe() (*Subscription, error) {
 					delete(e.subscribers, id)
 					close(current.video)
 					close(current.audio)
+					close(current.opus)
 				}
 				e.mu.Unlock()
 			})
@@ -244,7 +301,7 @@ func (e *entry) info() Info {
 		bitrate = float64(e.totalBytes*8) / elapsed / 1000
 	}
 	return Info{
-		Key: e.key, Active: !e.closed, Viewers: len(e.subscribers),
+		Key: e.key, Active: !e.closed, HasAudio: len(e.aac) != 0, HasOpus: e.hasOpus, Viewers: len(e.subscribers),
 		BitrateKbps: bitrate, StartedAt: e.startedAt,
 	}
 }
@@ -256,6 +313,7 @@ func (e *entry) shutdown() {
 		for id, subscriber := range e.subscribers {
 			close(subscriber.video)
 			close(subscriber.audio)
+			close(subscriber.opus)
 			delete(e.subscribers, id)
 		}
 	}

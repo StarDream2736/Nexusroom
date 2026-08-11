@@ -1,18 +1,20 @@
 # NexusRoom
 
-[![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)](https://github.com/StarDream2736/Nexusroom)
+[![Version](https://img.shields.io/badge/version-2.3.0-blue.svg)](https://github.com/StarDream2736/Nexusroom)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 NexusRoom 是面向小型私有社群的自托管通信平台，包含即时消息、多人语音、RTMP 直播、网页播放、文件共享和 WireGuard 虚拟局域网。
 
-当前服务端采用单体架构：一个 Go 进程同时提供 REST API、WebSocket 信令、SQLite 持久化、Opus 语音 SFU、RTMP 接入、HTTP-FLV/WebRTC 播放、STUN/TURN、静态网页和 WireGuard 协调。部署不再依赖 PostgreSQL、Redis、LiveKit Server、SRS 或 nginx。
+当前服务端采用单体架构：一个 NexusRoom 服务同时提供 REST API、WebSocket 信令、SQLite 持久化、Opus 语音 SFU、RTMP 接入、HTTP-FLV/WebRTC 播放、STUN/TURN、静态网页和 WireGuard 协调。AAC 到 Opus 的音频转码由服务内部按活动源流启动共享 FFmpeg 工作进程；Docker 构建会把只包含所需音频与 RTP 能力的 FFmpeg 运行时编入同一个镜像，不需要额外容器。部署不依赖 PostgreSQL、Redis、LiveKit Server、SRS 或 nginx。
 
 ## 主要功能
 
 - 房间消息、图片和文件传输，支持本地离线缓存、房间加入确认和发送结果确认。
 - NexusRoom 内建 WebRTC 语音频道、开关麦、音频设备选择和说话状态同步。
-- OBS 或客户端 FFmpeg 通过 RTMP 推送 H.264 视频；OBS AAC 音频由 HTTP-FLV 保留。
-- 桌面端使用 HTTP-FLV 播放，浏览器优先使用 WebRTC 并支持 FLV 回退。
+- OBS 或客户端 FFmpeg 通过 RTMP 推送 H.264/AAC；H.264 原样转发，AAC 在服务端按源流实时转为 Opus。
+- 可选接收未绑定房间的临时 RTMP 流，并仅在网页直播大厅按活动生命周期展示。
+- 桌面端使用 HTTP-FLV 播放；浏览器默认有声并优先使用 H.264/Opus WebRTC，协商或媒体失败后锁定 HTTP-FLV，FLV 断线不会反复切回 WebRTC。
+- 服务端可以自动发现并刷新动态公网 IPv4，也允许配置固定 IPv4 覆盖；地址变化后新 WebRTC 连接无需重启服务。
 - 房间级 WireGuard 虚拟局域网。
 - SQLite 嵌入式持久化，无外部数据库和数据迁移步骤。
 - Docker 单容器部署和直接 Linux/systemd 部署。

@@ -18,6 +18,7 @@ import (
 	mediastream "nexusroom-server/internal/media/stream"
 	"nexusroom-server/internal/media/turnserver"
 	"nexusroom-server/internal/media/voice"
+	"nexusroom-server/internal/network/publicip"
 	"nexusroom-server/internal/repository"
 	"nexusroom-server/internal/wg"
 	"nexusroom-server/internal/ws"
@@ -51,6 +52,30 @@ func main() {
 	ingressRepo := repository.NewIngressRepository(db)
 	friendRepo := repository.NewFriendshipRepository(db)
 	wgPeerRepo := repository.NewWGPeerRepository(db)
+	publicIPv4, err := publicip.New(publicip.Options{
+		ManualIP:        cfg.Media.PublicIP,
+		Enabled:         cfg.Media.PublicIPDiscovery.Enabled,
+		RefreshInterval: time.Duration(cfg.Media.PublicIPDiscovery.RefreshIntervalSeconds) * time.Second,
+		STUNServers:     cfg.Media.PublicIPDiscovery.STUNServers,
+		OnChange: func(previous, current string) {
+			if previous == "" {
+				log.Printf("[Network] Public IPv4 discovered: %s", current)
+				return
+			}
+			log.Printf("[Network] Public IPv4 changed: %s -> %s; new RTC sessions will use the new address", previous, current)
+		},
+	})
+	if err != nil {
+		log.Fatalf("Failed to configure public IPv4: %v", err)
+	}
+	discoveryCtx, cancelDiscovery := context.WithTimeout(appCtx, 8*time.Second)
+	if err := publicIPv4.Refresh(discoveryCtx); err != nil && publicIPv4.Automatic() {
+		log.Printf("[Network] Public IPv4 is not available yet: %v", err)
+	}
+	cancelDiscovery()
+	go publicIPv4.Run(appCtx, func(err error) {
+		log.Printf("[Network] Public IPv4 refresh failed; keeping %q: %v", publicIPv4.Current(), err)
+	})
 
 	wgCoordinator := wg.NewCoordinator(&cfg.WireGuard, wgPeerRepo)
 	if err := wgCoordinator.InitInterface(); err != nil {
@@ -59,12 +84,8 @@ func main() {
 
 	hub := ws.NewHub(msgRepo, roomRepo, userRepo)
 	hub.SetWGCoordinator(wgCoordinator)
-	iceServers := make([]ws.RTCICEServer, 0, 2)
-	if cfg.Media.PublicIP != "" {
-		iceServers = append(iceServers, ws.RTCICEServer{URLs: []string{fmt.Sprintf("stun:%s:%d", cfg.Media.PublicIP, cfg.Media.TURN.Port)}})
-	}
 	turnServer, turnErr := turnserver.Start(turnserver.Options{
-		Enabled: cfg.Media.TURN.Enabled, PublicIP: cfg.Media.PublicIP, Port: cfg.Media.TURN.Port,
+		Enabled: cfg.Media.TURN.Enabled, PublicIPProvider: publicIPv4.Current, Port: cfg.Media.TURN.Port,
 		Realm: cfg.Media.TURN.Realm, Username: cfg.Media.TURN.Username, Password: cfg.Media.TURN.Password,
 		RelayPortMin: cfg.Media.TURN.RelayPortMin, RelayPortMax: cfg.Media.TURN.RelayPortMax,
 	})
@@ -72,14 +93,12 @@ func main() {
 		log.Printf("TURN is unavailable: %v", turnErr)
 	} else if turnServer != nil {
 		defer turnServer.Close()
-		iceServers = append(iceServers, ws.RTCICEServer{
-			URLs:     []string{fmt.Sprintf("turn:%s:%d?transport=udp", cfg.Media.PublicIP, cfg.Media.TURN.Port)},
-			Username: cfg.Media.TURN.Username, Credential: cfg.Media.TURN.Password,
-		})
 	}
-	hub.SetRTCClientConfig(ws.RTCClientConfig{ICEServers: iceServers})
+	hub.SetRTCClientConfigProvider(func() ws.RTCClientConfig {
+		return buildRTCClientConfig(publicIPv4.Current(), cfg, turnServer != nil)
+	})
 	voiceEngine, err := voice.New(voice.Options{
-		PublicIP: cfg.Media.PublicIP, UDPMin: cfg.Media.RTC.UDPPortMin,
+		PublicIPProvider: publicIPv4.Current, UDPMin: cfg.Media.RTC.UDPPortMin,
 		UDPMax: cfg.Media.RTC.UDPPortMax, Signal: hub.SendMediaSignal,
 	})
 	if err != nil {
@@ -91,19 +110,13 @@ func main() {
 
 	streamRegistry := mediastream.NewRegistry()
 	playbackEngine, err := rtcplay.New(rtcplay.Options{
-		PublicIP: cfg.Media.PublicIP, UDPMin: cfg.Media.RTC.UDPPortMin, UDPMax: cfg.Media.RTC.UDPPortMax,
+		PublicIPProvider: publicIPv4.Current, UDPMin: cfg.Media.RTC.UDPPortMin, UDPMax: cfg.Media.RTC.UDPPortMax,
 	}, streamRegistry)
 	if err != nil {
 		log.Fatalf("Failed to initialize WebRTC playback: %v", err)
 	}
-	rtmpServer := rtmp.New(fmt.Sprintf(":%d", cfg.Media.RTMP.Port), streamRegistry,
-		func(streamKey string) bool {
-			if _, active := streamRegistry.Get(streamKey); active {
-				return false
-			}
-			_, findErr := ingressRepo.FindByStreamKey(streamKey)
-			return findErr == nil
-		},
+	rtmpServer := rtmp.New(fmt.Sprintf(":%d", cfg.Media.RTMP.Port), streamRegistry, cfg.Media.RTC.FFmpegPath,
+		newRTMPAuthorizer(cfg.Media.RTMP.AllowTemporaryStreams, streamRegistry, ingressRepo),
 		func(streamKey string, active bool) {
 			ingress, findErr := ingressRepo.FindByStreamKey(streamKey)
 			if findErr != nil {
@@ -154,6 +167,39 @@ func main() {
 		log.Printf("HTTP shutdown failed: %v", err)
 	}
 	log.Println("NexusRoom exited")
+}
+
+func buildRTCClientConfig(publicIPv4 string, cfg *config.Config, turnAvailable bool) ws.RTCClientConfig {
+	if publicIPv4 == "" {
+		return ws.RTCClientConfig{}
+	}
+	iceServers := []ws.RTCICEServer{{URLs: []string{fmt.Sprintf("stun:%s:%d", publicIPv4, cfg.Media.TURN.Port)}}}
+	if turnAvailable {
+		iceServers = append(iceServers, ws.RTCICEServer{
+			URLs:       []string{fmt.Sprintf("turn:%s:%d?transport=udp", publicIPv4, cfg.Media.TURN.Port)},
+			Username:   cfg.Media.TURN.Username,
+			Credential: cfg.Media.TURN.Password,
+		})
+	}
+	return ws.RTCClientConfig{ICEServers: iceServers}
+}
+
+type streamKeyLookup interface {
+	ExistsByStreamKey(streamKey string) (bool, error)
+}
+
+func newRTMPAuthorizer(allowTemporary bool, streams *mediastream.Registry, lookup streamKeyLookup) rtmp.AuthorizeFunc {
+	return func(streamKey string) bool {
+		if _, active := streams.Get(streamKey); active {
+			return false
+		}
+		exists, err := lookup.ExistsByStreamKey(streamKey)
+		if err != nil {
+			log.Printf("Failed to authorize RTMP stream key: %v", err)
+			return false
+		}
+		return exists || allowTemporary
+	}
 }
 
 func startMessageCleanupJob(ctx context.Context, msgRepo *repository.MessageRepository, retentionDays int) {

@@ -158,18 +158,24 @@ func (h *AdminHandler) DeleteRoom(c *gin.Context) {
 // GetConfig GET /admin/config — 获取当前服务器配置（脱敏）
 func (h *AdminHandler) GetConfig(c *gin.Context) {
 	util.Success(c, gin.H{
-		"server_port":              h.cfg.Server.Port,
-		"server_mode":              h.cfg.Server.Mode,
-		"server_domain":            h.cfg.Server.Domain,
-		"message_retention_days":   h.cfg.Message.RetentionDays,
-		"rtc_udp_port_min":         h.cfg.Media.RTC.UDPPortMin,
-		"rtc_udp_port_max":         h.cfg.Media.RTC.UDPPortMax,
-		"rtmp_port":                h.cfg.Media.RTMP.Port,
-		"wireguard_subnet":         h.cfg.WireGuard.Subnet,
-		"wireguard_gateway_ip":     h.cfg.WireGuard.GatewayIP,
-		"wireguard_listen_port":    h.cfg.WireGuard.ListenPort,
-		"storage_path":             h.cfg.Storage.Path,
-		"storage_max_file_size_mb": h.cfg.Storage.MaxFileSizeMB,
+		"server_port":                  h.cfg.Server.Port,
+		"server_mode":                  h.cfg.Server.Mode,
+		"server_domain":                h.cfg.Server.Domain,
+		"message_retention_days":       h.cfg.Message.RetentionDays,
+		"media_public_ip":              h.cfg.Media.PublicIP,
+		"public_ip_discovery_enabled":  h.cfg.Media.PublicIPDiscovery.Enabled,
+		"public_ip_refresh_seconds":    h.cfg.Media.PublicIPDiscovery.RefreshIntervalSeconds,
+		"public_ip_stun_servers":       h.cfg.Media.PublicIPDiscovery.STUNServers,
+		"rtc_udp_port_min":             h.cfg.Media.RTC.UDPPortMin,
+		"rtc_udp_port_max":             h.cfg.Media.RTC.UDPPortMax,
+		"rtc_ffmpeg_path":              h.cfg.Media.RTC.FFmpegPath,
+		"rtmp_port":                    h.cfg.Media.RTMP.Port,
+		"rtmp_allow_temporary_streams": h.cfg.Media.RTMP.AllowTemporaryStreams,
+		"wireguard_subnet":             h.cfg.WireGuard.Subnet,
+		"wireguard_gateway_ip":         h.cfg.WireGuard.GatewayIP,
+		"wireguard_listen_port":        h.cfg.WireGuard.ListenPort,
+		"storage_path":                 h.cfg.Storage.Path,
+		"storage_max_file_size_mb":     h.cfg.Storage.MaxFileSizeMB,
 	})
 }
 

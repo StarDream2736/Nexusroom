@@ -147,6 +147,15 @@ func TestEngineForwardsUnmutedOpusAudio(t *testing.T) {
 	t.Fatal("subscriber did not receive forwarded Opus RTP")
 }
 
+func TestCurrentIPv4RejectsIPv6(t *testing.T) {
+	if got := currentIPv4(func() string { return "2001:db8::1" }); got != "" {
+		t.Fatalf("IPv6 address must be ignored, got %q", got)
+	}
+	if got := currentIPv4(func() string { return "198.51.100.12" }); got != "198.51.100.12" {
+		t.Fatalf("IPv4 address = %q", got)
+	}
+}
+
 func newVoiceTestClient(t *testing.T, publish bool) (*webrtc.PeerConnection, *webrtc.TrackLocalStaticRTP) {
 	t.Helper()
 	mediaEngine := &webrtc.MediaEngine{}

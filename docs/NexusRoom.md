@@ -8,14 +8,14 @@ tags:
   - architecture
   - development
   - self-hosted
-version: 2.1.0
+version: 2.3.0
 status: current
-updated: 2026-07-17
+updated: 2026-08-11
 ---
 
 # NexusRoom 技术规范与开发标准
 
-本文档是 NexusRoom `2.1.0` 的架构、协议、数据、开发、部署和质量标准基线。实现事实以当前仓库源码为准；修改对外协议、持久化结构、部署方式或本文标记为“必须”的规则时，代码、测试和文档必须在同一变更中更新。
+本文档是 NexusRoom `2.3.0` 的架构、协议、数据、开发、部署和质量标准基线。实现事实以当前仓库源码为准；修改对外协议、持久化结构、部署方式或本文标记为“必须”的规则时，代码、测试和文档必须在同一变更中更新。
 
 文档中的“必须”“不得”“应当”和“可以”用于区分强制约束、禁止事项、推荐实践和可选实现。旧版 `1.x` 文档中关于 PostgreSQL、Redis、LiveKit Server、SRS、nginx 多容器编排的内容已经失效，不得作为当前实现依据。
 
@@ -37,7 +37,7 @@ NexusRoom 是面向小型私有社群的自托管通信平台，目标是使用�
 | 原则 | 约束 |
 | --- | --- |
 | 私有化优先 | 部署者控制服务端、数据库、上传文件和网络边界。 |
-| 单体服务端 | 业务所需 API、信令、媒体和状态模块由同一个 Go 进程管理。 |
+| 单体服务端 | 业务所需 API、信令、媒体和状态模块由同一个 NexusRoom 服务管理；内部媒体工作进程不得成为独立服务。 |
 | 无外部业务服务 | 不依赖 PostgreSQL、Redis、LiveKit Server、SRS 或 nginx 才能运行。 |
 | 源码一体化 | 第三方开源库是编译依赖或实现参考，不是 NexusRoom 之外的业务服务。 |
 | 可验证 | 每项关键行为必须有自动化测试或明确的人工验收步骤。 |
@@ -50,7 +50,7 @@ NexusRoom 是面向小型私有社群的自托管通信平台，目标是使用�
 - 不承诺移动端已经可用；当前主要客户端目标是 Windows 桌面端。
 - 不在应用进程内部实现 TLS 证书自动签发；生产 TLS 由部署入口负责。
 - 不把客户端本地缓存视为服务端权威数据。
-- 不承诺在无转码条件下把 RTMP AAC 音频转换为浏览器 WebRTC 音频。
+- 不做 H.264 视频转码；推流编码必须满足浏览器支持范围。
 
 ## 2. 系统总览
 
@@ -59,11 +59,11 @@ flowchart TB
     Desktop["Flutter Windows 客户端"]
     Browser["浏览器直播页"]
     Publisher["OBS / FFmpeg"]
-    Server["NexusRoom 单一 Go 进程"]
+    Server["NexusRoom 单体服务"]
     API["REST API 与内嵌网页"]
     WS["WebSocket 房间事件与 RTC 信令"]
     Voice["Opus WebRTC 语音 SFU"]
-    Live["RTMP / 流注册 / HTTP-FLV / RTC 播放"]
+    Live["RTMP / AAC-Opus 转码 / HTTP-FLV / RTC 播放"]
     Turn["STUN / TURN"]
     WG["WireGuard 协调"]
     DB[("SQLite")]
@@ -92,7 +92,7 @@ flowchart TB
 | Flutter | ICE 下发地址 | WebRTC/Opus | 多人语音 |
 | Flutter | `/api/v1/stream/:streamKey` | HTTP-FLV | 直播播放 |
 | 浏览器 | `/`、`/player.html` | HTTP | 内嵌直播页面 |
-| 浏览器 | `/api/v1/web/rtc/play` | HTTP/SDP | H.264 WebRTC 播放协商 |
+| 浏览器 | `/api/v1/web/rtc/play` | HTTP/SDP | H.264/Opus WebRTC 播放协商 |
 | OBS/FFmpeg | `/live/{streamKey}` | RTMP | H.264 和可选 AAC 发布 |
 | Windows 客户端 | WireGuard 端点 | UDP | 房间虚拟局域网 |
 
@@ -140,8 +140,10 @@ Nexusroom/
 | RTMP | `server/internal/media/rtmp` | RTMP 发布、Stream Key 校验和媒体读取 |
 | 流注册表 | `server/internal/media/stream` | 活跃流、订阅者、关键帧和统计 |
 | FLV | `server/internal/media/flv` | H.264/AAC 到 HTTP-FLV 封装 |
-| RTC 播放 | `server/internal/media/rtcplay` | H.264 浏览器 WebRTC 播放 |
+| 音频转码 | `server/internal/media/audiotranscode` | 每路活动 AAC 源共享的 FFmpeg Opus RTP 转码 |
+| RTC 播放 | `server/internal/media/rtcplay` | H.264/Opus 浏览器 WebRTC 播放 |
 | TURN | `server/internal/media/turnserver` | STUN/TURN UDP 服务和中继端口管理 |
+| 公网地址 | `server/internal/network/publicip` | 公网 IPv4 自动发现、手动覆盖和周期刷新 |
 | WireGuard | `server/internal/wg` | 接口、密钥、地址池和 Peer 生命周期 |
 | 网页 | `server/web` | 通过 Go embed 编译进二进制的直播页面和脚本 |
 
@@ -152,11 +154,12 @@ Nexusroom/
 3. 执行 GORM AutoMigrate、完整性检查和外键检查。
 4. 创建用户、房间、消息、推流、好友和 WireGuard 仓库。
 5. 初始化 WireGuard；失败时记录日志并降级为数据库协调模式。
-6. 启动内建 TURN，并构造下发给客户端的 ICE Server 列表。
-7. 初始化语音 SFU 和 WebSocket Hub。
-8. 初始化活跃流注册表、浏览器 RTC 播放和 RTMP 接入。
-9. 启动 HTTP 服务和每日消息清理任务。
-10. 收到 `SIGINT`、`SIGTERM` 或核心监听错误后进入关闭流程。
+6. 读取手动公网 IPv4，或通过本机接口和 STUN 完成首次自动发现并启动周期刷新。
+7. 启动内建 TURN，并按当前公网 IPv4 构造下发给客户端的 ICE Server 列表。
+8. 初始化语音 SFU 和 WebSocket Hub。
+9. 初始化活跃流注册表、浏览器 RTC 播放和 RTMP 接入。
+10. 启动 HTTP 服务和每日消息清理任务。
+11. 收到 `SIGINT`、`SIGTERM` 或核心监听错误后进入关闭流程。
 
 ### 4.3 关闭顺序
 
@@ -495,16 +498,24 @@ OBS / FFmpeg
   -> 活跃流 Registry
      -> HTTP-FLV -> Flutter media_kit
      -> HTTP-FLV -> 浏览器回退
-     -> H.264 WebRTC -> 浏览器优先播放
+     -> H.264 原样转发 + AAC 到 Opus 共享转码
+        -> WebRTC -> 浏览器优先播放
 ```
 
-同一 Stream Key 不允许重复发布。推流开始和结束直接更新入口状态并广播 `room.ingress_update`，不依赖外部 SRS 回调。
+同一 Stream Key 不允许重复发布。正式入口的推流开始和结束直接更新入口状态并广播 `room.ingress_update`，不依赖外部 SRS 回调。
+
+服务端默认接受合法但未登记到 `room_ingresses` 的 Stream Key。临时 Stream Key 必须为 8-128 位，只能包含 ASCII 字母、数字、连字符和下划线。临时流不写入 SQLite、不绑定房间，只在活跃期间以 `virtual` 类型显示于网页直播大厅；发布连接断开后从 Registry 和网页列表自动移除。将 `media.rtmp.allow_temporary_streams` 设为 `false` 并重启服务，可以关闭这个能力。
 
 ### 10.3 编码和播放约束
 
 - RTMP 视频使用 H.264。
 - RTMP 可携带 AAC；Flutter HTTP-FLV 可以播放相应音视频。
-- 浏览器 WebRTC 当前主路径是 H.264 视频；含 AAC 的直播可回退 HTTP-FLV，避免无转码情况下丢失音频。
+- 浏览器必须优先使用 WebRTC 同时播放 H.264 视频和 Opus 音频。只有协商、连接、视频首帧或预期音频轨道失败时才回退 HTTP-FLV。
+- HTTP-FLV 接管当前页面播放会话后必须保持回退锁。FLV 中断只允许重建 FLV 播放器并使用有上限的退避重试，不得自动重新尝试 WebRTC，也不得在两种协议之间无限循环。
+- 网页默认不静音。浏览器阻止有声自动播放时必须保留 WebRTC 会话并等待用户交互，不能把自动播放策略误判为媒体失败。
+- 每路带 AAC 的活动源只允许启动一个服务端 FFmpeg 转码工作进程。所有观看者共享输出的 Opus RTP，不得按观看者重复转码。
+- 音频转码使用 48 kHz Opus、20 ms 帧和低延迟模式。H.264 视频不得转码，避免额外的视频编码负载和帧级延迟。
+- WebRTC 播放必须根据源流 SPS 匹配常见 H.264 Baseline、Main 和 High Profile，不能把所有源流固定声明为同一 Profile。
 - 客户端屏幕捕获当前为纯视频 FFmpeg 推流。
 - 删除推流入口前必须确认对应流不活跃。
 
@@ -602,12 +613,20 @@ message:
   retention_days: 30
 
 media:
-  public_ip: "203.0.113.10"
+  public_ip: ""
+  public_ip_discovery:
+    enabled: true
+    refresh_interval_seconds: 300
+    stun_servers:
+      - "stun.cloudflare.com:3478"
+      - "stun.l.google.com:19302"
   rtc:
     udp_port_min: 50000
     udp_port_max: 50050
+    ffmpeg_path: "ffmpeg"
   rtmp:
     port: 1935
+    allow_temporary_streams: true
   turn:
     enabled: true
     port: 3478
@@ -641,13 +660,20 @@ storage:
 | auth.jwt_secret | 生产必须使用高熵随机值，不得复用示例 |
 | auth.admin_token | 管理员注册和 QQ Webhook 的敏感凭据 |
 | message.retention_days | 小于等于 0 表示不启动定期清理 |
-| media.public_ip | 公网媒体和 STUN/TURN 地址，公网部署必须正确 |
+| media.public_ip | 手动公网 IPv4 覆盖；非空时必须是 IPv4，并停止自动发现 |
+| media.public_ip_discovery.enabled | `media.public_ip` 为空时是否启用自动发现 |
+| media.public_ip_discovery.refresh_interval_seconds | 动态公网 IPv4 的刷新周期；默认 300 秒 |
+| media.public_ip_discovery.stun_servers | 用于发现公网 IPv4 的 STUN 地址列表；只通过 `udp4` 探测 |
 | rtc UDP 范围 | 必须映射并放行，最小值不得大于最大值 |
+| media.rtc.ffmpeg_path | FFmpeg 可执行文件路径；Docker 镜像使用内置 `ffmpeg`，直接部署必须提供带 `libopus` 的构建 |
+| media.rtmp.allow_temporary_streams | 是否允许未绑定房间的合法 Stream Key 作为网页临时直播；默认开启 |
 | TURN relay 范围 | Docker 映射必须与配置完全一致 |
 | WireGuard subnet | 不得与宿主、容器、用户局域网和其他 VPN 冲突 |
 | storage.path | 上传文件目录，必须持久化和备份 |
 
 配置中的密钥和公网地址不得硬编码进源码。配置结构变更必须同步模板、Docker、直接部署脚本、管理接口和本文档。
+
+公网地址优先级为手动 `media.public_ip`、本机公网 IPv4、配置的 STUN 服务。自动模式忽略 IPv6、私有地址和运营商级 NAT 地址。地址变化后，语音和浏览器播放创建的新 PeerConnection 以及新的 TURN 分配使用最新地址，不需要重启服务。自动发现不负责路由器端口映射；RTC 与 TURN UDP 端口仍必须按相同端口映射到 NexusRoom。
 
 ## 14. 网络与部署
 
@@ -664,7 +690,7 @@ storage:
 
 ### 14.2 Docker
 
-Docker Compose 只运行一个 `nexusroom` 容器，从 `server/Dockerfile` 构建。配置只读挂载到 `/app/config.yaml`，`deployment/data` 挂载到 `/app/data`。WireGuard 需要 `NET_ADMIN`、`/dev/net/tun`、IP Forward 和关闭严格 rp_filter。
+Docker Compose 只运行一个 `nexusroom` 容器，从 `server/Dockerfile` 构建。Docker 多阶段构建从固定版本和校验值的 FFmpeg 源码只启用 AAC、libopus、音频重采样、RTP 封装和所需 pipe、RTP、UDP 协议；构建工具、源码、头文件和视频编解码能力不进入运行镜像。配置只读挂载到 `/app/config.yaml`，`deployment/data` 挂载到 `/app/data`。WireGuard 需要 `NET_ADMIN`、`/dev/net/tun`、IP Forward 和关闭严格 rp_filter。
 
 ### 14.3 直接部署
 
@@ -689,6 +715,7 @@ Docker 和直接部署必须使用相同配置语义、数据库格式和端口�
 - 房间详情、消息、文件、推流入口和 VLAN 操作必须验证房间成员或明确的超管权限。
 - QQ Webhook 必须使用 `Authorization: Bearer <admin_token>`；未配置令牌时拒绝服务。
 - 日志不得输出密码、完整 JWT、私钥、Stream Key 或 TURN 密码。
+- 开启临时直播意味着任何能够访问 RTMP 端口且持有合法格式 Stream Key 的发布者都可以进入网页直播大厅；生产环境应同时限制网络入口并使用不可猜测的 key。
 
 ### 15.2 网络安全
 
@@ -866,7 +893,7 @@ curl http://127.0.0.1:8080/ping
   "message": "ok",
   "data": {
     "status": "ok",
-    "version": "2.1.0"
+    "version": "2.3.0"
   }
 }
 ```
@@ -894,26 +921,35 @@ curl http://127.0.0.1:8080/ping
 - 检查 `connected.rtc.ice_servers`、`rtc.error` 和 ICE State。
 - 对称 NAT 环境必须验证 TURN 用户名、密码和公网 IP。
 
-### 19.4 呼吸灯错误
+### 19.4 公网 WebRTC 失败
+
+- 查看启动日志中的 `[Network] Public IPv4 discovered` 或地址刷新信息。
+- `media.public_ip` 非空时确认它是当前公网 IPv4；动态地址应留空使用自动发现。
+- 自动发现失败时检查宿主机能否通过 UDP 访问配置的 STUN 服务。
+- 确认 Docker、宿主防火墙和路由器按原端口映射 50000-50050/UDP、3478/UDP 与 TURN Relay 范围。
+- NPS 的 HTTP/HTTPS 转发只能承载网页、信令和 FLV，不能代替 WebRTC UDP 端口。
+- WebRTC 回退后页面应稳定停留在 FLV；只有手动刷新播放会重新尝试 WebRTC。
+
+### 19.5 呼吸灯错误
 
 - 确认 Provider 使用当前 room_id，不复用其他房间 Stream。
 - 在线状态以加入房间连接和 REST 回退共同判断。
 - 说话状态只控制外层光晕，中心点不得随动画透明度变化。
 - 检查音量字段、能量增量和静音保持计数。
 
-### 19.5 推流地址不合规
+### 19.6 推流地址不合规
 
 - 服务端应返回 `rtmp://host:1935/live`，完整地址为其后追加一个 Stream Key。
 - 检查 `server.domain` 和 `media.public_ip` 是否包含错误 scheme、端口或路径。
 - 客户端启动 FFmpeg 前必须解析并拒绝非 RTMP、缺 host、缺 `/live/KEY` 的地址。
 
-### 19.6 本地数据重置
+### 19.7 本地数据重置
 
 - 重置操作清空账号设置和房间缓存，但保留全局数据库连接、data 目录和数据库结构。
 - 操作完成后客户端返回服务器设置页，`data\nexusroom.sqlite` 应保持可写。
 - 如果重置失败，检查客户端目录写权限、SQLite 文件占用和磁盘可用空间。
 
-### 19.7 服务关闭卡顿
+### 19.8 服务关闭卡顿
 
 - 检查 RTC、FFmpeg、WireGuard Helper、播放器和数据库释放是否串行等待。
 - 所有外部进程和原生插件关闭应设置短超时和幂等保护。
@@ -923,7 +959,7 @@ curl http://127.0.0.1:8080/ping
 
 - CORS 和 WebSocket Origin 当前较宽松，公开互联网部署前应配置化收紧。
 - 文件内容检测仍需更严格的 MIME/magic 映射和安全扫描策略。
-- 浏览器 WebRTC 播放不负责 AAC 到 Opus 转码。
+- AAC 到 Opus 会增加一段音频编码开销；低功耗主机应限制同时活动的带音频推流数量并监控 CPU。
 - WireGuard 在部分宿主环境可能因内核、权限或 TUN 缺失降级。
 - SQLite 适合当前小型私有社群定位；若未来需要多实例写入，必须重新设计一致性和迁移方案，不能共享同一 SQLite 文件。
 - 公开 API 暂无自动生成的 OpenAPI 文件；路由和本文档必须保持同步，后续可引入代码生成校验。
@@ -952,6 +988,7 @@ curl http://127.0.0.1:8080/ping
 | Pion WebRTC | ICE、DTLS、SRTP、RTP 和 PeerConnection |
 | Pion TURN | STUN/TURN |
 | gortmplib | RTMP 协议 |
+| FFmpeg / libopus | 同一 NexusRoom 服务内的 AAC 解码和低延迟 Opus 编码 |
 | wgctrl / wireguard-go | WireGuard 控制与用户态支持 |
 | Viper | YAML 配置 |
 
@@ -983,8 +1020,8 @@ curl http://127.0.0.1:8080/ping
 
 ---
 
-NexusRoom Technical Specification `2.1.0`
+NexusRoom Technical Specification `2.3.0`
 
-最后更新：2026-07-17
+最后更新：2026-08-11
 
 规范来源：当前仓库源码、配置模板、测试和部署脚本

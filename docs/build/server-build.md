@@ -1,8 +1,8 @@
 # 服务端编译、Docker 构建与打包
 
-NexusRoom 服务端是单一 Go 应用。SQLite、REST、WebSocket、语音 SFU、RTMP、HTTP-FLV、WebRTC 播放、TURN、网页资源和 WireGuard 协调模块均由同一个二进制及同一个 Docker 容器提供。
+NexusRoom 服务端是单一应用。SQLite、REST、WebSocket、语音 SFU、RTMP、HTTP-FLV、WebRTC 播放、TURN、网页资源和 WireGuard 协调模块由同一个 Go 主程序提供；AAC 到 Opus 转码由主程序管理同一镜像内的 FFmpeg 工作进程。
 
-本文适用于 `2.1.0`。
+本文适用于 `2.3.0`。
 
 ## 1. 构建要求
 
@@ -11,6 +11,7 @@ NexusRoom 服务端是单一 Go 应用。SQLite、REST、WebSocket、语音 SFU�
 - Go 1.25 或更高版本
 - 支持 CGO 的 C 编译器，因为 SQLite 驱动使用 CGO
 - Linux 生产环境需要 WireGuard tools、iproute2 和 iptables
+- 直接运行需要带 `libopus` 编码支持的 FFmpeg；直接安装脚本会在 apt 或 apk 系统上安装它
 - Docker 构建需要 Docker Engine 及 Compose v2
 
 检查工具：
@@ -20,6 +21,7 @@ go version
 gcc --version
 docker version
 docker compose version
+ffmpeg -hide_banner -encoders
 ```
 
 ## 2. 服务端质量检查
@@ -89,6 +91,8 @@ cp deployment/templates/server.yaml.template server/config.yaml
 - `CHANGE_ME_TURN_USER`
 - `CHANGE_ME_TURN_PASSWORD`
 
+`media.public_ip` 默认留空，由服务端自动发现公网 IPv4。构建产物不需要 DDNS-Go 或其他本地守护进程；自动发现使用已经集成进 Go 服务端的 STUN 客户端。固定公网地址可以直接写入这个字段作为覆盖值。
+
 直接运行时，`DATA_DIR` 必须是当前用户可写目录。生产配置包含密钥，不提交到 Git。
 
 启动：
@@ -113,6 +117,10 @@ docker build \
   -t nexusroom-server:latest \
   ./server
 ```
+
+多阶段构建会校验 FFmpeg 官方源码归档，只编译 AAC demux/parser/decoder、libopus encoder、RTP muxer、音频重采样，以及 pipe、RTP、UDP 协议。NASM、编译器、源码、头文件、FFprobe 和视频编解码库不会进入运行镜像。FFmpeg 使用动态库并随镜像保留 LGPL 许可证文件。
+
+部署产物仍是一个镜像、一个 `nexusroom` 容器；每路带 AAC 的活动 RTMP 源由 Go 主程序启动一个共享音频转码工作进程，观看者不会各自启动转码器。当前 amd64 构建中，精简媒体运行时未压缩约 1.9 MiB，完整 NexusRoom 镜像约 16.0 MB；不同 Docker 版本和基础镜像更新可能让数值小幅变化。
 
 网络受限时可指定 Go 模块代理：
 
@@ -191,7 +199,7 @@ docker buildx build \
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
   --push \
-  -t REGISTRY/NAMESPACE/nexusroom-server:2.1.0 \
+  -t REGISTRY/NAMESPACE/nexusroom-server:2.3.0 \
   ./server
 ```
 

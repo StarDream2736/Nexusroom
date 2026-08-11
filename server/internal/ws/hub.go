@@ -22,12 +22,13 @@ type Hub struct {
 	mu sync.RWMutex
 
 	// 依赖
-	msgRepo       *repository.MessageRepository
-	roomRepo      *repository.RoomRepository
-	userRepo      *repository.UserRepository
-	wgCoordinator *wg.Coordinator // VLAN peer 清理
-	voiceEngine   *voice.Engine
-	rtcConfig     RTCClientConfig
+	msgRepo           *repository.MessageRepository
+	roomRepo          *repository.RoomRepository
+	userRepo          *repository.UserRepository
+	wgCoordinator     *wg.Coordinator // VLAN peer 清理
+	voiceEngine       *voice.Engine
+	rtcConfig         RTCClientConfig
+	rtcConfigProvider func() RTCClientConfig
 
 	// 短暂断线重连期间，延迟执行 VLAN peer 清理，避免误删
 	wgCleanupDelay time.Duration
@@ -66,6 +67,17 @@ func (h *Hub) SetRTCClientConfig(config RTCClientConfig) {
 	h.rtcConfig = config
 }
 
+func (h *Hub) SetRTCClientConfigProvider(provider func() RTCClientConfig) {
+	h.rtcConfigProvider = provider
+}
+
+func (h *Hub) currentRTCClientConfig() RTCClientConfig {
+	if h.rtcConfigProvider != nil {
+		return h.rtcConfigProvider()
+	}
+	return h.rtcConfig
+}
+
 func (h *Hub) SendMediaSignal(userID, roomID uint64, event string, payload any) {
 	h.mu.RLock()
 	client := h.Clients[userID]
@@ -86,8 +98,8 @@ func (h *Hub) Run() {
 			// 发送连接成功事件
 			client.SendEvent(EventConnected, ConnectedPayload{
 				UserID:        client.UserID,
-				ServerVersion: "2.1.0",
-				RTC:           h.rtcConfig,
+				ServerVersion: "2.3.0",
+				RTC:           h.currentRTCClientConfig(),
 			})
 
 			log.Printf("User %d connected", client.UserID)

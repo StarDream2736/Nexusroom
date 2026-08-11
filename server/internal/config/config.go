@@ -37,19 +37,28 @@ type MessageConfig struct {
 }
 
 type MediaConfig struct {
-	PublicIP string     `mapstructure:"public_ip"`
-	RTC      RTCConfig  `mapstructure:"rtc"`
-	RTMP     RTMPConfig `mapstructure:"rtmp"`
-	TURN     TURNConfig `mapstructure:"turn"`
+	PublicIP          string                  `mapstructure:"public_ip"`
+	PublicIPDiscovery PublicIPDiscoveryConfig `mapstructure:"public_ip_discovery"`
+	RTC               RTCConfig               `mapstructure:"rtc"`
+	RTMP              RTMPConfig              `mapstructure:"rtmp"`
+	TURN              TURNConfig              `mapstructure:"turn"`
+}
+
+type PublicIPDiscoveryConfig struct {
+	Enabled                bool     `mapstructure:"enabled"`
+	RefreshIntervalSeconds int      `mapstructure:"refresh_interval_seconds"`
+	STUNServers            []string `mapstructure:"stun_servers"`
 }
 
 type RTCConfig struct {
 	UDPPortMin uint16 `mapstructure:"udp_port_min"`
 	UDPPortMax uint16 `mapstructure:"udp_port_max"`
+	FFmpegPath string `mapstructure:"ffmpeg_path"`
 }
 
 type RTMPConfig struct {
-	Port int `mapstructure:"port"`
+	Port                  int  `mapstructure:"port"`
+	AllowTemporaryStreams bool `mapstructure:"allow_temporary_streams"`
 }
 
 type TURNConfig struct {
@@ -82,9 +91,17 @@ func Load(configPath string) (*Config, error) {
 	viper.SetConfigFile(configPath)
 	viper.SetConfigType("yaml")
 	viper.SetDefault("database.path", "./data/nexusroom.db")
+	viper.SetDefault("media.public_ip_discovery.enabled", true)
+	viper.SetDefault("media.public_ip_discovery.refresh_interval_seconds", 300)
+	viper.SetDefault("media.public_ip_discovery.stun_servers", []string{
+		"stun.cloudflare.com:3478",
+		"stun.l.google.com:19302",
+	})
 	viper.SetDefault("media.rtc.udp_port_min", 50000)
 	viper.SetDefault("media.rtc.udp_port_max", 50050)
+	viper.SetDefault("media.rtc.ffmpeg_path", "ffmpeg")
 	viper.SetDefault("media.rtmp.port", 1935)
+	viper.SetDefault("media.rtmp.allow_temporary_streams", true)
 	viper.SetDefault("media.turn.enabled", true)
 	viper.SetDefault("media.turn.port", 3478)
 	viper.SetDefault("media.turn.realm", "nexusroom")

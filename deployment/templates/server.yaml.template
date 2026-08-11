@@ -15,12 +15,21 @@ message:
   retention_days: 30
 
 media:
-  public_ip: "YOUR_IP"
+  # Leave empty for built-in IPv4 discovery. Set a literal IPv4 address to override it.
+  public_ip: ""
+  public_ip_discovery:
+    enabled: true
+    refresh_interval_seconds: 300
+    stun_servers:
+      - "stun.cloudflare.com:3478"
+      - "stun.l.google.com:19302"
   rtc:
     udp_port_min: 50000
     udp_port_max: 50050
+    ffmpeg_path: "ffmpeg"
   rtmp:
     port: 1935
+    allow_temporary_streams: true
   turn:
     enabled: true
     port: 3478
