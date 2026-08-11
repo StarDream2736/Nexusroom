@@ -64,4 +64,36 @@ describe('RestClient', () => {
     await expect(cancelled).rejects.toMatchObject({ kind: 'cancelled' });
     await expect(client.get('/ping')).rejects.toMatchObject({ kind: 'timeout' });
   });
+
+  it('uploads FormData without overriding the multipart boundary', async () => {
+    let request: Request | undefined;
+    const client = new RestClient({
+      serverUrl: 'https://example.com',
+      token: 'upload-token',
+      fetchImpl: async (input, init) => {
+        request = new Request(input, init);
+        return new Response(
+          JSON.stringify({ code: 20_000, message: 'ok', data: { file_id: 'f1' } }),
+          { status: 200 },
+        );
+      },
+    });
+    const form = new FormData();
+    form.append('room_id', '7');
+    form.append('file', new Blob(['image']), 'image.png');
+
+    await expect(
+      client.postForm('/api/v1/files/upload', form, {
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    ).resolves.toEqual({ file_id: 'f1' });
+    expect(request?.headers.get('Authorization')).toBe('Bearer upload-token');
+    expect(request?.headers.get('Content-Type')).toMatch(/^multipart\/form-data; boundary=/);
+    if (request === undefined) {
+      throw new Error('request was not captured');
+    }
+    const sent = await request.formData();
+    expect(sent.get('room_id')).toBe('7');
+    expect(sent.get('file')).toBeInstanceOf(Blob);
+  });
 });

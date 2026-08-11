@@ -121,6 +121,14 @@ export class RestClient {
     return this.request<T>(path, { ...options, method: 'POST', body });
   }
 
+  postForm<T>(
+    path: string,
+    body: FormData,
+    options: Omit<RestRequestOptions, 'method' | 'body'> = {},
+  ): Promise<T> {
+    return this.request<T>(path, { ...options, method: 'POST', body });
+  }
+
   patch<T>(
     path: string,
     body: unknown = {},
@@ -159,17 +167,28 @@ export class RestClient {
       headers.set('Authorization', `Bearer ${this._token}`);
     }
 
-    let body: string | undefined;
+    let body: BodyInit | undefined;
     if (options.body !== undefined) {
-      body = JSON.stringify(options.body);
-      if (body === undefined) {
-        clearTimeout(timeout);
-        callerSignal?.removeEventListener('abort', abortFromCaller);
-        throw new RestError('REST 请求体不是有效 JSON', {
-          kind: 'configuration',
-        });
+      const isMultipart =
+        typeof FormData !== 'undefined' && options.body instanceof FormData;
+      if (isMultipart) {
+        // Let fetch add the multipart boundary to Content-Type.
+        headers.delete('Content-Type');
+        body = options.body;
+      } else {
+        const json = JSON.stringify(options.body);
+        if (json === undefined) {
+          clearTimeout(timeout);
+          callerSignal?.removeEventListener('abort', abortFromCaller);
+          throw new RestError('REST 请求体不是有效 JSON', {
+            kind: 'configuration',
+          });
+        }
+        body = json;
       }
-      headers.set('Content-Type', 'application/json');
+      if (!isMultipart) {
+        headers.set('Content-Type', 'application/json');
+      }
     }
 
     try {
