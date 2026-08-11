@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type {
   AccountScope,
   MessageCacheEntry,
+  NexusRoomWireGuardApi,
+  WireGuardStatus,
+  WireGuardTunnelConfig,
 } from '../src/shared/preload-api';
 import type {
   NexusRoomStorage,
@@ -11,6 +14,9 @@ import type {
 import {
   NexusRoomClient,
   NexusRoomClientError,
+  parseVlanJoinResponse,
+  parseVlanPeerUpdate,
+  parseVlanPeers,
   parseRtcIceServers,
 } from '../src/renderer/nexusroom-client';
 import type {
@@ -25,6 +31,7 @@ class FakeRest implements RestTransport {
   readonly postBodies: unknown[] = [];
   readonly deletePaths: string[] = [];
   readonly formBodies: FormData[] = [];
+  readonly deleteErrors: unknown[] = [];
   private readonly getValues: unknown[] = [];
   private readonly postValues: unknown[] = [];
   private formValue: unknown = {
@@ -46,6 +53,10 @@ class FakeRest implements RestTransport {
 
   setFormValue(value: unknown): void {
     this.formValue = value;
+  }
+
+  queueDeleteError(error: unknown): void {
+    this.deleteErrors.push(error);
   }
 
   setServerUrl(): void {}
@@ -72,7 +83,39 @@ class FakeRest implements RestTransport {
 
   async delete<T>(path: string): Promise<T> {
     this.deletePaths.push(path);
+    const error = this.deleteErrors.shift();
+    if (error !== undefined) throw error;
     return undefined as T;
+  }
+}
+
+class FakeWireGuard implements NexusRoomWireGuardApi {
+  available = true;
+  readonly startConfigs: WireGuardTunnelConfig[] = [];
+  stopCalls = 0;
+  startError: unknown = undefined;
+
+  async getAvailability(): Promise<{ available: boolean }> {
+    return { available: this.available };
+  }
+
+  async generateKeyPair(): Promise<{ public_key: string; private_key: string }> {
+    return { public_key: 'client-public-key', private_key: 'client-private-key' };
+  }
+
+  async startTunnel(config: WireGuardTunnelConfig): Promise<WireGuardStatus> {
+    this.startConfigs.push(config);
+    if (this.startError !== undefined) throw this.startError;
+    return { available: true, state: 'running', address: config.address };
+  }
+
+  async stopTunnel(): Promise<WireGuardStatus> {
+    this.stopCalls += 1;
+    return { available: true, state: 'idle' };
+  }
+
+  async getStatus(): Promise<WireGuardStatus> {
+    return { available: this.available, state: 'idle' };
   }
 }
 
@@ -164,6 +207,31 @@ function message(id: number, roomId = 1, senderId = 2): Record<string, unknown> 
     created_at: '2026-08-11T00:00:00Z',
     sender: { id: senderId, nickname: `user-${senderId}`, avatar_url: '' },
   };
+}
+
+function vlanJoinResponse(): Record<string, unknown> {
+  return {
+    assigned_ip: '10.0.8.2/24',
+    server_public_key: 'server-public-key',
+    server_endpoint: 'wg.example.test:51820',
+    dns: '10.0.8.1',
+    peers: [{
+      user_id: 22,
+      nickname: 'Bob',
+      public_key: 'bob-public-key',
+      allowed_ips: '10.0.8.3/24',
+    }],
+  };
+}
+
+function vlanPeers(): Record<string, unknown>[] {
+  return [{
+    user_id: 22,
+    nickname: 'Bob',
+    public_key: 'bob-public-key',
+    assigned_ip: '10.0.8.3/24',
+    last_handshake: '2026-08-11T00:00:00Z',
+  }];
 }
 
 describe('NexusRoomClient', () => {
@@ -488,5 +556,213 @@ describe('NexusRoomClient', () => {
     rest.queuePost({ user_id: 11, user_display_id: 'A11', token: 'secret-image-token' });
     await errorClient.login('alice', 'password');
     await expect(errorClient.loadImage('/api/v1/files/file-1')).rejects.not.toThrow('secret-image-token');
+  });
+
+  it('uses the VLAN REST contract, parses snake_case fields, and builds the server peer', async () => {
+    const storage = createStorage();
+    const rest = new FakeRest();
+    rest.queuePost({ user_id: 11, user_display_id: 'A11', token: 'token-a' }, vlanJoinResponse());
+    rest.queueGet(vlanPeers());
+    const socket = new FakeSocket();
+    const wireguard = new FakeWireGuard();
+    const client = new NexusRoomClient({
+      serverUrl: 'https://chat.test',
+      storage,
+      restClient: rest,
+      wsClient: socket,
+      wireguard,
+    });
+    await client.login('alice', 'password');
+
+    await expect(client.joinVlan(7)).resolves.toMatchObject({
+      state: 'connected',
+      roomId: 7,
+      assignedIp: '10.0.8.2/24',
+      peers: [{ userId: 22, nickname: 'Bob', assignedIp: '10.0.8.3/24' }],
+    });
+    expect(rest.postPaths).toEqual([
+      '/api/v1/auth/login',
+      '/api/v1/rooms/7/vlan/join',
+    ]);
+    expect(rest.postBodies[1]).toEqual({ public_key: 'client-public-key' });
+    expect(rest.getPaths).toEqual(['/api/v1/rooms/7/vlan/peers']);
+    expect(wireguard.startConfigs).toHaveLength(1);
+    expect(wireguard.startConfigs[0]).toMatchObject({
+      address: '10.0.8.2/24',
+      dns: '10.0.8.1',
+      peers: [{
+        public_key: 'server-public-key',
+        endpoint: 'wg.example.test:51820',
+        allowed_ips: '10.0.8.0/24',
+        persistent_keepalive: 25,
+      }],
+    });
+    expect(wireguard.startConfigs[0]?.private_key).toBe('client-private-key');
+  });
+
+  it('rejects malformed VLAN responses without accepting camelCase aliases', () => {
+    expect(() => parseVlanJoinResponse({
+      assignedIp: '10.0.8.2/24',
+      server_public_key: 'server-public-key',
+      server_endpoint: 'wg.example.test:51820',
+      peers: [],
+    })).toThrow('assigned IP');
+    expect(() => parseVlanPeers([{
+      user_id: 22,
+      nickname: 'Bob',
+      publicKey: 'bob-public-key',
+      assigned_ip: '10.0.8.3/24',
+    }])).toThrow('public key');
+  });
+
+  it('filters VLAN peer updates by current enabled room and parses join/leave payloads', async () => {
+    const storage = createStorage();
+    const rest = new FakeRest();
+    rest.queuePost({ user_id: 11, user_display_id: 'A11', token: 'token-a' }, vlanJoinResponse());
+    rest.queueGet(vlanPeers());
+    const socket = new FakeSocket();
+    const client = new NexusRoomClient({
+      serverUrl: 'https://chat.test',
+      storage,
+      restClient: rest,
+      wsClient: socket,
+      wireguard: new FakeWireGuard(),
+    });
+    await client.login('alice', 'password');
+    await client.joinVlan(7);
+    const updates: string[] = [];
+    client.onVlanPeerUpdate((event) => updates.push(`${event.roomId}:${event.action}`));
+
+    socket.emit('vlan.peer_update', {
+      room_id: 7,
+      action: 'join',
+      peer_info: {
+        user_id: 23,
+        nickname: 'Carol',
+        public_key: 'carol-public-key',
+        assigned_ip: '10.0.8.4/24',
+      },
+    }, 7);
+    socket.emit('vlan.peer_update', {
+      room_id: 8,
+      action: 'leave',
+      peer_info: { user_id: 23, nickname: '', public_key: '', assigned_ip: '' },
+    }, 8);
+    expect(updates).toEqual(['7:join']);
+    expect(parseVlanPeerUpdate({
+      event: 'vlan.peer_update',
+      payload: {
+        room_id: 7,
+        action: 'leave',
+        peer_info: { user_id: 23, nickname: '', public_key: '', assigned_ip: '' },
+      },
+    })).toEqual({ roomId: 7, action: 'leave', peerInfo: { userId: 23 } });
+  });
+
+  it('rolls back the server peer when local tunnel startup fails', async () => {
+    const storage = createStorage();
+    const rest = new FakeRest();
+    rest.queuePost({ user_id: 11, user_display_id: 'A11', token: 'token-a' }, vlanJoinResponse());
+    const wireguard = new FakeWireGuard();
+    wireguard.startError = new Error('uac denied');
+    const client = new NexusRoomClient({
+      serverUrl: 'https://chat.test',
+      storage,
+      restClient: rest,
+      wsClient: new FakeSocket(),
+      wireguard,
+    });
+    await client.login('alice', 'password');
+
+    await expect(client.joinVlan(7)).rejects.toThrow('WireGuard 隧道启动失败');
+    expect(rest.deletePaths).toEqual(['/api/v1/rooms/7/vlan/leave']);
+    expect(client.vlanSnapshot.state).toBe('error');
+  });
+
+  it('reports a clean rollback error when the start failure cannot leave the server peer', async () => {
+    const storage = createStorage();
+    const rest = new FakeRest();
+    rest.queuePost({ user_id: 11, user_display_id: 'A11', token: 'token-a' }, vlanJoinResponse());
+    rest.queueDeleteError(new Error('rollback unavailable'));
+    const wireguard = new FakeWireGuard();
+    wireguard.startError = new Error('uac denied');
+    const client = new NexusRoomClient({
+      serverUrl: 'https://chat.test',
+      storage,
+      restClient: rest,
+      wsClient: new FakeSocket(),
+      wireguard,
+    });
+    await client.login('alice', 'password');
+
+    await expect(client.joinVlan(7)).rejects.toThrow('服务端注销失败');
+    expect(client.vlanSnapshot.state).toBe('error');
+  });
+
+  it('checks Helper availability before the VLAN join request', async () => {
+    const storage = createStorage();
+    const rest = new FakeRest();
+    rest.queuePost({ user_id: 11, user_display_id: 'A11', token: 'token-a' });
+    const wireguard = new FakeWireGuard();
+    wireguard.available = false;
+    const client = new NexusRoomClient({
+      serverUrl: 'https://chat.test',
+      storage,
+      restClient: rest,
+      wsClient: new FakeSocket(),
+      wireguard,
+    });
+    await client.login('alice', 'password');
+
+    await expect(client.joinVlan(7)).rejects.toThrow('WireGuard Helper 未找到');
+    expect(rest.postPaths).toEqual(['/api/v1/auth/login']);
+    expect(client.vlanSnapshot.state).toBe('unavailable');
+  });
+
+  it('clears local VLAN state when the leave API fails', async () => {
+    const storage = createStorage();
+    const rest = new FakeRest();
+    rest.queuePost({ user_id: 11, user_display_id: 'A11', token: 'token-a' }, vlanJoinResponse());
+    rest.queueGet(vlanPeers());
+    rest.queueDeleteError(new Error('server unavailable'));
+    const wireguard = new FakeWireGuard();
+    const client = new NexusRoomClient({
+      serverUrl: 'https://chat.test',
+      storage,
+      restClient: rest,
+      wsClient: new FakeSocket(),
+      wireguard,
+    });
+    await client.login('alice', 'password');
+    await client.joinVlan(7);
+    await client.leaveVlan(7);
+
+    expect(client.vlanSnapshot.state).toBe('disabled');
+    expect(client.vlanSnapshot.roomId).toBeNull();
+    expect(client.vlanSnapshot.peers).toEqual([]);
+    expect(client.vlanSnapshot.error).toContain('服务端注销失败');
+    expect(wireguard.stopCalls).toBe(1);
+  });
+
+  it('does not start the same VLAN tunnel twice on a double click', async () => {
+    const storage = createStorage();
+    const rest = new FakeRest();
+    rest.queuePost({ user_id: 11, user_display_id: 'A11', token: 'token-a' }, vlanJoinResponse());
+    rest.queueGet(vlanPeers());
+    const wireguard = new FakeWireGuard();
+    const client = new NexusRoomClient({
+      serverUrl: 'https://chat.test',
+      storage,
+      restClient: rest,
+      wsClient: new FakeSocket(),
+      wireguard,
+    });
+    await client.login('alice', 'password');
+    const first = client.joinVlan(7);
+    const second = client.joinVlan(7);
+    await Promise.all([first, second]);
+
+    expect(rest.postPaths.filter((path) => path.includes('/vlan/join'))).toHaveLength(1);
+    expect(wireguard.startConfigs).toHaveLength(1);
   });
 });

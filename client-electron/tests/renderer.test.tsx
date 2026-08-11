@@ -74,6 +74,39 @@ describe('renderer shell', () => {
     expect(appSource).toContain('publishUrl');
   });
 
+  it('keeps VLAN controls and Peer state in the room side panel', () => {
+    expect(appSource).toContain('aria-label="房间 VLAN"');
+    expect(appSource).toContain('启用 VLAN');
+    expect(appSource).toContain('vlanSnapshot');
+    expect(appSource).toContain('刷新 Peer');
+    expect(appSource).toContain('navigator.clipboard.writeText');
+    expect(appSource).toContain('虚拟 IPv4');
+    expect(appSource).toContain('await client.leaveVlan()');
+    expect(stylesSource).toContain('.vlan-section');
+    expect(stylesSource).toContain('.vlan-status--connected');
+  });
+
+  it('cleans VLAN before room, account, and local-data lifecycle exits', () => {
+    expect(appSource).toContain('await client.leaveVlan(roomId)');
+    expect(appSource).toContain('await client.leaveVlan();');
+    expect(appSource).toContain('await storage.clearData()');
+  });
+
+  it('cleans the old VLAN before clearing kicked or disbanded room UI', () => {
+    expect(appSource).toContain('cleanupVlan(currentRoomId);');
+    expect(appSource).toContain('cleanupVlan(selectedRoomIdRef.current);');
+    expect(appSource.indexOf('cleanupVlan(currentRoomId);')).toBeLessThan(
+      appSource.indexOf('setSelectedRoomId(null);', appSource.indexOf('cleanupVlan(currentRoomId);')),
+    );
+    expect(appSource.indexOf('cleanupVlan(selectedRoomIdRef.current);')).toBeLessThan(
+      appSource.indexOf('setSelectedRoomId(null);', appSource.indexOf('cleanupVlan(selectedRoomIdRef.current);')),
+    );
+  });
+
+  it('clears copied VLAN IP errors when the selected room changes', () => {
+    expect(appSource).toContain('setVlanCopyError(null);');
+  });
+
   it('shows an independent default-audible player with protocol controls', () => {
     expect(appSource).toContain('直播静音');
     expect(appSource).toContain('刷新播放');

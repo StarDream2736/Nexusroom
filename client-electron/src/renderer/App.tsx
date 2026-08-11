@@ -22,6 +22,7 @@ import {
   type RoomDetail,
   type RoomIngress,
   type RoomSummary,
+  type VlanSnapshot,
 } from './nexusroom-client';
 import {
   LivePlayer,
@@ -134,6 +135,23 @@ function microphoneLabel(state: VoiceMicrophoneState): string {
   return state === 'enabled' ? '静音' : '开麦';
 }
 
+function vlanStatusLabel(state: VlanSnapshot['state']): string {
+  if (state === 'connecting') return '连接中';
+  if (state === 'connected') return '已连接';
+  if (state === 'disconnecting') return '断开中';
+  if (state === 'unavailable') return '不可用';
+  if (state === 'error') return '错误';
+  return '关闭';
+}
+
+function vlanToggleLabel(state: VlanSnapshot['state']): string {
+  if (state === 'connecting') return '连接中…';
+  if (state === 'disconnecting') return '断开中…';
+  if (state === 'connected') return '关闭 VLAN';
+  if (state === 'unavailable') return '重试启用 VLAN';
+  return '启用 VLAN';
+}
+
 function findVoiceParticipant(
   participants: readonly VoiceParticipant[],
   userId: number,
@@ -147,6 +165,13 @@ const emptyLiveSnapshot: LivePlayerSnapshot = {
   muted: false,
   sourceHasAudio: null,
   flvRetryCount: 0,
+  error: null,
+};
+
+const emptyVlanSnapshot: VlanSnapshot = {
+  state: 'disabled',
+  roomId: null,
+  peers: [],
   error: null,
 };
 
@@ -291,6 +316,9 @@ export function App(): ReactElement {
   const [roomActionBusy, setRoomActionBusy] = useState(false);
   const [leavingRoom, setLeavingRoom] = useState(false);
   const [connectionState, setConnectionState] = useState<WsConnectionState>('disconnected');
+  const [vlanSnapshot, setVlanSnapshot] = useState<VlanSnapshot>(() => client.vlanSnapshot);
+  const [vlanRefreshBusy, setVlanRefreshBusy] = useState(false);
+  const [vlanCopyError, setVlanCopyError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [imageSources, setImageSources] = useState<Record<number, string>>({});
@@ -359,6 +387,14 @@ export function App(): ReactElement {
   useEffect(() => {
     setConnectionState(client.socket.state);
     return client.socket.onStateChange(setConnectionState);
+  }, [client]);
+
+  useEffect(() => {
+    setVlanSnapshot(client.vlanSnapshot);
+    return client.onVlanStateChange((snapshot) => {
+      setVlanSnapshot(snapshot);
+      if (snapshot.error !== null) setError(snapshot.error);
+    });
   }, [client]);
 
   useEffect(() => {
@@ -442,6 +478,15 @@ export function App(): ReactElement {
   useEffect(() => {
     if (session === null) return undefined;
     let active = true;
+    const cleanupVlan = (roomId: number | null): void => {
+      if (roomId === null) return;
+      void client.leaveVlan(roomId).then(() => {
+        const cleanupError = client.vlanSnapshot.error;
+        if (active && cleanupError !== null) setError(cleanupError);
+      }).catch((vlanError: unknown) => {
+        if (active) setError(errorMessage(vlanError));
+      });
+    };
     const unsubscribeChat = client.onChatMessage((message) => {
       const currentRoomId = selectedRoomIdRef.current;
       if (!active || currentRoomId === null || message.roomId !== currentRoomId) return;
@@ -450,6 +495,7 @@ export function App(): ReactElement {
     const unsubscribeKicked = client.onKicked((event) => {
       const currentRoomId = selectedRoomIdRef.current;
       if (event.roomId === undefined || event.roomId === currentRoomId) {
+        cleanupVlan(currentRoomId);
         setError(event.reason || '你已被移出房间');
         setSelectedRoomId(null);
         setRoomDetail(null);
@@ -459,6 +505,7 @@ export function App(): ReactElement {
     });
     const unsubscribeDisbanded = client.onDisbanded((event) => {
       if (event.roomId !== selectedRoomIdRef.current) return;
+      cleanupVlan(selectedRoomIdRef.current);
       setError('房间已解散');
       setSelectedRoomId(null);
       setRoomDetail(null);
@@ -472,6 +519,12 @@ export function App(): ReactElement {
         if (active) setError(errorMessage(ingressError));
       });
     });
+    const unsubscribeVlan = client.onVlanPeerUpdate((event) => {
+      if (!active || event.roomId !== selectedRoomIdRef.current) return;
+      void client.refreshVlanPeers(event.roomId).catch((vlanError) => {
+        if (active) setError(errorMessage(vlanError));
+      });
+    });
     client.connect();
     void loadRooms().catch((loadError) => {
       if (active) setError(errorMessage(loadError));
@@ -482,6 +535,7 @@ export function App(): ReactElement {
       unsubscribeKicked();
       unsubscribeDisbanded();
       unsubscribeIngress();
+      unsubscribeVlan();
     };
   }, [client, loadIngresses, loadRooms, session]);
 
@@ -489,6 +543,7 @@ export function App(): ReactElement {
     ingressRequestGeneration.current += 1;
     setIngresses([]);
     setSelectedIngressId(null);
+    setVlanCopyError(null);
     if (session === null || selectedRoomId === null) {
       void voice.setRoom(null).catch(() => undefined);
       setRoomDetail(null);
@@ -677,6 +732,64 @@ export function App(): ReactElement {
     }
   };
 
+  const handleVlanToggle = async (): Promise<void> => {
+    const roomId = selectedRoomId;
+    if (
+      roomId === null ||
+      vlanSnapshot.state === 'connecting' ||
+      vlanSnapshot.state === 'disconnecting'
+    ) {
+      return;
+    }
+    setVlanCopyError(null);
+    setError(null);
+    try {
+      if (vlanSnapshot.state === 'connected' && vlanSnapshot.roomId === roomId) {
+        await client.leaveVlan(roomId);
+        if (client.vlanSnapshot.error !== null) setError(client.vlanSnapshot.error);
+      } else {
+        await client.joinVlan(roomId);
+      }
+    } catch (vlanError) {
+      setError(errorMessage(vlanError));
+    }
+  };
+
+  const handleVlanRefresh = async (): Promise<void> => {
+    const roomId = selectedRoomId;
+    if (
+      roomId === null ||
+      vlanSnapshot.state !== 'connected' ||
+      vlanSnapshot.roomId !== roomId ||
+      vlanRefreshBusy
+    ) {
+      return;
+    }
+    setVlanRefreshBusy(true);
+    setError(null);
+    try {
+      await client.refreshVlanPeers(roomId);
+    } catch (vlanError) {
+      setError(errorMessage(vlanError));
+    } finally {
+      setVlanRefreshBusy(false);
+    }
+  };
+
+  const handleCopyVlanIp = async (): Promise<void> => {
+    const assignedIp = vlanSnapshot.assignedIp;
+    if (assignedIp === undefined) return;
+    setVlanCopyError(null);
+    try {
+      if (typeof navigator === 'undefined' || navigator.clipboard === undefined) {
+        throw new Error('clipboard unavailable');
+      }
+      await navigator.clipboard.writeText(assignedIp);
+    } catch {
+      setVlanCopyError('复制虚拟 IP 失败，请手动复制');
+    }
+  };
+
   const handleLeaveRoom = async (): Promise<void> => {
     const roomId = selectedRoomId;
     if (roomId === null || leavingRoom) return;
@@ -703,6 +816,8 @@ export function App(): ReactElement {
     setBusy(true);
     try {
       await voice.setRoom(null);
+      await client.leaveVlan();
+      const vlanCleanupError = client.vlanSnapshot.error;
       if (session !== null) await storage.removeSession(session.scope);
       client.disconnect();
       setSession(null);
@@ -712,7 +827,7 @@ export function App(): ReactElement {
       setIngresses([]);
       setSelectedIngressId(null);
       setMessages([]);
-      setError(null);
+      setError(vlanCleanupError);
     } catch (logoutError) {
       setError(errorMessage(logoutError));
     } finally {
@@ -729,6 +844,8 @@ export function App(): ReactElement {
     setBusy(true);
     try {
       await voice.setRoom(null);
+      await client.leaveVlan();
+      const vlanCleanupError = client.vlanSnapshot.error;
       await storage.clearData();
       client.disconnect();
       setSession(null);
@@ -738,7 +855,7 @@ export function App(): ReactElement {
       setIngresses([]);
       setSelectedIngressId(null);
       setMessages([]);
-      setError(null);
+      setError(vlanCleanupError);
     } catch (clearError) {
       setError(errorMessage(clearError));
     } finally {
@@ -755,6 +872,16 @@ export function App(): ReactElement {
 
   const selectedRoom = rooms.find((room) => room.id === selectedRoomId);
   const selectedIngress = ingresses.find((ingress) => ingress.id === selectedIngressId);
+  const vlanTransitioningOtherRoom = vlanSnapshot.roomId !== null &&
+    vlanSnapshot.roomId !== selectedRoomId &&
+    (vlanSnapshot.state === 'connecting' || vlanSnapshot.state === 'disconnecting');
+  const visibleVlanSnapshot = vlanSnapshot.roomId === selectedRoomId
+    ? vlanSnapshot
+    : vlanTransitioningOtherRoom
+      ? { ...emptyVlanSnapshot, state: 'disconnecting' as const, roomId: selectedRoomId }
+      : emptyVlanSnapshot;
+  const vlanConnected = visibleVlanSnapshot.state === 'connected';
+  const vlanBusy = visibleVlanSnapshot.state === 'connecting' || visibleVlanSnapshot.state === 'disconnecting';
   const displayName = session?.userDisplayId ?? '未登录';
 
   return (
@@ -1041,6 +1168,75 @@ export function App(): ReactElement {
               ))}
             </div>
           )}
+          {roomDetail !== null ? (
+            <section className="vlan-section" aria-label="房间 VLAN">
+              <div className="section-heading">
+                <span>房间 VLAN</span>
+                <span
+                  className={`vlan-status vlan-status--${visibleVlanSnapshot.state}`}
+                  data-vlan-state={visibleVlanSnapshot.state}
+                  aria-live="polite"
+                >
+                  {vlanStatusLabel(visibleVlanSnapshot.state)}
+                </span>
+              </div>
+              <div className="vlan-controls">
+                <button
+                  className="vlan-toggle"
+                  type="button"
+                  onClick={() => void handleVlanToggle()}
+                  aria-pressed={vlanConnected}
+                  aria-busy={vlanBusy}
+                  disabled={vlanBusy}
+                >
+                  {vlanToggleLabel(visibleVlanSnapshot.state)}
+                </button>
+                <button
+                  className="vlan-refresh"
+                  type="button"
+                  onClick={() => void handleVlanRefresh()}
+                  disabled={!vlanConnected || vlanRefreshBusy}
+                  aria-busy={vlanRefreshBusy}
+                >
+                  {vlanRefreshBusy ? '刷新中…' : '刷新 Peer'}
+                </button>
+              </div>
+              {visibleVlanSnapshot.assignedIp !== undefined ? (
+                <div className="vlan-ip-row">
+                  <div>
+                    <span className="vlan-field-label">虚拟 IPv4</span>
+                    <code>{visibleVlanSnapshot.assignedIp}</code>
+                  </div>
+                  <button
+                    className="vlan-copy"
+                    type="button"
+                    onClick={() => void handleCopyVlanIp()}
+                    aria-label="复制虚拟 IPv4"
+                  >
+                    复制
+                  </button>
+                </div>
+              ) : null}
+              {vlanCopyError !== null ? <p className="vlan-error" role="status">{vlanCopyError}</p> : null}
+              {visibleVlanSnapshot.error !== null ? <p className="vlan-error" role="alert">{visibleVlanSnapshot.error}</p> : null}
+              <div className="vlan-peer-list" aria-label="VLAN Peer 列表">
+                <div className="section-heading">
+                  <span>Peer</span>
+                  <span>{vlanConnected ? visibleVlanSnapshot.peers.length : 0}</span>
+                </div>
+                {!vlanConnected ? (
+                  <p className="muted-copy vlan-empty">连接 VLAN 后查看 Peer。</p>
+                ) : visibleVlanSnapshot.peers.length === 0 ? (
+                  <p className="muted-copy vlan-empty">暂无其他 Peer。</p>
+                ) : visibleVlanSnapshot.peers.map((peer) => (
+                  <div className="vlan-peer-row" key={peer.userId}>
+                    <span className="vlan-peer-name">{peer.nickname}</span>
+                    <code>{peer.assignedIp}</code>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
           {roomDetail !== null ? (
             <section className="stream-section" aria-label="推流入口">
               <div className="section-heading">

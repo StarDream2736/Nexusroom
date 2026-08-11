@@ -15,7 +15,34 @@ import type {
   AccountScope,
   MessageCacheEntry,
   NexusRoomStorageApi,
+  NexusRoomWireGuardApi,
 } from '../shared/preload-api';
+import {
+  VlanSessionController,
+  type VlanErrorPhase,
+  type VlanJoinResponse,
+  type VlanPeer,
+  type VlanPeerUpdate,
+  type VlanSessionDriver,
+  type VlanSnapshot,
+} from './vlan-session';
+
+export {
+  buildVlanTunnelConfig,
+  deriveIPv4Subnet,
+  VlanSessionController,
+} from './vlan-session';
+export type {
+  VlanErrorPhase,
+  VlanJoinPeer,
+  VlanJoinResponse,
+  VlanPeer,
+  VlanPeerInfo,
+  VlanPeerUpdate,
+  VlanSessionDriver,
+  VlanSnapshot,
+  VlanState,
+} from './vlan-session';
 
 export type NexusRoomStorage = Pick<
   NexusRoomStorageApi,
@@ -65,6 +92,7 @@ export interface NexusRoomClientOptions {
   readonly storage: NexusRoomStorage;
   readonly restClient?: RestTransport;
   readonly wsClient?: RoomSocket;
+  readonly wireguard?: NexusRoomWireGuardApi;
   readonly fetchImpl?: (
     input: RequestInfo | URL,
     init?: RequestInit,
@@ -389,6 +417,137 @@ function readIngress(value: unknown, requirePublishUrl: boolean): RoomIngress {
   };
 }
 
+function readNonBlankString(value: unknown, label: string): string {
+  const result = readString(value, label).trim();
+  if (result.length === 0) {
+    throw new NexusRoomClientError(`${label} must be a non-empty string`);
+  }
+  return result;
+}
+
+function readOptionalNonBlankString(
+  value: unknown,
+  label: string,
+): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  return readNonBlankString(value, label);
+}
+
+function readVlanUpdateString(
+  value: unknown,
+  label: string,
+): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'string') {
+    throw new NexusRoomClientError(`${label} must be a string`);
+  }
+  const result = value.trim();
+  return result.length === 0 ? undefined : result;
+}
+
+function readVlanJoinPeer(value: unknown): import('./vlan-session').VlanJoinPeer {
+  const record = readRecord(value, 'VLAN join peer');
+  return {
+    userId: readId(record.user_id, 'VLAN peer user id'),
+    nickname: readNonBlankString(record.nickname, 'VLAN peer nickname'),
+    publicKey: readNonBlankString(record.public_key, 'VLAN peer public key'),
+    allowedIps: readNonBlankString(record.allowed_ips, 'VLAN peer allowed IPs'),
+  };
+}
+
+function readVlanPeer(value: unknown): VlanPeer {
+  const record = readRecord(value, 'VLAN peer');
+  const lastHandshake = readOptionalNonBlankString(
+    record.last_handshake,
+    'VLAN peer last handshake',
+  );
+  return {
+    userId: readId(record.user_id, 'VLAN peer user id'),
+    nickname: readNonBlankString(record.nickname, 'VLAN peer nickname'),
+    publicKey: readNonBlankString(record.public_key, 'VLAN peer public key'),
+    assignedIp: readNonBlankString(record.assigned_ip, 'VLAN peer assigned IP'),
+    ...(lastHandshake === undefined ? {} : { lastHandshake }),
+  };
+}
+
+export function parseVlanJoinResponse(value: unknown): VlanJoinResponse {
+  const record = readRecord(value, 'VLAN join response');
+  const dns = readOptionalNonBlankString(record.dns, 'VLAN DNS');
+  if (!Array.isArray(record.peers)) {
+    throw new NexusRoomClientError('VLAN join peers must be an array');
+  }
+  return {
+    assignedIp: readNonBlankString(record.assigned_ip, 'VLAN assigned IP'),
+    serverPublicKey: readNonBlankString(
+      record.server_public_key,
+      'VLAN server public key',
+    ),
+    serverEndpoint: readNonBlankString(
+      record.server_endpoint,
+      'VLAN server endpoint',
+    ),
+    ...(dns === undefined ? {} : { dns }),
+    peers: record.peers.map(readVlanJoinPeer),
+  };
+}
+
+export function parseVlanPeers(value: unknown): readonly VlanPeer[] {
+  if (!Array.isArray(value)) {
+    throw new NexusRoomClientError('VLAN peer list must be an array');
+  }
+  return value.map(readVlanPeer);
+}
+
+export function parseVlanPeerUpdate(message: WsMessage): VlanPeerUpdate {
+  if (message.event !== 'vlan.peer_update') {
+    throw new NexusRoomClientError('VLAN peer update event is invalid');
+  }
+  const payload = readRecord(message.payload, 'VLAN peer update payload');
+  const outerRoomId = message.room_id;
+  const payloadRoomId = payload.room_id;
+  if (
+    outerRoomId !== undefined &&
+    payloadRoomId !== undefined &&
+    outerRoomId !== payloadRoomId
+  ) {
+    throw new NexusRoomClientError('VLAN peer update room ID is inconsistent');
+  }
+  const parsedRoomId = readId(
+    payloadRoomId ?? outerRoomId,
+    'VLAN peer update room id',
+  );
+  const action = readString(payload.action, 'VLAN peer update action');
+  if (action !== 'join' && action !== 'leave') {
+    throw new NexusRoomClientError('VLAN peer update action must be join or leave');
+  }
+  const info = readRecord(payload.peer_info, 'VLAN peer update peer info');
+  const nickname = readVlanUpdateString(
+    info.nickname,
+    'VLAN peer update nickname',
+  );
+  const publicKey = readVlanUpdateString(
+    info.public_key,
+    'VLAN peer update public key',
+  );
+  const assignedIp = readVlanUpdateString(
+    info.assigned_ip,
+    'VLAN peer update assigned IP',
+  );
+  if (action === 'join' && (nickname === undefined || publicKey === undefined || assignedIp === undefined)) {
+    throw new NexusRoomClientError('VLAN join update peer info is incomplete');
+  }
+  return {
+    roomId: parsedRoomId,
+    action,
+    peerInfo: {
+      userId: readId(info.user_id, 'VLAN peer update user id'),
+      ...(nickname === undefined ? {} : { nickname }),
+      ...(publicKey === undefined ? {} : { publicKey }),
+      ...(assignedIp === undefined ? {} : { assignedIp }),
+    },
+  };
+}
+
 function readChatMessage(value: unknown): ChatMessage {
   const record = readRecord(value, 'chat message');
   const senderValue = record.sender;
@@ -501,6 +660,8 @@ export class NexusRoomClient {
   private activeRoomId: number | null = null;
   private rtcIceServersValue: readonly RtcIceServer[] = [];
   private messageSequence = 0;
+  private readonly wireguardApi: NexusRoomWireGuardApi | undefined;
+  private readonly vlanSession: VlanSessionController;
   private readonly fetchImpl: (
     input: RequestInfo | URL,
     init?: RequestInit,
@@ -511,8 +672,10 @@ export class NexusRoomClient {
     this.storage = options.storage;
     this.rest = options.restClient ?? new RestClient({ serverUrl: this.serverUrl });
     this.socket = options.wsClient ?? new WsClient();
+    this.wireguardApi = options.wireguard;
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
     this.rest.setServerUrl(this.serverUrl);
+    this.vlanSession = new VlanSessionController(this.createVlanDriver());
     this.socket.on('connected', (message) => {
       this.rtcIceServersValue = parseRtcIceServers(message.payload);
     });
@@ -539,12 +702,20 @@ export class NexusRoomClient {
     return this.rtcIceServersValue;
   }
 
+  get vlanSnapshot(): VlanSnapshot {
+    return this.vlanSession.snapshot;
+  }
+
   onConnectionStateChange(listener: (state: WsConnectionState) => void): () => void {
     return this.socket.onStateChange(listener);
   }
 
   onRtcEvent(eventName: VoiceEventName, listener: WsMessageListener): () => void {
     return this.socket.on(eventName, listener);
+  }
+
+  onVlanStateChange(listener: (snapshot: VlanSnapshot) => void): () => void {
+    return this.vlanSession.onChange(listener);
   }
 
   sendRtc(eventName: VoiceClientEvent, roomId: number, payload?: unknown): void {
@@ -595,6 +766,7 @@ export class NexusRoomClient {
   }
 
   disconnect(): void {
+    void this.vlanSession.leave();
     this.socket.disconnect();
     this.activeRoomId = null;
     this.rtcIceServersValue = [];
@@ -674,6 +846,7 @@ export class NexusRoomClient {
   async leaveRoom(roomId: number): Promise<void> {
     this.requireSession();
     const id = readId(roomId, 'room id');
+    await this.vlanSession.leave(id);
     if (this.activeRoomId === id) {
       this.leaveSocketRoom(id);
       this.activeRoomId = null;
@@ -686,12 +859,36 @@ export class NexusRoomClient {
     if (this.activeRoomId === id) return;
     const previous = this.activeRoomId;
     if (previous !== null) {
+      void this.vlanSession.leave(previous);
       this.leaveSocketRoom(previous);
     }
     this.activeRoomId = id;
     if (this.socket.state === 'connected') {
       this.socket.send('room.join', {}, id);
     }
+  }
+
+  async joinVlan(roomId: number): Promise<VlanSnapshot> {
+    this.requireSession();
+    return this.vlanSession.join(readId(roomId, 'room id'));
+  }
+
+  async leaveVlan(roomId?: number): Promise<void> {
+    await this.vlanSession.leave(
+      roomId === undefined ? undefined : readId(roomId, 'room id'),
+    );
+  }
+
+  async listVlanPeers(roomId: number): Promise<readonly VlanPeer[]> {
+    this.requireSession();
+    const id = readId(roomId, 'room id');
+    const raw = await this.rest.get<unknown>(`/api/v1/rooms/${id}/vlan/peers`);
+    return parseVlanPeers(raw);
+  }
+
+  async refreshVlanPeers(roomId: number): Promise<readonly VlanPeer[]> {
+    this.requireSession();
+    return this.vlanSession.refresh(readId(roomId, 'room id'));
   }
 
   async syncMessages(
@@ -886,6 +1083,24 @@ export class NexusRoomClient {
     });
   }
 
+  onVlanPeerUpdate(listener: (event: VlanPeerUpdate) => void): () => void {
+    return this.socket.on('vlan.peer_update', (message) => {
+      try {
+        const event = parseVlanPeerUpdate(message);
+        const snapshot = this.vlanSession.snapshot;
+        if (
+          snapshot.state !== 'connected' ||
+          snapshot.roomId !== event.roomId
+        ) {
+          return;
+        }
+        listener(event);
+      } catch {
+        // Ignore malformed external events; the tunnel remains usable.
+      }
+    });
+  }
+
   private subscribe<T>(
     eventName: string,
     parser: (message: WsMessage) => T,
@@ -904,6 +1119,130 @@ export class NexusRoomClient {
     if (this.socket.state === 'connected') {
       this.socket.send('room.leave', {}, roomId);
     }
+  }
+
+  private getWireGuardApi(): NexusRoomWireGuardApi | null {
+    const runtimeApi = typeof window !== 'undefined'
+      ? window.nexusroom?.wireguard
+      : undefined;
+    const api = this.wireguardApi ?? runtimeApi;
+    if (
+      api === undefined ||
+      typeof api.getAvailability !== 'function' ||
+      typeof api.generateKeyPair !== 'function' ||
+      typeof api.startTunnel !== 'function' ||
+      typeof api.stopTunnel !== 'function'
+    ) {
+      return null;
+    }
+    return api;
+  }
+
+  private createVlanDriver(): VlanSessionDriver {
+    return {
+      getAvailability: async () => {
+        const api = this.getWireGuardApi();
+        if (api === null) return { available: false, reason: 'missing' };
+        return api.getAvailability();
+      },
+      generateKeyPair: async () => {
+        const api = this.getWireGuardApi();
+        if (api === null) throw new NexusRoomClientError('WireGuard Helper 不可用');
+        return api.generateKeyPair();
+      },
+      joinServer: (roomId, publicKey) => this.joinVlanServer(roomId, publicKey),
+      leaveServer: (roomId) => this.leaveVlanServer(roomId),
+      listPeers: (roomId) => this.listVlanPeers(roomId),
+      startTunnel: async (config) => {
+        const api = this.getWireGuardApi();
+        if (api === null) throw new NexusRoomClientError('WireGuard Helper 不可用');
+        return api.startTunnel(config);
+      },
+      stopTunnel: async () => {
+        const api = this.getWireGuardApi();
+        if (api === null) return undefined;
+        return api.stopTunnel();
+      },
+      toUserError: (error, phase) => this.toVlanUserError(error, phase),
+      unavailableMessage: (reason) => reason === 'unsupported'
+        ? '当前系统不支持 WireGuard，VLAN 不可用'
+        : 'WireGuard Helper 未找到，VLAN 不可用',
+    };
+  }
+
+  private async joinVlanServer(
+    roomId: number,
+    publicKey: string,
+  ): Promise<VlanJoinResponse> {
+    let raw: unknown;
+    try {
+      raw = await this.rest.post<unknown>(
+        `/api/v1/rooms/${roomId}/vlan/join`,
+        { public_key: publicKey },
+      );
+    } catch (error) {
+      throw this.toVlanUserError(error, 'join');
+    }
+    try {
+      return parseVlanJoinResponse(raw);
+    } catch (error) {
+      try {
+        await this.rest.delete(`/api/v1/rooms/${roomId}/vlan/leave`);
+      } catch {
+        // A malformed join response still gets a best-effort server rollback.
+      }
+      throw error;
+    }
+  }
+
+  private async leaveVlanServer(roomId: number): Promise<void> {
+    if (this.sessionValue === null) return;
+    try {
+      await this.rest.delete(`/api/v1/rooms/${roomId}/vlan/leave`);
+    } catch (error) {
+      throw this.toVlanUserError(error, 'leave');
+    }
+  }
+
+  private toVlanUserError(error: unknown, phase: VlanErrorPhase): NexusRoomClientError {
+    if (error instanceof NexusRoomClientError) return error;
+    const record = isRecord(error) ? error : undefined;
+    const code = typeof record?.code === 'string' ? record.code : undefined;
+    if (code === 'helper-missing') {
+      return new NexusRoomClientError('WireGuard Helper 未找到，VLAN 不可用');
+    }
+    if (code === 'spawn-failed') {
+      return new NexusRoomClientError('WireGuard Helper 启动失败，请检查安装和权限');
+    }
+    if (code === 'connection' || code === 'timeout') {
+      return new NexusRoomClientError('WireGuard 隧道连接超时，请检查权限和网络');
+    }
+    if (code === 'cancelled') {
+      return new NexusRoomClientError('WireGuard 隧道操作已取消');
+    }
+    const status = typeof record?.status === 'number' ? record.status : undefined;
+    if (status === 401 || status === 403) {
+      return new NexusRoomClientError('VLAN 请求被拒绝，请重新登录或确认房间权限');
+    }
+    if (phase === 'leave') {
+      return new NexusRoomClientError('VLAN 已关闭，但服务端注销失败，请稍后重试');
+    }
+    if (phase === 'refresh') {
+      return new NexusRoomClientError('VLAN Peer 刷新失败，请稍后重试');
+    }
+    if (phase === 'availability') {
+      return new NexusRoomClientError('无法检查 WireGuard Helper，请稍后重试');
+    }
+    if (phase === 'key generation') {
+      return new NexusRoomClientError('WireGuard 密钥生成失败，请检查 Helper 权限');
+    }
+    if (phase === 'start') {
+      return new NexusRoomClientError('WireGuard 隧道启动失败，请检查权限或系统网络');
+    }
+    if (phase === 'configuration') {
+      return new NexusRoomClientError('VLAN 配置无效，无法启动隧道');
+    }
+    return new NexusRoomClientError('VLAN 加入失败，请检查服务器连接和房间权限');
   }
 
   private requireSession(): AuthSession {
