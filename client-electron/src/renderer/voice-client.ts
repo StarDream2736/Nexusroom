@@ -1,7 +1,8 @@
-import type {
-  RtcIceServer,
-  VoiceClientEvent,
-  VoiceEventName,
+import {
+  parseRtcIceServers,
+  type RtcIceServer,
+  type VoiceClientEvent,
+  type VoiceEventName,
 } from './nexusroom-client';
 import type {
   WsConnectionState,
@@ -225,44 +226,11 @@ function readSessionDescription(
   const payload = readPayload(message);
   const sdp = readString(payload.sdp);
   if (sdp === null) return null;
-  const type = payload.type === expectedType ? expectedType : expectedType;
-  return { type, sdp };
+  if (payload.type !== undefined && payload.type !== expectedType) return null;
+  return { type: expectedType, sdp };
 }
 
-function normalizeIceServer(value: unknown): RtcIceServer | null {
-  if (!isRecord(value)) return null;
-  const rawUrls = value.urls;
-  const urls = typeof rawUrls === 'string'
-    ? rawUrls.trim()
-    : Array.isArray(rawUrls)
-      ? rawUrls.filter((url): url is string => typeof url === 'string' && url.trim().length > 0)
-        .map((url) => url.trim())
-      : [];
-  if ((typeof urls === 'string' && urls.length === 0) || (Array.isArray(urls) && urls.length === 0)) {
-    return null;
-  }
-  const username = typeof value.username === 'string' && value.username.length > 0
-    ? value.username
-    : undefined;
-  const credential = typeof value.credential === 'string' && value.credential.length > 0
-    ? value.credential
-    : undefined;
-  return {
-    urls,
-    ...(username === undefined ? {} : { username }),
-    ...(credential === undefined ? {} : { credential }),
-  };
-}
-
-export function parseVoiceIceServers(value: unknown): readonly RtcIceServer[] {
-  const root = isRecord(value) && isRecord(value.rtc) ? value.rtc : value;
-  const rawServers = isRecord(root) ? root.ice_servers : undefined;
-  if (!Array.isArray(rawServers)) return [];
-  return rawServers.flatMap((server) => {
-    const normalized = normalizeIceServer(server);
-    return normalized === null ? [] : [normalized];
-  });
-}
+export { parseRtcIceServers as parseVoiceIceServers };
 
 export function fallbackVoiceIceServers(serverUrl: string): readonly RtcIceServer[] {
   let host = '127.0.0.1';
@@ -427,7 +395,10 @@ export class WebRtcVoiceClient {
   private localNegotiationPending = false;
   private readonly blockedAudio = new Set<string>();
   private audioSequence = 0;
-  private microphoneOperation: Promise<void> | null = null;
+  private microphoneOperation: {
+    readonly generation: number;
+    readonly promise: Promise<void>;
+  } | null = null;
   private connectedHandshake = false;
   private disposed = false;
 
@@ -510,14 +481,17 @@ export class WebRtcVoiceClient {
   }
 
   setMicrophoneEnabled(enabled: boolean): Promise<void> {
-    if (this.microphoneOperation !== null) return this.microphoneOperation;
+    if (this.microphoneOperation?.generation === this.generation) {
+      return this.microphoneOperation.promise;
+    }
+    const generation = this.generation;
     const operation = enabled
       ? this.enableMicrophone()
       : this.disableMicrophone();
     const trackedOperation = operation.finally(() => {
-      if (this.microphoneOperation === trackedOperation) this.microphoneOperation = null;
+      if (this.microphoneOperation?.promise === trackedOperation) this.microphoneOperation = null;
     });
-    this.microphoneOperation = trackedOperation;
+    this.microphoneOperation = { generation, promise: trackedOperation };
     return trackedOperation;
   }
 
@@ -545,7 +519,7 @@ export class WebRtcVoiceClient {
   private handleConnected(message: WsMessage): void {
     if (this.disposed) return;
     this.connectedHandshake = true;
-    const configured = parseVoiceIceServers(message.payload);
+    const configured = parseRtcIceServers(message.payload);
     this.iceServersValue = configured.length > 0
       ? configured
       : this.signaling.rtcIceServers.length > 0

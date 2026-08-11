@@ -1,7 +1,14 @@
 import { app, BrowserWindow, ipcMain, session } from 'electron';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { ClientDatabase } from './main/client-database';
 import { resolveClientDatabasePath } from './main/database-path';
+import {
+  isAudioPermissionCheck,
+  isAudioPermissionRequest,
+  isTrustedRendererRequest,
+  type RendererPermissionTarget,
+} from './main/media-permission';
 import { registerStorageIpc } from './main/storage-ipc';
 import { createWindowOptions } from './window-options';
 
@@ -26,14 +33,29 @@ function disposeLocalStorage(): void {
 }
 
 function loadRenderer(window: BrowserWindow): void {
-  const rendererUrl = process.env.NEXUSROOM_RENDERER_URL;
+  const rendererUrl = app.isPackaged ? undefined : process.env.NEXUSROOM_RENDERER_URL;
   const loadResult = rendererUrl
     ? window.loadURL(rendererUrl)
-    : window.loadFile(path.join(__dirname, '../dist/renderer/index.html'));
+    : window.loadFile(rendererFilePath());
 
   loadResult.catch((error: unknown) => {
     console.error('Unable to load NexusRoom renderer.', error);
   });
+}
+
+function rendererFilePath(): string {
+  return path.join(__dirname, '../dist/renderer/index.html');
+}
+
+function rendererPermissionTarget(): RendererPermissionTarget {
+  return app.isPackaged
+    ? { isPackaged: true, rendererUrl: pathToFileURL(rendererFilePath()).toString() }
+    : { isPackaged: false, rendererUrl: process.env.NEXUSROOM_RENDERER_URL };
+}
+
+function currentMainWindowWebContents(): object | null {
+  if (mainWindow === null || mainWindow.isDestroyed()) return null;
+  return mainWindow.webContents;
 }
 
 function createMainWindow(): BrowserWindow {
@@ -71,17 +93,26 @@ app.on('web-contents-created', (_event, contents) => {
 app.on('will-quit', disposeLocalStorage);
 
 app.whenReady().then(() => {
-  session.defaultSession.setPermissionCheckHandler((_webContents, permission, _origin, details) => {
-    return permission === 'media' && (details.mediaType === 'audio' || details.mediaType === 'unknown');
+  const permissionTarget = rendererPermissionTarget();
+  session.defaultSession.setPermissionCheckHandler((webContents, permission, _origin, details) => {
+    return isTrustedRendererRequest(
+      webContents,
+      currentMainWindowWebContents(),
+      details,
+      permissionTarget,
+    ) && isAudioPermissionCheck(permission, details.mediaType);
   });
-  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
     const mediaTypes = permission === 'media' && 'mediaTypes' in details
       ? details.mediaTypes
       : undefined;
     callback(
-      permission === 'media' &&
-      mediaTypes?.includes('audio') === true &&
-      mediaTypes.includes('video') === false,
+      isTrustedRendererRequest(
+        webContents,
+        currentMainWindowWebContents(),
+        details,
+        permissionTarget,
+      ) && isAudioPermissionRequest(permission, mediaTypes),
     );
   });
   const database = new ClientDatabase(

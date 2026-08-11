@@ -257,6 +257,8 @@ describe('WebRtcVoiceClient', () => {
     if (peer === undefined) throw new Error('peer was not created');
     signaling.emit('rtc.answer', { type: 'answer', sdp: 'answer-1' }, 1);
     await settle();
+    signaling.emit('rtc.offer', { type: 'answer', sdp: 'invalid-offer' }, 1);
+    signaling.emit('rtc.offer', { sdp: 'server-offer-0' }, 1);
     signaling.emit('rtc.offer', { type: 'offer', sdp: 'server-offer-1' }, 1);
     signaling.emit('rtc.offer', { type: 'offer', sdp: 'server-offer-2' }, 1);
     await settle();
@@ -264,10 +266,11 @@ describe('WebRtcVoiceClient', () => {
 
     expect(peer.remoteDescriptions.map((item) => item.sdp)).toEqual([
       'answer-1',
+      'server-offer-0',
       'server-offer-1',
       'server-offer-2',
     ]);
-    expect(signaling.sent.filter((item) => item.event === 'rtc.answer')).toHaveLength(2);
+    expect(signaling.sent.filter((item) => item.event === 'rtc.answer')).toHaveLength(3);
     await voice.dispose();
   });
 
@@ -282,6 +285,39 @@ describe('WebRtcVoiceClient', () => {
     expect(signaling.sent.some((item) => item.event === 'rtc.leave' && item.roomId === 1)).toBe(true);
     expect(voice.snapshot.roomId).toBe(2);
     expect(peers).toHaveLength(2);
+    await voice.dispose();
+  });
+
+  it('does not reuse a stale microphone promise after switching rooms', async () => {
+    const resolvers: Array<(stream: VoiceMediaStream) => void> = [];
+    const getUserMedia = vi.fn(() => new Promise<VoiceMediaStream>((resolve) => {
+      resolvers.push(resolve);
+    }));
+    const { voice, signaling } = await createVoice({
+      mediaDevices: { getUserMedia },
+    });
+
+    const oldOperation = voice.setMicrophoneEnabled(true);
+    await Promise.resolve();
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+
+    await voice.setRoom(2);
+    const newOperation = voice.setMicrophoneEnabled(true);
+    await Promise.resolve();
+    expect(getUserMedia).toHaveBeenCalledTimes(2);
+    signaling.emit('rtc.answer', { type: 'answer', sdp: 'answer-2' }, 2);
+    await settle();
+
+    const newTrack = new FakeTrack('audio', 'new-track');
+    resolvers[1]?.(new FakeStream([newTrack]));
+    await newOperation;
+    expect(voice.snapshot.microphone).toBe('enabled');
+
+    const oldTrack = new FakeTrack('audio', 'old-track');
+    resolvers[0]?.(new FakeStream([oldTrack]));
+    await expect(oldOperation).rejects.toThrow('语音房间已切换');
+    expect(oldTrack.stopped).toBe(true);
+    expect(signaling.sent.some((item) => item.event === 'voice.mute' && item.roomId === 1)).toBe(false);
     await voice.dispose();
   });
 
