@@ -293,7 +293,7 @@ describe('WebRtcVoiceClient', () => {
     const getUserMedia = vi.fn(() => new Promise<VoiceMediaStream>((resolve) => {
       resolvers.push(resolve);
     }));
-    const { voice, signaling } = await createVoice({
+    const { voice, signaling, peers } = await createVoice({
       mediaDevices: { getUserMedia },
     });
 
@@ -312,12 +312,23 @@ describe('WebRtcVoiceClient', () => {
     resolvers[1]?.(new FakeStream([newTrack]));
     await newOperation;
     expect(voice.snapshot.microphone).toBe('enabled');
+    const newPeer = peers[1];
+    if (newPeer === undefined) throw new Error('new peer was not created');
+    expect(newPeer.tracks).toHaveLength(1);
 
     const oldTrack = new FakeTrack('audio', 'old-track');
     resolvers[0]?.(new FakeStream([oldTrack]));
     await expect(oldOperation).rejects.toThrow('语音房间已切换');
     expect(oldTrack.stopped).toBe(true);
     expect(signaling.sent.some((item) => item.event === 'voice.mute' && item.roomId === 1)).toBe(false);
+
+    await voice.setMicrophoneEnabled(false);
+    const reopenOperation = voice.setMicrophoneEnabled(true);
+    await settle();
+    signaling.emit('rtc.answer', { type: 'answer', sdp: 'answer-2-reopen' }, 2);
+    await reopenOperation;
+    expect(newPeer.tracks).toHaveLength(1);
+    expect(voice.snapshot.microphone).toBe('enabled');
     await voice.dispose();
   });
 

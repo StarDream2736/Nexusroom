@@ -7,8 +7,19 @@ export interface RendererPermissionDetails {
 }
 
 export interface RendererPermissionTarget {
+  readonly rendererKind: 'file' | 'web';
+  readonly rendererUrl: string;
+}
+
+export function selectRendererPermissionTarget(options: {
   readonly isPackaged: boolean;
-  readonly rendererUrl?: string;
+  readonly developmentUrl?: string;
+  readonly fileUrl: string;
+}): RendererPermissionTarget {
+  const developmentUrl = options.isPackaged ? undefined : options.developmentUrl;
+  return developmentUrl
+    ? { rendererKind: 'web', rendererUrl: developmentUrl }
+    : { rendererKind: 'file', rendererUrl: options.fileUrl };
 }
 
 function parseUrl(value: string | undefined): URL | null {
@@ -43,7 +54,7 @@ export function isTrustedRendererRequest(
   const rendererUrl = parseUrl(target.rendererUrl);
   if (requestingUrl === null || rendererUrl === null) return false;
 
-  if (target.isPackaged) {
+  if (target.rendererKind === 'file') {
     return rendererUrl.protocol === 'file:' &&
       requestingUrl.protocol === 'file:' &&
       requestingUrl.href === rendererUrl.href &&

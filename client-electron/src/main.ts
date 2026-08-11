@@ -6,6 +6,7 @@ import { resolveClientDatabasePath } from './main/database-path';
 import {
   isAudioPermissionCheck,
   isAudioPermissionRequest,
+  selectRendererPermissionTarget,
   isTrustedRendererRequest,
   type RendererPermissionTarget,
 } from './main/media-permission';
@@ -15,6 +16,7 @@ import { createWindowOptions } from './window-options';
 let mainWindow: BrowserWindow | null = null;
 let clientDatabase: ClientDatabase | null = null;
 let disposeStorageIpc: (() => void) | null = null;
+let rendererTarget: RendererPermissionTarget | null = null;
 
 function disposeLocalStorage(): void {
   disposeStorageIpc?.();
@@ -33,9 +35,9 @@ function disposeLocalStorage(): void {
 }
 
 function loadRenderer(window: BrowserWindow): void {
-  const rendererUrl = app.isPackaged ? undefined : process.env.NEXUSROOM_RENDERER_URL;
-  const loadResult = rendererUrl
-    ? window.loadURL(rendererUrl)
+  const target = currentRendererTarget();
+  const loadResult = target.rendererKind === 'web'
+    ? window.loadURL(target.rendererUrl)
     : window.loadFile(rendererFilePath());
 
   loadResult.catch((error: unknown) => {
@@ -47,10 +49,15 @@ function rendererFilePath(): string {
   return path.join(__dirname, '../dist/renderer/index.html');
 }
 
-function rendererPermissionTarget(): RendererPermissionTarget {
-  return app.isPackaged
-    ? { isPackaged: true, rendererUrl: pathToFileURL(rendererFilePath()).toString() }
-    : { isPackaged: false, rendererUrl: process.env.NEXUSROOM_RENDERER_URL };
+function currentRendererTarget(): RendererPermissionTarget {
+  if (rendererTarget === null) {
+    rendererTarget = selectRendererPermissionTarget({
+      isPackaged: app.isPackaged,
+      developmentUrl: process.env.NEXUSROOM_RENDERER_URL,
+      fileUrl: pathToFileURL(rendererFilePath()).toString(),
+    });
+  }
+  return rendererTarget;
 }
 
 function currentMainWindowWebContents(): object | null {
@@ -93,7 +100,7 @@ app.on('web-contents-created', (_event, contents) => {
 app.on('will-quit', disposeLocalStorage);
 
 app.whenReady().then(() => {
-  const permissionTarget = rendererPermissionTarget();
+  const permissionTarget = currentRendererTarget();
   session.defaultSession.setPermissionCheckHandler((webContents, permission, _origin, details) => {
     return isTrustedRendererRequest(
       webContents,

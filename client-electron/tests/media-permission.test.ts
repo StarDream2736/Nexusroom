@@ -2,16 +2,17 @@ import { describe, expect, it } from 'vitest';
 import {
   isAudioPermissionCheck,
   isAudioPermissionRequest,
+  selectRendererPermissionTarget,
   isTrustedRendererRequest,
 } from '../src/main/media-permission';
 
 describe('renderer media permission policy', () => {
   it('requires the current main frame and the exact production file renderer', () => {
     const mainContents = {};
-    const target = {
+    const target = selectRendererPermissionTarget({
       isPackaged: true,
-      rendererUrl: 'file:///C:/NexusRoom/dist/renderer/index.html',
-    };
+      fileUrl: 'file:///C:/NexusRoom/dist/renderer/index.html',
+    });
     const details = {
       isMainFrame: true,
       requestingUrl: 'file:///C:/NexusRoom/dist/renderer/index.html',
@@ -30,9 +31,36 @@ describe('renderer media permission policy', () => {
     )).toBe(false);
   });
 
+  it('uses the file renderer when a development URL is not set', () => {
+    const target = selectRendererPermissionTarget({
+      isPackaged: false,
+      fileUrl: 'file:///C:/NexusRoom/dist/renderer/index.html',
+    });
+    const mainContents = {};
+
+    expect(target).toEqual({
+      rendererKind: 'file',
+      rendererUrl: 'file:///C:/NexusRoom/dist/renderer/index.html',
+    });
+    expect(isTrustedRendererRequest(
+      mainContents,
+      mainContents,
+      {
+        isMainFrame: true,
+        requestingUrl: target.rendererUrl,
+        securityOrigin: 'file://',
+      },
+      target,
+    )).toBe(true);
+  });
+
   it('allows only the configured development origin', () => {
     const mainContents = {};
-    const target = { isPackaged: false, rendererUrl: 'http://127.0.0.1:5173' };
+    const target = selectRendererPermissionTarget({
+      isPackaged: false,
+      developmentUrl: 'http://127.0.0.1:5173',
+      fileUrl: 'file:///C:/NexusRoom/dist/renderer/index.html',
+    });
     const details = {
       isMainFrame: true,
       requestingUrl: 'http://127.0.0.1:5173/room/1',

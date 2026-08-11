@@ -878,7 +878,6 @@ export class WebRtcVoiceClient {
       if (stream !== null) {
         if (this.localStream === stream) this.localStream = null;
         this.stopStream(stream);
-        this.localTracksAdded.clear();
       }
       if (this.isCurrent(generation, roomId)) {
         const tracks = this.localStream?.getAudioTracks() ?? [];
