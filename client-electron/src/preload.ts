@@ -7,8 +7,10 @@ import {
   type MessageCacheEntry,
   type NexusRoomApi,
   type NexusRoomStorageApi,
+  type NexusRoomWireGuardApi,
   type RuntimeInfo,
   type RuntimePlatform,
+  type WireGuardTunnelConfig,
 } from './shared/preload-api';
 
 function normalizePlatform(platform: NodeJS.Platform): RuntimePlatform {
@@ -46,6 +48,19 @@ const storage: NexusRoomStorageApi = {
   clearData: () => ipcRenderer.invoke(channels.clearData) as Promise<void>,
 };
 
-const api: NexusRoomApi = { getRuntimeInfo, storage };
+const wireguard: NexusRoomWireGuardApi = {
+  getAvailability: () =>
+    ipcRenderer.invoke(channels.wireguardAvailability),
+  generateKeyPair: () =>
+    ipcRenderer.invoke(channels.wireguardGenerateKeyPair),
+  startTunnel: (config: WireGuardTunnelConfig) =>
+    ipcRenderer.invoke(channels.wireguardStartTunnel, config),
+  stopTunnel: () =>
+    ipcRenderer.invoke(channels.wireguardStopTunnel),
+  getStatus: () =>
+    ipcRenderer.invoke(channels.wireguardStatus),
+};
+
+const api: NexusRoomApi = { getRuntimeInfo, storage, wireguard };
 
 contextBridge.exposeInMainWorld('nexusroom', api);

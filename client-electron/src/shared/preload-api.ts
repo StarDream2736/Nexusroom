@@ -16,10 +16,30 @@ export const nexusRoomIpcChannels = {
   saveMessages: 'nexusroom.storage.save-messages',
   clearMessages: 'nexusroom.storage.clear-messages',
   clearData: 'nexusroom.storage.clear-data',
+  wireguardAvailability: 'nexusroom.wireguard.availability',
+  wireguardGenerateKeyPair: 'nexusroom.wireguard.generate-key-pair',
+  wireguardStartTunnel: 'nexusroom.wireguard.start-tunnel',
+  wireguardStopTunnel: 'nexusroom.wireguard.stop-tunnel',
+  wireguardStatus: 'nexusroom.wireguard.status',
 } as const;
 
 export type NexusRoomIpcChannel =
-  (typeof nexusRoomIpcChannels)[keyof typeof nexusRoomIpcChannels];
+  | typeof nexusRoomIpcChannels.getSetting
+  | typeof nexusRoomIpcChannels.setSetting
+  | typeof nexusRoomIpcChannels.getSession
+  | typeof nexusRoomIpcChannels.saveSession
+  | typeof nexusRoomIpcChannels.removeSession
+  | typeof nexusRoomIpcChannels.getMessages
+  | typeof nexusRoomIpcChannels.saveMessages
+  | typeof nexusRoomIpcChannels.clearMessages
+  | typeof nexusRoomIpcChannels.clearData;
+
+export type NexusRoomWireGuardIpcChannel =
+  | typeof nexusRoomIpcChannels.wireguardAvailability
+  | typeof nexusRoomIpcChannels.wireguardGenerateKeyPair
+  | typeof nexusRoomIpcChannels.wireguardStartTunnel
+  | typeof nexusRoomIpcChannels.wireguardStopTunnel
+  | typeof nexusRoomIpcChannels.wireguardStatus;
 
 export interface AccountScope {
   readonly serverUrl: string;
@@ -47,6 +67,45 @@ export interface MessageCacheEntry {
 
 export type CachedMessage = MessageCacheEntry;
 
+export interface WireGuardPeerConfig {
+  readonly public_key: string;
+  readonly endpoint?: string;
+  readonly allowed_ips: string;
+  readonly persistent_keepalive?: number;
+}
+
+export interface WireGuardTunnelConfig {
+  readonly interface_name?: string;
+  readonly private_key: string;
+  readonly address: string;
+  readonly dns?: string;
+  readonly listen_port?: number;
+  readonly peers: readonly WireGuardPeerConfig[];
+}
+
+export interface WireGuardKeyPair {
+  readonly public_key: string;
+  readonly private_key: string;
+}
+
+export interface WireGuardAvailability {
+  readonly available: boolean;
+  readonly reason?: 'missing' | 'unsupported';
+}
+
+export type WireGuardTunnelState =
+  | 'unavailable'
+  | 'idle'
+  | 'starting'
+  | 'running'
+  | 'stopping';
+
+export interface WireGuardStatus {
+  readonly available: boolean;
+  readonly state: WireGuardTunnelState;
+  readonly address?: string;
+}
+
 export interface NexusRoomStorageApi {
   readonly getSetting: (key: string) => Promise<string | null>;
   readonly setSetting: (key: string, value: string) => Promise<void>;
@@ -68,7 +127,16 @@ export interface NexusRoomStorageApi {
   readonly clearData: () => Promise<void>;
 }
 
+export interface NexusRoomWireGuardApi {
+  readonly getAvailability: () => Promise<WireGuardAvailability>;
+  readonly generateKeyPair: () => Promise<WireGuardKeyPair>;
+  readonly startTunnel: (config: WireGuardTunnelConfig) => Promise<WireGuardStatus>;
+  readonly stopTunnel: () => Promise<WireGuardStatus>;
+  readonly getStatus: () => Promise<WireGuardStatus>;
+}
+
 export interface NexusRoomApi {
   readonly getRuntimeInfo: () => RuntimeInfo;
   readonly storage: NexusRoomStorageApi;
+  readonly wireguard: NexusRoomWireGuardApi;
 }
