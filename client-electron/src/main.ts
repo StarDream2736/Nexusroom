@@ -1,8 +1,29 @@
-import { app, BrowserWindow, session } from 'electron';
+import { app, BrowserWindow, ipcMain, session } from 'electron';
 import path from 'node:path';
+import { ClientDatabase } from './main/client-database';
+import { resolveClientDatabasePath } from './main/database-path';
+import { registerStorageIpc } from './main/storage-ipc';
 import { createWindowOptions } from './window-options';
 
 let mainWindow: BrowserWindow | null = null;
+let clientDatabase: ClientDatabase | null = null;
+let disposeStorageIpc: (() => void) | null = null;
+
+function disposeLocalStorage(): void {
+  disposeStorageIpc?.();
+  disposeStorageIpc = null;
+
+  const database = clientDatabase;
+  clientDatabase = null;
+  if (database === null) {
+    return;
+  }
+  try {
+    database.close();
+  } catch {
+    console.error('Unable to close NexusRoom local database.');
+  }
+}
 
 function loadRenderer(window: BrowserWindow): void {
   const rendererUrl = process.env.NEXUSROOM_RENDERER_URL;
@@ -47,14 +68,34 @@ app.on('web-contents-created', (_event, contents) => {
   contents.setWindowOpenHandler(() => ({ action: 'deny' }));
 });
 
+app.on('will-quit', disposeLocalStorage);
+
 app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
     callback(false);
   });
+  const database = new ClientDatabase(
+    resolveClientDatabasePath({
+      isPackaged: app.isPackaged,
+      executablePath: app.getPath('exe'),
+      developmentRoot: path.resolve(__dirname, '..'),
+    }),
+  );
+  clientDatabase = database;
+  disposeStorageIpc = registerStorageIpc(ipcMain, {
+    database,
+    getMainWindowId: () => {
+      if (mainWindow === null || mainWindow.isDestroyed()) {
+        return null;
+      }
+      return mainWindow.webContents.id;
+    },
+  });
   createMainWindow();
   app.on('activate', focusMainWindow);
-}).catch((error: unknown) => {
-  console.error('Unable to start NexusRoom.', error);
+}).catch(() => {
+  disposeLocalStorage();
+  console.error('Unable to start NexusRoom.');
   app.exit(1);
 });
 

@@ -1,8 +1,14 @@
-import { contextBridge } from 'electron';
-import type {
-  NexusRoomApi,
-  RuntimeInfo,
-  RuntimePlatform,
+import { contextBridge, ipcRenderer } from 'electron';
+import {
+  nexusRoomIpcChannels as channels,
+  type AccountScope,
+  type AccountSession,
+  type CachedMessage,
+  type MessageCacheEntry,
+  type NexusRoomApi,
+  type NexusRoomStorageApi,
+  type RuntimeInfo,
+  type RuntimePlatform,
 } from './shared/preload-api';
 
 function normalizePlatform(platform: NodeJS.Platform): RuntimePlatform {
@@ -18,6 +24,28 @@ const getRuntimeInfo = (): RuntimeInfo => ({
   chrome: process.versions.chrome ?? 'unknown',
 });
 
-const api: NexusRoomApi = { getRuntimeInfo };
+const storage: NexusRoomStorageApi = {
+  getSetting: (key) =>
+    ipcRenderer.invoke(channels.getSetting, key) as Promise<string | null>,
+  setSetting: (key, value) =>
+    ipcRenderer.invoke(channels.setSetting, key, value) as Promise<void>,
+  getSession: (scope: AccountScope) =>
+    ipcRenderer.invoke(channels.getSession, scope) as Promise<AccountSession | null>,
+  saveSession: (scope: AccountScope, accessToken: string) =>
+    ipcRenderer.invoke(channels.saveSession, scope, accessToken) as Promise<void>,
+  removeSession: (scope: AccountScope) =>
+    ipcRenderer.invoke(channels.removeSession, scope) as Promise<void>,
+  getMessages: (scope: AccountScope, roomId?: number) =>
+    ipcRenderer.invoke(channels.getMessages, scope, roomId) as Promise<
+      readonly CachedMessage[]
+    >,
+  saveMessages: (scope: AccountScope, messages: readonly MessageCacheEntry[]) =>
+    ipcRenderer.invoke(channels.saveMessages, scope, messages) as Promise<void>,
+  clearMessages: (scope: AccountScope, roomId?: number) =>
+    ipcRenderer.invoke(channels.clearMessages, scope, roomId) as Promise<void>,
+  clearData: () => ipcRenderer.invoke(channels.clearData) as Promise<void>,
+};
+
+const api: NexusRoomApi = { getRuntimeInfo, storage };
 
 contextBridge.exposeInMainWorld('nexusroom', api);
