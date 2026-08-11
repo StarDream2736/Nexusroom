@@ -54,4 +54,14 @@ describe('renderer shell', () => {
     expect(appSource).toContain('退出房间');
     expect(appSource).toContain('disabled={leavingRoom}');
   });
+
+  it('exposes immediate microphone state and voice-scoped member presence', () => {
+    expect(appSource).toContain('data-microphone-state={voiceSnapshot.microphone}');
+    expect(appSource).toContain('aria-busy={voiceSnapshot.microphone === \'enabling\' || voiceSnapshot.microphone === \'disabling\'}');
+    expect(appSource).toContain('data-presence={isVoiceOnline ? (isSpeaking ? \'speaking\' : \'online\') : \'offline\'}');
+    expect(appSource).toContain('voiceSnapshot.participants');
+    expect(stylesSource).toContain('.member-presence--speaking');
+    expect(stylesSource).toContain('@keyframes voice-presence-breathe');
+    expect(stylesSource).toContain('prefers-reduced-motion');
+  });
 });

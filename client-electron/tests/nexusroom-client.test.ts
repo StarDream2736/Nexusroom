@@ -8,7 +8,11 @@ import type {
   RestTransport,
   RoomSocket,
 } from '../src/renderer/nexusroom-client';
-import { NexusRoomClient, NexusRoomClientError } from '../src/renderer/nexusroom-client';
+import {
+  NexusRoomClient,
+  NexusRoomClientError,
+  parseRtcIceServers,
+} from '../src/renderer/nexusroom-client';
 import type {
   WsConnectionState,
   WsMessage,
@@ -160,6 +164,39 @@ function message(id: number, roomId = 1, senderId = 2): Record<string, unknown> 
 }
 
 describe('NexusRoomClient', () => {
+  it('exposes connected RTC ICE configuration and RTC signal transport', () => {
+    expect(parseRtcIceServers({
+      rtc: {
+        ice_servers: [
+          { urls: 'stun:one.test:3478' },
+          { urls: ['turn:two.test:3478'], username: 'user', credential: 'secret' },
+        ],
+      },
+    })).toEqual([
+      { urls: 'stun:one.test:3478' },
+      { urls: ['turn:two.test:3478'], username: 'user', credential: 'secret' },
+    ]);
+
+    const storage = createStorage();
+    const socket = new FakeSocket();
+    const client = new NexusRoomClient({
+      serverUrl: 'https://chat.test',
+      storage,
+      restClient: new FakeRest(),
+      wsClient: socket,
+    });
+    socket.emit('connected', {
+      rtc: { ice_servers: [{ urls: 'stun:connected.test:3478' }] },
+    });
+    expect(client.rtcIceServers).toEqual([{ urls: 'stun:connected.test:3478' }]);
+    client.sendRtc('rtc.speaking', 3, { speaking: false });
+    expect(socket.sent.at(-1)).toMatchObject({
+      event: 'rtc.speaking',
+      roomId: 3,
+      payload: { speaking: false },
+    });
+  });
+
   it('stores login sessions by normalized server origin and account id', async () => {
     const storage = createStorage();
     const rest = new FakeRest();

@@ -111,6 +111,7 @@ a:focus-visible {
 .sidebar__section-heading,
 .section-heading,
 .room-info__footer,
+.workspace__header-actions,
 .composer__actions,
 .message-row__meta {
   display: flex;
@@ -460,6 +461,65 @@ textarea:focus {
   padding-bottom: 20px;
 }
 
+.workspace__header-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.voice-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.voice-status__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-subtle);
+}
+
+.voice-status--connected .voice-status__dot {
+  background: #4fce80;
+}
+
+.voice-status--connecting .voice-status__dot,
+.voice-status--reconnecting .voice-status__dot {
+  background: #a2a2a8;
+}
+
+.voice-status--error .voice-status__dot {
+  background: #d0d0d3;
+}
+
+.voice-button {
+  min-height: 28px;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  background: var(--surface-1);
+  font-size: 10px;
+  font-weight: 650;
+  transition: border-color 150ms ease, color 150ms ease, background-color 150ms ease, opacity 150ms ease;
+}
+
+.voice-button:hover:not(:disabled),
+.voice-button:focus-visible {
+  border-color: var(--border-strong);
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.voice-button[data-microphone-state="enabled"] {
+  border-color: #4fce80;
+  color: var(--text);
+}
+
 .status-chip,
 .security-badge {
   padding: 5px 8px;
@@ -719,6 +779,34 @@ textarea:focus {
   background: var(--text-subtle);
 }
 
+.member-presence--online {
+  background: #4fce80;
+}
+
+.member-presence--speaking {
+  animation: voice-presence-breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes voice-presence-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(79 206 128 / 0%);
+  }
+
+  50% {
+    box-shadow: 0 0 0 5px rgb(79 206 128 / 28%);
+  }
+}
+
+.nexusroom-remote-audio {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 .member-name {
   min-width: 0;
   overflow: hidden;
@@ -832,5 +920,9 @@ textarea:focus {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+  }
+
+  .member-presence--speaking {
+    box-shadow: 0 0 0 3px rgb(79 206 128 / 28%);
   }
 }

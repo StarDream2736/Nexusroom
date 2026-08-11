@@ -33,6 +33,30 @@ export interface RoomSocket {
   onStateChange(listener: (state: WsConnectionState) => void): () => void;
 }
 
+export interface RtcIceServer {
+  readonly urls: string | readonly string[];
+  readonly username?: string;
+  readonly credential?: string;
+}
+
+export type VoiceEventName =
+  | 'connected'
+  | 'rtc.answer'
+  | 'rtc.offer'
+  | 'rtc.ice'
+  | 'rtc.participants'
+  | 'rtc.state'
+  | 'rtc.error'
+  | 'voice.state_update';
+
+export type VoiceClientEvent =
+  | 'rtc.offer'
+  | 'rtc.answer'
+  | 'rtc.ice'
+  | 'rtc.leave'
+  | 'rtc.speaking'
+  | 'voice.mute';
+
 export interface NexusRoomClientOptions {
   readonly serverUrl: string;
   readonly storage: NexusRoomStorage;
@@ -140,6 +164,39 @@ export class NexusRoomClientError extends Error {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+export function parseRtcIceServers(value: unknown): readonly RtcIceServer[] {
+  const root = isRecord(value) && isRecord(value.rtc) ? value.rtc : value;
+  const rawServers = isRecord(root) ? root.ice_servers : undefined;
+  if (!Array.isArray(rawServers)) return [];
+  const servers: RtcIceServer[] = [];
+  for (const rawServer of rawServers) {
+    if (!isRecord(rawServer)) continue;
+    const rawUrls = rawServer.urls;
+    const urls = typeof rawUrls === 'string'
+      ? rawUrls.trim()
+      : Array.isArray(rawUrls)
+        ? rawUrls
+          .filter((url): url is string => typeof url === 'string' && url.trim().length > 0)
+          .map((url) => url.trim())
+        : [];
+    if ((typeof urls === 'string' && urls.length === 0) || (Array.isArray(urls) && urls.length === 0)) {
+      continue;
+    }
+    const username = typeof rawServer.username === 'string' && rawServer.username.length > 0
+      ? rawServer.username
+      : undefined;
+    const credential = typeof rawServer.credential === 'string' && rawServer.credential.length > 0
+      ? rawServer.credential
+      : undefined;
+    servers.push({
+      urls,
+      ...(username === undefined ? {} : { username }),
+      ...(credential === undefined ? {} : { credential }),
+    });
+  }
+  return servers;
 }
 
 function readRecord(value: unknown, label: string): Record<string, unknown> {
@@ -359,6 +416,7 @@ export class NexusRoomClient {
 
   private sessionValue: AuthSession | null = null;
   private activeRoomId: number | null = null;
+  private rtcIceServersValue: readonly RtcIceServer[] = [];
   private messageSequence = 0;
   private readonly fetchImpl: (
     input: RequestInfo | URL,
@@ -372,6 +430,9 @@ export class NexusRoomClient {
     this.socket = options.wsClient ?? new WsClient();
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
     this.rest.setServerUrl(this.serverUrl);
+    this.socket.on('connected', (message) => {
+      this.rtcIceServersValue = parseRtcIceServers(message.payload);
+    });
     this.socket.onStateChange((state) => {
       if (state === 'connected' && this.activeRoomId !== null) {
         this.socket.send('room.join', {}, this.activeRoomId);
@@ -385,6 +446,26 @@ export class NexusRoomClient {
 
   get currentRoomId(): number | null {
     return this.activeRoomId;
+  }
+
+  get connectionState(): WsConnectionState {
+    return this.socket.state;
+  }
+
+  get rtcIceServers(): readonly RtcIceServer[] {
+    return this.rtcIceServersValue;
+  }
+
+  onConnectionStateChange(listener: (state: WsConnectionState) => void): () => void {
+    return this.socket.onStateChange(listener);
+  }
+
+  onRtcEvent(eventName: VoiceEventName, listener: WsMessageListener): () => void {
+    return this.socket.on(eventName, listener);
+  }
+
+  sendRtc(eventName: VoiceClientEvent, roomId: number, payload?: unknown): void {
+    this.socket.send(eventName, payload, readId(roomId, 'room id'));
   }
 
   async login(username: string, password: string): Promise<AuthSession> {
@@ -433,6 +514,7 @@ export class NexusRoomClient {
   disconnect(): void {
     this.socket.disconnect();
     this.activeRoomId = null;
+    this.rtcIceServersValue = [];
   }
 
   async listRooms(): Promise<readonly RoomSummary[]> {

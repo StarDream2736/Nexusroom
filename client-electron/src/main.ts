@@ -71,8 +71,18 @@ app.on('web-contents-created', (_event, contents) => {
 app.on('will-quit', disposeLocalStorage);
 
 app.whenReady().then(() => {
-  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
-    callback(false);
+  session.defaultSession.setPermissionCheckHandler((_webContents, permission, _origin, details) => {
+    return permission === 'media' && (details.mediaType === 'audio' || details.mediaType === 'unknown');
+  });
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
+    const mediaTypes = permission === 'media' && 'mediaTypes' in details
+      ? details.mediaTypes
+      : undefined;
+    callback(
+      permission === 'media' &&
+      mediaTypes?.includes('audio') === true &&
+      mediaTypes.includes('video') === false,
+    );
   });
   const database = new ClientDatabase(
     resolveClientDatabasePath({

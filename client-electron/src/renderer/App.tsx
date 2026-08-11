@@ -22,6 +22,13 @@ import {
   type RoomDetail,
   type RoomSummary,
 } from './nexusroom-client';
+import {
+  WebRtcVoiceClient,
+  type VoiceConnectionState,
+  type VoiceMicrophoneState,
+  type VoiceParticipant,
+  type VoiceSnapshot,
+} from './voice-client';
 
 type Theme = 'dark' | 'light';
 
@@ -108,6 +115,27 @@ function connectionLabel(state: WsConnectionState): string {
   return '未连接';
 }
 
+function voiceConnectionLabel(state: VoiceConnectionState): string {
+  if (state === 'connected') return '语音已连接';
+  if (state === 'connecting') return '语音连接中';
+  if (state === 'reconnecting') return '语音重连中';
+  if (state === 'error') return '语音异常';
+  return '语音未加入';
+}
+
+function microphoneLabel(state: VoiceMicrophoneState): string {
+  if (state === 'enabling') return '开麦中…';
+  if (state === 'disabling') return '静音中…';
+  return state === 'enabled' ? '静音' : '开麦';
+}
+
+function findVoiceParticipant(
+  participants: readonly VoiceParticipant[],
+  userId: number,
+): VoiceParticipant | undefined {
+  return participants.find((participant) => participant.userId === userId);
+}
+
 export function App(): ReactElement {
   const storage = useMemo(getRendererStorage, []);
   const [theme, setTheme] = useState<Theme>('dark');
@@ -115,6 +143,11 @@ export function App(): ReactElement {
   const [serverUrl, setServerUrl] = useState(DEFAULT_SERVER_URL);
   const [serverUrlDraft, setServerUrlDraft] = useState(DEFAULT_SERVER_URL);
   const [client, setClient] = useState(() => createClient(DEFAULT_SERVER_URL, storage));
+  const voice = useMemo(
+    () => new WebRtcVoiceClient({ signaling: client }),
+    [client],
+  );
+  const [voiceSnapshot, setVoiceSnapshot] = useState<VoiceSnapshot>(() => voice.snapshot);
   const [session, setSession] = useState<AuthSession | null>(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -206,6 +239,20 @@ export function App(): ReactElement {
     };
   }, [client]);
 
+  useEffect(() => {
+    setVoiceSnapshot(voice.snapshot);
+    return voice.onChange((snapshot) => {
+      setVoiceSnapshot(snapshot);
+      if (snapshot.error !== null) setError(snapshot.error);
+    });
+  }, [voice]);
+
+  useEffect(() => {
+    return () => {
+      void voice.dispose();
+    };
+  }, [voice]);
+
   const loadRooms = useCallback(async (targetClient: NexusRoomClient = client): Promise<readonly RoomSummary[]> => {
     const loadedRooms = await targetClient.listRooms();
     setRooms(loadedRooms);
@@ -284,6 +331,7 @@ export function App(): ReactElement {
 
   useEffect(() => {
     if (session === null || selectedRoomId === null) {
+      void voice.setRoom(null).catch(() => undefined);
       setRoomDetail(null);
       setMessages([]);
       return undefined;
@@ -292,6 +340,9 @@ export function App(): ReactElement {
     const roomId = selectedRoomId;
     setError(null);
     setMessages([]);
+    void voice.setRoom(roomId).catch((roomError: unknown) => {
+      if (active) setError(errorMessage(roomError));
+    });
     client.switchRoom(roomId);
     void Promise.all([
       client.getRoomDetail(roomId),
@@ -308,7 +359,7 @@ export function App(): ReactElement {
     return () => {
       active = false;
     };
-  }, [client, selectedRoomId, session, storage]);
+  }, [client, selectedRoomId, session, storage, voice]);
 
   useEffect(() => {
     let active = true;
@@ -437,6 +488,7 @@ export function App(): ReactElement {
     setLeavingRoom(true);
     setError(null);
     try {
+      await voice.setRoom(null);
       await client.leaveRoom(roomId);
       setSelectedRoomId(null);
       setRoomDetail(null);
@@ -453,6 +505,7 @@ export function App(): ReactElement {
     if (busy) return;
     setBusy(true);
     try {
+      await voice.setRoom(null);
       if (session !== null) await storage.removeSession(session.scope);
       client.disconnect();
       setSession(null);
@@ -476,6 +529,7 @@ export function App(): ReactElement {
     if (!confirmed) return;
     setBusy(true);
     try {
+      await voice.setRoom(null);
       await storage.clearData();
       client.disconnect();
       setSession(null);
@@ -489,6 +543,13 @@ export function App(): ReactElement {
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleVoiceToggle = (): void => {
+    if (selectedRoomId === null || voiceSnapshot.microphone === 'enabling' || voiceSnapshot.microphone === 'disabling') {
+      return;
+    }
+    void voice.setMicrophoneEnabled(voiceSnapshot.microphone !== 'enabled').catch(() => undefined);
   };
 
   const selectedRoom = rooms.find((room) => room.id === selectedRoomId);
@@ -641,7 +702,30 @@ export function App(): ReactElement {
                   <p className="eyebrow">房间消息</p>
                   <h2>{selectedRoom?.name ?? '选择一个房间'}</h2>
                 </div>
-                <span className="status-chip">{connectionLabel(connectionState)}</span>
+                <div className="workspace__header-actions">
+                  <span
+                    className={`voice-status voice-status--${voiceSnapshot.connection}`}
+                    data-voice-state={voiceSnapshot.connection}
+                    aria-live="polite"
+                  >
+                    <span className="voice-status__dot" aria-hidden="true" />
+                    {voiceConnectionLabel(voiceSnapshot.connection)}
+                  </span>
+                  {selectedRoomId !== null ? (
+                    <button
+                      className="voice-button"
+                      type="button"
+                      data-microphone-state={voiceSnapshot.microphone}
+                      aria-pressed={voiceSnapshot.microphone === 'enabled'}
+                      aria-busy={voiceSnapshot.microphone === 'enabling' || voiceSnapshot.microphone === 'disabling'}
+                      onClick={handleVoiceToggle}
+                      disabled={voiceSnapshot.microphone === 'enabling' || voiceSnapshot.microphone === 'disabling'}
+                    >
+                      {microphoneLabel(voiceSnapshot.microphone)}
+                    </button>
+                  ) : null}
+                  <span className="status-chip">{connectionLabel(connectionState)}</span>
+                </div>
               </div>
               <section className="message-panel" aria-label="聊天消息">
                 {selectedRoomId === null ? (
@@ -726,12 +810,24 @@ export function App(): ReactElement {
             <div className="member-list" aria-label="房间成员">
               <div className="section-heading"><span>成员</span><span>{roomDetail.members.length}</span></div>
               {roomDetail.members.map((member) => (
-                <div className="member-row" key={member.userId}>
-                  <span className="member-presence" aria-hidden="true" />
+                (() => {
+                  const participant = findVoiceParticipant(voiceSnapshot.participants, member.userId);
+                  const isVoiceOnline = participant !== undefined;
+                  const isSpeaking = isVoiceOnline && participant.speaking && !participant.muted;
+                  return (
+                    <div className="member-row" key={member.userId}>
+                  <span
+                    className={`member-presence${isVoiceOnline ? ' member-presence--online' : ''}${isSpeaking ? ' member-presence--speaking' : ''}`}
+                    data-presence={isVoiceOnline ? (isSpeaking ? 'speaking' : 'online') : 'offline'}
+                    role="img"
+                    aria-label={isVoiceOnline ? (isSpeaking ? '正在说话' : '语音在线') : '未加入语音'}
+                  />
                   <span className="avatar avatar--small" aria-hidden="true">{member.nickname.slice(0, 1).toUpperCase()}</span>
                   <span className="member-name">{member.nickname}</span>
                   {member.role ? <span className="member-role">{member.role}</span> : null}
                 </div>
+                  );
+                })()
               ))}
             </div>
           )}
