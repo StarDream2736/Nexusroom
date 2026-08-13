@@ -4,9 +4,9 @@ NexusRoom 3.0.0 桌面端使用 Electron、React、TypeScript、Vite 和 Chromiu
 
 ## 当前职责
 
-桌面端连接服务端 Origin，使用账号密码登录并恢复会话。登录后提供房间列表、创建、邀请码加入、退出和切换；房间内提供历史与实时文字消息，以及图片上传和鉴权 Blob 显示。WebSocket 负责房间事件和语音信令，WebRTC 负责语音；直播播放器优先 WebRTC，失败后在当前页面会话锁定 HTTP-FLV，刷新播放才会重新协商 WebRTC。WireGuard VLAN 通过随客户端分发的 Helper 和 Wintun 工作。
+桌面端未登录时显示紧凑认证窗口，填写服务端 Origin 后可登录或注册并恢复会话；认证成功后同一窗口展开完整 UI。登录后提供房间列表、创建、邀请码加入、退出和切换；房间内提供历史与实时文字消息，以及图片上传和鉴权 Blob 显示。WebSocket 负责房间事件和语音信令，WebRTC 负责语音；直播播放器优先 WebRTC，失败后在当前页面会话锁定 HTTP-FLV，刷新播放才会重新协商 WebRTC。WireGuard VLAN 通过随客户端分发的 Helper 和 Wintun 工作。
 
-服务端仍拥有注册、好友、文件 API 和其他协议能力，但当前 Electron UI 不提供注册、好友管理、任意文件消息、屏幕采集、音频设备选择或客户端 FFmpeg 推流界面。
+服务端仍拥有好友、文件 API 和其他协议能力；当前 Electron UI 提供基础注册入口，但不提供 `admin_token` 输入、好友管理、任意文件消息、屏幕采集、音频设备选择或客户端 FFmpeg 推流界面。
 
 ## 目录
 

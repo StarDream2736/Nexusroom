@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, session } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, session } from 'electron';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ClientDatabase } from './main/client-database';
@@ -11,17 +11,20 @@ import {
   type RendererPermissionTarget,
 } from './main/media-permission';
 import { registerStorageIpc } from './main/storage-ipc';
+import { registerWindowStateIpc } from './main/window-state-ipc';
+import { applyWindowState, getWindowState } from './main/window-state';
 import {
   createWireGuardController,
   resolveWireGuardHelperPath,
   type WireGuardControllerApi,
 } from './main/wireguard-controller';
 import { registerWireGuardIpc } from './main/wireguard-ipc';
-import { createWindowOptions } from './window-options';
+import { configureApplicationMenu, createWindowOptions } from './window-options';
 
 let mainWindow: BrowserWindow | null = null;
 let clientDatabase: ClientDatabase | null = null;
 let disposeStorageIpc: (() => void) | null = null;
+let disposeWindowStateIpc: (() => void) | null = null;
 let disposeWireGuardIpc: (() => void) | null = null;
 let wireguardController: WireGuardControllerApi | null = null;
 let rendererTarget: RendererPermissionTarget | null = null;
@@ -117,6 +120,8 @@ export function createShutdownCoordinator(
 function disposeLocalStorage(): void {
   disposeStorageIpc?.();
   disposeStorageIpc = null;
+  disposeWindowStateIpc?.();
+  disposeWindowStateIpc = null;
 
   const database = clientDatabase;
   clientDatabase = null;
@@ -177,9 +182,14 @@ function currentMainWindowWebContents(): object | null {
 }
 
 function createMainWindow(): BrowserWindow {
+  const initialWindowState = getWindowState('unauthenticated');
   const window = new BrowserWindow(
-    createWindowOptions(path.join(__dirname, 'preload.js')),
+    {
+      ...createWindowOptions(path.join(__dirname, 'preload.js')),
+      ...initialWindowState,
+    },
   );
+  applyWindowState(window, 'unauthenticated');
 
   window.once('ready-to-show', () => {
     if (!isShuttingDown && !window.isDestroyed()) window.show();
@@ -235,6 +245,7 @@ app.on('before-quit', (event) => {
 });
 
 app.whenReady().then(() => {
+  configureApplicationMenu(process.platform, Menu);
   const permissionTarget = currentRendererTarget();
   session.defaultSession.setPermissionCheckHandler((webContents, permission, _origin, details) => {
     return isTrustedRendererRequest(
@@ -282,6 +293,18 @@ app.whenReady().then(() => {
         return null;
       }
       return mainWindow.webContents.id;
+    },
+  });
+  disposeWindowStateIpc = registerWindowStateIpc(ipcMain, {
+    getMainWindowId: () => {
+      if (isShuttingDown || mainWindow === null || mainWindow.isDestroyed()) {
+        return null;
+      }
+      return mainWindow.webContents.id;
+    },
+    apply: (mode) => {
+      if (isShuttingDown || mainWindow === null || mainWindow.isDestroyed()) return;
+      applyWindowState(mainWindow, mode);
     },
   });
   disposeWireGuardIpc = registerWireGuardIpc(ipcMain, {

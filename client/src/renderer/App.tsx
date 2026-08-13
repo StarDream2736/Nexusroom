@@ -37,6 +37,17 @@ import {
 } from './voice-client';
 
 type Theme = 'dark' | 'light';
+type AuthMode = 'login' | 'register';
+
+export type AppShell = 'loading' | 'auth' | 'authenticated';
+
+export function selectAppShell(
+  themeReady: boolean,
+  session: AuthSession | null,
+): AppShell {
+  if (!themeReady) return 'loading';
+  return session === null ? 'auth' : 'authenticated';
+}
 
 const DEFAULT_SERVER_URL = 'http://127.0.0.1:8080';
 
@@ -57,6 +68,47 @@ function getRendererStorage(): NexusRoomStorageApi {
     return window.nexusroom.storage;
   }
   return emptyStorage;
+}
+
+function getRendererWindowState() {
+  if (typeof window !== 'undefined' && window.nexusroom?.windowState) {
+    return window.nexusroom.windowState;
+  }
+  return null;
+}
+
+export const WINDOW_STATE_ERROR_MESSAGE = '窗口布局调整失败，请重新登录或重启应用';
+
+export type WindowStateSyncResult = 'applied' | 'cancelled' | 'failed';
+
+export interface WindowStateSyncOptions {
+  readonly delayMs?: number;
+  readonly isActive?: () => boolean;
+  readonly sleep?: (delayMs: number) => Promise<void>;
+}
+
+export async function syncWindowAuthenticationState(
+  windowState: { readonly setAuthenticated: (authenticated: boolean) => Promise<void> },
+  authenticated: boolean,
+  options: WindowStateSyncOptions = {},
+): Promise<WindowStateSyncResult> {
+  const isActive = options.isActive ?? (() => true);
+  const sleep = options.sleep ?? ((delayMs: number) => new Promise<void>((resolve) => {
+    setTimeout(resolve, delayMs);
+  }));
+  const delayMs = options.delayMs ?? 100;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (!isActive()) return 'cancelled';
+    try {
+      await windowState.setAuthenticated(authenticated);
+      return 'applied';
+    } catch {
+      if (attempt === 1) return isActive() ? 'failed' : 'cancelled';
+      await sleep(delayMs);
+    }
+  }
+  return 'failed';
 }
 
 function createClient(serverUrl: string, storage: NexusRoomStorageApi): NexusRoomClient {
@@ -157,6 +209,155 @@ function findVoiceParticipant(
   userId: number,
 ): VoiceParticipant | undefined {
   return participants.find((participant) => participant.userId === userId);
+}
+
+interface AuthShellProps {
+  readonly theme: Theme;
+  readonly authMode: AuthMode;
+  readonly serverUrl: string;
+  readonly username: string;
+  readonly password: string;
+  readonly nickname: string;
+  readonly busy: boolean;
+  readonly restoring: boolean;
+  readonly error: string | null;
+  readonly onThemeToggle: () => void;
+  readonly onModeChange: (mode: AuthMode) => void;
+  readonly onServerUrlChange: (value: string) => void;
+  readonly onUsernameChange: (value: string) => void;
+  readonly onPasswordChange: (value: string) => void;
+  readonly onNicknameChange: (value: string) => void;
+  readonly onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}
+
+function AuthShell({
+  theme,
+  authMode,
+  serverUrl,
+  username,
+  password,
+  nickname,
+  busy,
+  restoring,
+  error,
+  onThemeToggle,
+  onModeChange,
+  onServerUrlChange,
+  onUsernameChange,
+  onPasswordChange,
+  onNicknameChange,
+  onSubmit,
+}: AuthShellProps): ReactElement {
+  const isRegister = authMode === 'register';
+  return (
+    <div className="app-shell auth-shell" data-theme={theme} data-authenticated="false">
+      <div className="auth-shell__topbar">
+        <div className="auth-shell__brand">
+          <span className="brand-mark" aria-hidden="true">NR</span>
+          <div>
+            <p className="eyebrow">NexusRoom</p>
+            <p className="auth-shell__title">私密通信</p>
+          </div>
+        </div>
+        <button
+          className="theme-toggle"
+          type="button"
+          aria-label={theme === 'dark' ? '切换到浅色主题' : '切换到深色主题'}
+          onClick={onThemeToggle}
+          disabled={busy}
+        >
+          {theme === 'dark' ? '浅色' : '深色'}
+        </button>
+      </div>
+      <main className="auth-shell__content" aria-label="认证">
+        <section className="auth-panel" aria-labelledby="auth-title">
+          <div className="auth-panel__intro">
+            <p className="eyebrow">{isRegister ? '创建账号' : '欢迎回来'}</p>
+            <h1 id="auth-title">{isRegister ? '注册 NexusRoom' : '登录 NexusRoom'}</h1>
+            <p className="muted-copy">
+              {isRegister
+                ? '在你的 NexusRoom 服务上创建账号。'
+                : '连接到你的 NexusRoom 服务以继续。'}
+            </p>
+          </div>
+          <div className="auth-mode" role="group" aria-label="认证方式">
+            <button
+              type="button"
+              className={authMode === 'login' ? 'auth-mode__button auth-mode__button--active' : 'auth-mode__button'}
+              aria-pressed={authMode === 'login'}
+              onClick={() => onModeChange('login')}
+              disabled={busy}
+            >
+              登录
+            </button>
+            <button
+              type="button"
+              className={authMode === 'register' ? 'auth-mode__button auth-mode__button--active' : 'auth-mode__button'}
+              aria-pressed={authMode === 'register'}
+              onClick={() => onModeChange('register')}
+              disabled={busy}
+            >
+              注册
+            </button>
+          </div>
+          {error !== null ? <p className="error-banner" role="alert">{error}</p> : null}
+          <form className="auth-form" onSubmit={onSubmit}>
+            <label htmlFor="auth-server-url">服务器地址</label>
+            <input
+              id="auth-server-url"
+              type="url"
+              value={serverUrl}
+              onChange={(event) => onServerUrlChange(event.target.value)}
+              placeholder={DEFAULT_SERVER_URL}
+              autoComplete="url"
+              autoFocus
+              required
+              disabled={busy}
+            />
+            <label htmlFor="auth-username">账号</label>
+            <input
+              id="auth-username"
+              value={username}
+              onChange={(event) => onUsernameChange(event.target.value)}
+              autoComplete="username"
+              required
+              disabled={busy}
+            />
+            {isRegister ? (
+              <>
+                <label htmlFor="auth-nickname">昵称</label>
+                <input
+                  id="auth-nickname"
+                  value={nickname}
+                  onChange={(event) => onNicknameChange(event.target.value)}
+                  autoComplete="nickname"
+                  required
+                  disabled={busy}
+                />
+              </>
+            ) : null}
+            <label htmlFor="auth-password">密码</label>
+            <input
+              id="auth-password"
+              type="password"
+              value={password}
+              onChange={(event) => onPasswordChange(event.target.value)}
+              autoComplete={isRegister ? 'new-password' : 'current-password'}
+              required
+              disabled={busy}
+            />
+            <button className="primary-button" type="submit" disabled={busy} aria-busy={busy}>
+              {restoring
+                ? '恢复会话中…'
+                : busy
+                  ? (isRegister ? '创建中…' : '登录中…')
+                  : (isRegister ? '创建账号' : '登录')}
+            </button>
+          </form>
+        </section>
+      </main>
+    </div>
+  );
 }
 
 const emptyLiveSnapshot: LivePlayerSnapshot = {
@@ -297,9 +498,11 @@ export function App(): ReactElement {
   );
   const [voiceSnapshot, setVoiceSnapshot] = useState<VoiceSnapshot>(() => voice.snapshot);
   const [session, setSession] = useState<AuthSession | null>(null);
+  const [authMode, setAuthMode] = useState<AuthMode>('login');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [loginBusy, setLoginBusy] = useState(false);
+  const [nickname, setNickname] = useState('');
+  const [authBusy, setAuthBusy] = useState(false);
   const [rooms, setRooms] = useState<readonly RoomSummary[]>([]);
   const [selectedRoomId, setSelectedRoomId] = useState<number | null>(null);
   const [roomDetail, setRoomDetail] = useState<RoomDetail | null>(null);
@@ -325,6 +528,14 @@ export function App(): ReactElement {
   const imageUrls = useRef(new Map<number, string>());
   const selectedRoomIdRef = useRef<number | null>(null);
   const ingressRequestGeneration = useRef(0);
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     selectedRoomIdRef.current = selectedRoomId;
@@ -385,6 +596,21 @@ export function App(): ReactElement {
   }, [storage, theme, themeReady]);
 
   useEffect(() => {
+    if (!themeReady) return undefined;
+    let active = true;
+    const windowState = getRendererWindowState();
+    if (windowState === null) return undefined;
+    void syncWindowAuthenticationState(windowState, session !== null, {
+      isActive: () => active,
+    }).then((result) => {
+      if (active && result === 'failed') setError(WINDOW_STATE_ERROR_MESSAGE);
+    });
+    return () => {
+      active = false;
+    };
+  }, [session, themeReady]);
+
+  useEffect(() => {
     setConnectionState(client.socket.state);
     return client.socket.onStateChange(setConnectionState);
   }, [client]);
@@ -442,24 +668,42 @@ export function App(): ReactElement {
     return loadedIngresses;
   }, [client]);
 
-  const handleLogin = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+  const handleAuthSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
-    if (loginBusy) return;
+    if (authBusy || !themeReady) return;
     setError(null);
     const targetUrl = serverUrlDraft.trim() || DEFAULT_SERVER_URL;
     let activeClient = client;
     try {
       activeClient = createClient(targetUrl, storage);
-    } catch (loginError) {
-      setError(errorMessage(loginError));
+    } catch (authError) {
+      setError(errorMessage(authError));
       return;
     }
-    setLoginBusy(true);
+    setAuthBusy(true);
     try {
-      const nextSession = await activeClient.login(username.trim(), password);
+      const nextSession = authMode === 'register'
+        ? await activeClient.register(username, password, nickname)
+        : await activeClient.login(username.trim(), password);
+      if (!mountedRef.current) {
+        activeClient.disconnect();
+        return;
+      }
       await storage.setSetting('server_url', activeClient.serverUrl);
+      if (!mountedRef.current) {
+        activeClient.disconnect();
+        return;
+      }
       await storage.setSetting('account_id', String(nextSession.userId));
+      if (!mountedRef.current) {
+        activeClient.disconnect();
+        return;
+      }
       await storage.setSetting('user_display_id', nextSession.userDisplayId);
+      if (!mountedRef.current) {
+        activeClient.disconnect();
+        return;
+      }
       setServerUrl(activeClient.serverUrl);
       setServerUrlDraft(activeClient.serverUrl);
       setClient(activeClient);
@@ -467,11 +711,11 @@ export function App(): ReactElement {
       setIngresses([]);
       setSelectedIngressId(null);
       setPassword('');
-    } catch (loginError) {
+    } catch (authError) {
       activeClient.disconnect();
-      setError(errorMessage(loginError));
+      if (mountedRef.current) setError(errorMessage(authError));
     } finally {
-      setLoginBusy(false);
+      if (mountedRef.current) setAuthBusy(false);
     }
   };
 
@@ -870,6 +1114,34 @@ export function App(): ReactElement {
     void voice.setMicrophoneEnabled(voiceSnapshot.microphone !== 'enabled').catch(() => undefined);
   };
 
+  const appShell = selectAppShell(themeReady, session);
+  if (appShell !== 'authenticated') {
+    return (
+      <AuthShell
+        theme={theme}
+        authMode={authMode}
+        serverUrl={serverUrlDraft}
+        username={username}
+        password={password}
+        nickname={nickname}
+        busy={authBusy || appShell === 'loading'}
+        restoring={appShell === 'loading'}
+        error={error}
+        onThemeToggle={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
+        onModeChange={(mode) => {
+          setAuthMode(mode);
+          setError(null);
+        }}
+        onServerUrlChange={setServerUrlDraft}
+        onUsernameChange={setUsername}
+        onPasswordChange={setPassword}
+        onNicknameChange={setNickname}
+        onSubmit={(event) => void handleAuthSubmit(event)}
+      />
+    );
+  }
+
+  const authenticatedSession = session as AuthSession;
   const selectedRoom = rooms.find((room) => room.id === selectedRoomId);
   const selectedIngress = ingresses.find((ingress) => ingress.id === selectedIngressId);
   const vlanTransitioningOtherRoom = vlanSnapshot.roomId !== null &&
@@ -882,10 +1154,10 @@ export function App(): ReactElement {
       : emptyVlanSnapshot;
   const vlanConnected = visibleVlanSnapshot.state === 'connected';
   const vlanBusy = visibleVlanSnapshot.state === 'connecting' || visibleVlanSnapshot.state === 'disconnecting';
-  const displayName = session?.userDisplayId ?? '未登录';
+  const displayName = authenticatedSession.userDisplayId;
 
   return (
-    <div className="app-shell" data-theme={theme} data-authenticated={session === null ? 'false' : 'true'}>
+    <div className="app-shell" data-theme={theme} data-authenticated="true">
       <header className="title-bar">
         <div className="title-bar__identity">
           <span className="brand-mark" aria-hidden="true">NR</span>
@@ -897,7 +1169,7 @@ export function App(): ReactElement {
         <div className="title-bar__actions">
           <span className="connection-status" data-connection={connectionState} aria-live="polite">
             <span className="status-dot" aria-hidden="true" />
-            {session === null ? '等待登录' : connectionLabel(connectionState)}
+            {connectionLabel(connectionState)}
           </span>
           <button
             className="theme-toggle"
@@ -912,14 +1184,7 @@ export function App(): ReactElement {
 
       <div className="app-body">
         <nav className="sidebar" aria-label="Primary navigation">
-          {session === null ? (
-            <div className="sidebar__guest">
-              <p className="eyebrow">账号</p>
-              <p className="muted-copy">登录后管理房间和消息。</p>
-            </div>
-          ) : (
-            <>
-              <div className="sidebar__account">
+          <div className="sidebar__account">
                 <span className="avatar avatar--small" aria-hidden="true">{displayName.slice(0, 1).toUpperCase()}</span>
                 <div>
                   <strong>{displayName}</strong>
@@ -978,55 +1243,11 @@ export function App(): ReactElement {
                 <button className="text-button" type="button" onClick={() => void handleLogout()} disabled={busy}>退出当前账号</button>
                 <button className="text-button text-button--danger" type="button" onClick={() => void handleClearData()} disabled={busy}>清除本地数据</button>
               </div>
-            </>
-          )}
         </nav>
 
         <main className="workspace" aria-label="Workspace">
           {error !== null ? <p className="error-banner" role="alert">{error}</p> : null}
-          {session === null ? (
-            <section className="login-panel" aria-labelledby="login-title">
-              <div className="login-panel__intro">
-                <p className="eyebrow">连接到你的服务器</p>
-                <h2 id="login-title">登录 NexusRoom</h2>
-                <p className="muted-copy">服务器地址和登录会话会保存在本机设置中。</p>
-              </div>
-              <form className="login-form" onSubmit={handleLogin}>
-                <label htmlFor="server-url">服务器地址</label>
-                <input
-                  id="server-url"
-                  type="url"
-                  value={serverUrlDraft}
-                  onChange={(event) => setServerUrlDraft(event.target.value)}
-                  placeholder={DEFAULT_SERVER_URL}
-                  autoComplete="url"
-                  required
-                />
-                <label htmlFor="username">账号</label>
-                <input
-                  id="username"
-                  value={username}
-                  onChange={(event) => setUsername(event.target.value)}
-                  autoComplete="username"
-                  required
-                />
-                <label htmlFor="password">密码</label>
-                <input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  autoComplete="current-password"
-                  required
-                />
-                <button className="primary-button" type="submit" disabled={loginBusy}>
-                  {loginBusy ? '登录中…' : '登录'}
-                </button>
-              </form>
-            </section>
-          ) : (
-            <>
-              <div className="workspace__header">
+          <div className="workspace__header">
                 <div>
                   <p className="eyebrow">房间消息</p>
                   <h2>{selectedRoom?.name ?? '选择一个房间'}</h2>
@@ -1080,7 +1301,7 @@ export function App(): ReactElement {
                 ) : (
                   <div className="message-list">
                     {messages.map((message) => {
-                      const senderName = message.sender?.nickname ?? (message.senderId === session.userId ? displayName : `用户 ${message.senderId}`);
+                      const senderName = message.sender?.nickname ?? (message.senderId === authenticatedSession.userId ? displayName : `用户 ${message.senderId}`);
                       const imageSource = imageSources[message.id];
                       return (
                         <article className="message-row" key={`${message.id}-${message.clientMessageId ?? ''}`}>
@@ -1117,8 +1338,6 @@ export function App(): ReactElement {
                   </button>
                 </div>
               </form>
-            </>
-          )}
         </main>
 
         <aside className="room-info" aria-label="Room information">
@@ -1140,7 +1359,7 @@ export function App(): ReactElement {
           {roomDetail === null ? (
             <div className="room-info__empty">
               <span className="room-info__marker" aria-hidden="true" />
-              <h3>{session === null ? '登录后查看房间' : '选择房间查看成员'}</h3>
+            <h3>选择房间查看成员</h3>
               <p className="muted-copy">成员列表和房间信息会显示在这里。</p>
             </div>
           ) : (

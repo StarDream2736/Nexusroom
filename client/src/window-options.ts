@@ -18,6 +18,23 @@ export interface WindowOptions {
   };
 }
 
+export interface ApplicationMenuApi {
+  readonly setApplicationMenu: (menu: null) => void;
+}
+
+/**
+ * Electron creates a native application menu by default on Windows and Linux.
+ * Keep the platform-conventional menu on macOS while removing it elsewhere.
+ */
+export function configureApplicationMenu(
+  platform: string,
+  menu: ApplicationMenuApi,
+): void {
+  if (platform !== 'darwin') {
+    menu.setApplicationMenu(null);
+  }
+}
+
 export function createWindowOptions(preloadPath: string): WindowOptions {
   return {
     width: 1280,

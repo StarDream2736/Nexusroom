@@ -17,13 +17,9 @@
 - [Electron 客户端编译与 Windows x64 打包](build/client-build.md)
 - [服务端编译、Docker 构建与打包](build/server-build.md)
 
-## 开源治理
+## 仓库入口
 
 - [项目说明](../README.md)
-- [贡献指南](../CONTRIBUTING.md)
-- [行为准则](../CODE_OF_CONDUCT.md)
-- [安全策略](../SECURITY.md)
-- [版本历史](../CHANGELOG.md)
 - [MIT License](../LICENSE)
 
 ## 维护规则

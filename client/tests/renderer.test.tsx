@@ -1,32 +1,41 @@
 import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { App } from '../src/renderer/App';
+import {
+  App,
+  selectAppShell,
+  syncWindowAuthenticationState,
+  WINDOW_STATE_ERROR_MESSAGE,
+} from '../src/renderer/App';
 
 const appSource = readFileSync(new URL('../src/renderer/App.tsx', import.meta.url), 'utf8');
 const stylesSource = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
 const playerSource = readFileSync(new URL('../src/renderer/live-player.ts', import.meta.url), 'utf8');
 
 describe('renderer shell', () => {
-  it('renders the title, navigation, workspace, and room information regions', () => {
+  it('renders only the compact auth shell before session restoration', () => {
     const markup = renderToStaticMarkup(<App />);
 
-    expect(markup).toContain('class="title-bar"');
-    expect(markup).toContain('aria-label="Primary navigation"');
-    expect(markup).toContain('aria-label="Workspace"');
-    expect(markup).toContain('aria-label="Room information"');
+    expect(markup).toContain('class="app-shell auth-shell"');
+    expect(markup).toContain('aria-label="认证"');
+    expect(markup).not.toContain('aria-label="Primary navigation"');
+    expect(markup).not.toContain('aria-label="Workspace"');
+    expect(markup).not.toContain('aria-label="Room information"');
     expect(markup).toContain('data-theme="dark"');
     expect(markup).toContain('data-authenticated="false"');
+    expect(markup).toContain('恢复会话中…');
+    expect(markup).toContain('disabled=""');
   });
 
-  it('shows a direct Chinese login form and no decorative emoji', () => {
+  it('shows a direct Chinese authentication form and no decorative emoji', () => {
     const markup = renderToStaticMarkup(<App />);
 
-    expect(markup).toContain('id="login-title"');
+    expect(markup).toContain('id="auth-title"');
     expect(markup).toContain('服务器地址');
     expect(markup).toContain('账号');
     expect(markup).toContain('密码');
     expect(markup).toContain('登录');
+    expect(markup).toContain('注册');
     expect(markup).not.toMatch(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u);
   });
 
@@ -44,10 +53,62 @@ describe('renderer shell', () => {
     expect(appSource).not.toMatch(/(?:unlink|rmdir|rmSync|delete\s+data|dataDirectory)/i);
   });
 
-  it('keeps login and room failures visible through one alert path', () => {
+  it('keeps auth and room failures visible through one alert path', () => {
     expect(appSource).toContain('className="error-banner" role="alert"');
-    expect(appSource).toContain('setError(errorMessage(loginError))');
+    expect(appSource).toContain('setError(errorMessage(authError))');
     expect(appSource).toContain('setError(errorMessage(roomError))');
+  });
+
+  it('retries window state once, reports a Chinese failure, and honors cancellation', async () => {
+    let calls = 0;
+    const delays: number[] = [];
+    const retryResult = await syncWindowAuthenticationState(
+      {
+        setAuthenticated: async () => {
+          calls += 1;
+          if (calls === 1) throw new Error('first attempt failed');
+        },
+      },
+      true,
+      { sleep: async (delayMs) => { delays.push(delayMs); } },
+    );
+    expect(retryResult).toBe('applied');
+    expect(calls).toBe(2);
+    expect(delays).toEqual([100]);
+
+    const failureResult = await syncWindowAuthenticationState(
+      { setAuthenticated: async () => { throw new Error('window unavailable'); } },
+      false,
+      { sleep: async () => undefined },
+    );
+    expect(failureResult).toBe('failed');
+    expect(WINDOW_STATE_ERROR_MESSAGE).toContain('窗口布局调整失败');
+
+    let active = true;
+    const cancelledResult = await syncWindowAuthenticationState(
+      { setAuthenticated: async () => { throw new Error('window unavailable'); } },
+      false,
+      {
+        isActive: () => active,
+        sleep: async () => { active = false; },
+      },
+    );
+    expect(cancelledResult).toBe('cancelled');
+  });
+
+  it('keeps the full four-region shell behind the authenticated seam', () => {
+    const session = {
+      userId: 1,
+      userDisplayId: 'A1',
+      token: 'token',
+      scope: { serverUrl: 'https://chat.test', accountId: 1 },
+    };
+    expect(selectAppShell(false, null)).toBe('loading');
+    expect(selectAppShell(true, null)).toBe('auth');
+    expect(selectAppShell(true, session)).toBe('authenticated');
+    expect(appSource).not.toContain('login-panel');
+    expect(appSource).not.toContain('sidebar__guest');
+    expect(appSource).toContain('data-authenticated="true"');
   });
 
   it('routes leaving the selected room through the NexusRoomClient', () => {

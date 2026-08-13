@@ -7,6 +7,7 @@ import {
   type MessageCacheEntry,
   type NexusRoomApi,
   type NexusRoomStorageApi,
+  type NexusRoomWindowState,
   type NexusRoomWireGuardApi,
   type RuntimeInfo,
   type RuntimePlatform,
@@ -61,6 +62,11 @@ const wireguard: NexusRoomWireGuardApi = {
     ipcRenderer.invoke(channels.wireguardStatus),
 };
 
-const api: NexusRoomApi = { getRuntimeInfo, storage, wireguard };
+const windowState: NexusRoomWindowState = {
+  setAuthenticated: (authenticated: boolean) =>
+    ipcRenderer.invoke(channels.setAuthenticatedWindowState, authenticated) as Promise<void>,
+};
+
+const api: NexusRoomApi = { getRuntimeInfo, storage, windowState, wireguard };
 
 contextBridge.exposeInMainWorld('nexusroom', api);

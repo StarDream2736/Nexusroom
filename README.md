@@ -7,7 +7,7 @@ NexusRoom 是面向小型私有社群的自托管通信平台。桌面端使用 
 
 ## 当前能力
 
-桌面端支持填写服务器地址后使用账号密码登录，并在本机恢复登录会话。登录后可以查看、创建、通过邀请码加入、切换和退出房间；房间内可以加载历史文字、接收实时文字并发送图片。图片先上传到服务端，客户端再用当前会话鉴权获取 Blob 后显示。
+桌面端未登录时显示紧凑认证窗口，可填写服务器地址并登录或注册；认证成功后同一窗口展开完整 UI，并在本机恢复登录会话。登录后可以查看、创建、通过邀请码加入、切换和退出房间；房间内可以加载历史文字、接收实时文字并发送图片。图片先上传到服务端，客户端再用当前会话鉴权获取 Blob 后显示。
 
 语音使用服务端 WebRTC 信令和内建语音引擎。桌面端可以加入房间语音、静音，并显示成员在线和说话状态。房间直播入口可以创建和管理，播放器优先协商 WebRTC；协商或媒体检查失败后锁定 HTTP-FLV，只有刷新播放才会重新尝试 WebRTC。房间还可以启用 WireGuard VLAN，Windows 客户端通过同级 Helper 和 Wintun 建立隧道。
 
@@ -79,14 +79,9 @@ go run ./cmd/server
 
 服务端默认使用 8080/TCP（API、WebSocket、网页和 HTTP-FLV）、1935/TCP（RTMP）、3478/UDP（STUN/TURN）、50000-50050/UDP（WebRTC 直连）、51000-51100/UDP（TURN 中继）和 51820/UDP（WireGuard VLAN）。外部部署时只开放实际启用的端口，并为 HTTP 和 WebSocket 配置 TLS 入口。
 
-## 文档和贡献
+## 文档
 
 完整架构、协议、数据边界和发布门禁见 [文档中心](docs/README.md) 与 [技术规范](docs/NexusRoom.md)。客户端命令见 [客户端开发指南](docs/guides/client.md) 和 [客户端构建文档](docs/build/client-build.md)，服务端部署见 [安装与部署指南](docs/guides/deployment.md)。
-
-- 开发流程：[CONTRIBUTING.md](CONTRIBUTING.md)
-- 行为准则：[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
-- 安全问题报告：[SECURITY.md](SECURITY.md)
-- 版本历史：[CHANGELOG.md](CHANGELOG.md)
 
 ## 许可证
 

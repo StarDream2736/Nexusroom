@@ -2,6 +2,8 @@
 
 `client/` 是 NexusRoom 3.0.0 的 Electron + React + TypeScript Windows 桌面端。Electron 主进程管理窗口、SQLite 和 WireGuard Helper，预加载脚本通过窄 IPC 向 Chromium 渲染进程提供受控能力。
 
+未登录时客户端只显示紧凑认证窗口，可填写服务端地址并登录或注册；认证成功后同一窗口展开标题栏、左侧导航、中央工作区和右侧房间信息四区。认证窗口不提供 `admin_token` 输入或管理界面。
+
 ## 开发
 
 在 Windows x64 安装 Node.js 和 npm 后执行：

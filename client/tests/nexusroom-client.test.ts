@@ -394,6 +394,44 @@ describe('NexusRoomClient', () => {
     expect(storage.sessions.get('https://chat.test|22')).toBe('token-b');
   });
 
+  it('registers with the public auth contract and stores the resulting session', async () => {
+    const storage = createStorage();
+    const rest = new FakeRest();
+    rest.queuePost({ user_id: 31, user_display_id: 'A31', token: 'token-register' });
+    const client = new NexusRoomClient({
+      serverUrl: 'https://chat.test/',
+      storage,
+      restClient: rest,
+      wsClient: new FakeSocket(),
+    });
+
+    await expect(client.register(' alice ', 'password', ' Alice Example ')).resolves.toEqual({
+      userId: 31,
+      userDisplayId: 'A31',
+      token: 'token-register',
+      scope: { serverUrl: 'https://chat.test', accountId: 31 },
+    });
+    expect(rest.postPaths).toEqual(['/api/v1/auth/register']);
+    expect(rest.postBodies).toEqual([{
+      username: 'alice',
+      password: 'password',
+      nickname: 'Alice Example',
+    }]);
+    expect(storage.sessions.get('https://chat.test|31')).toBe('token-register');
+    expect(rest.token).toBe('token-register');
+    expect(client.session?.token).toBe('token-register');
+  });
+
+  it('validates required registration fields before making a request', async () => {
+    const storage = createStorage();
+    const rest = new FakeRest();
+    const client = new NexusRoomClient({ serverUrl: 'https://chat.test', storage, restClient: rest, wsClient: new FakeSocket() });
+    await expect(client.register(' ', 'password', 'nickname')).rejects.toMatchObject({ kind: 'configuration' });
+    await expect(client.register('user', '', 'nickname')).rejects.toMatchObject({ kind: 'configuration' });
+    await expect(client.register('user', 'password', ' ')).rejects.toMatchObject({ kind: 'configuration' });
+    expect(rest.postPaths).toEqual([]);
+  });
+
   it('keeps message caches separate for two accounts', async () => {
     const storage = createStorage();
     const rest = new FakeRest();

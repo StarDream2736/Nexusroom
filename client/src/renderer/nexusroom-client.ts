@@ -743,6 +743,36 @@ export class NexusRoomClient {
     return session;
   }
 
+  async register(
+    username: string,
+    password: string,
+    nickname: string,
+  ): Promise<AuthSession> {
+    if (username.trim().length === 0 || password.length === 0 || nickname.trim().length === 0) {
+      throw new NexusRoomClientError(
+        'username, password, and nickname are required',
+        'configuration',
+      );
+    }
+    const raw = await this.rest.post<unknown>('/api/v1/auth/register', {
+      username: username.trim(),
+      password,
+      nickname: nickname.trim(),
+    });
+    const record = readRecord(raw, 'register response');
+    const userId = readId(record.user_id, 'user id');
+    const session: AuthSession = {
+      userId,
+      userDisplayId: readString(record.user_display_id, 'user display id'),
+      token: readString(record.token, 'access token'),
+      scope: { serverUrl: this.serverUrl, accountId: userId },
+    };
+    await this.storage.saveSession(session.scope, session.token);
+    this.rest.setToken(session.token);
+    this.sessionValue = session;
+    return session;
+  }
+
   restoreSession(accountId: number, accessToken: string, userDisplayId?: string): AuthSession {
     const userId = readId(accountId, 'user id');
     const token = readString(accessToken, 'access token');

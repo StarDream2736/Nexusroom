@@ -16,6 +16,7 @@ export const nexusRoomIpcChannels = {
   saveMessages: 'nexusroom.storage.save-messages',
   clearMessages: 'nexusroom.storage.clear-messages',
   clearData: 'nexusroom.storage.clear-data',
+  setAuthenticatedWindowState: 'nexusroom.window.set-authenticated-state',
   wireguardAvailability: 'nexusroom.wireguard.availability',
   wireguardGenerateKeyPair: 'nexusroom.wireguard.generate-key-pair',
   wireguardStartTunnel: 'nexusroom.wireguard.start-tunnel',
@@ -33,6 +34,9 @@ export type NexusRoomIpcChannel =
   | typeof nexusRoomIpcChannels.saveMessages
   | typeof nexusRoomIpcChannels.clearMessages
   | typeof nexusRoomIpcChannels.clearData;
+
+export type NexusRoomWindowStateIpcChannel =
+  typeof nexusRoomIpcChannels.setAuthenticatedWindowState;
 
 export type NexusRoomWireGuardIpcChannel =
   | typeof nexusRoomIpcChannels.wireguardAvailability
@@ -127,6 +131,10 @@ export interface NexusRoomStorageApi {
   readonly clearData: () => Promise<void>;
 }
 
+export interface NexusRoomWindowState {
+  readonly setAuthenticated: (authenticated: boolean) => Promise<void>;
+}
+
 export interface NexusRoomWireGuardApi {
   readonly getAvailability: () => Promise<WireGuardAvailability>;
   readonly generateKeyPair: () => Promise<WireGuardKeyPair>;
@@ -138,5 +146,6 @@ export interface NexusRoomWireGuardApi {
 export interface NexusRoomApi {
   readonly getRuntimeInfo: () => RuntimeInfo;
   readonly storage: NexusRoomStorageApi;
+  readonly windowState: NexusRoomWindowState;
   readonly wireguard: NexusRoomWireGuardApi;
 }
